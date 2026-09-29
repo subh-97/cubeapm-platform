@@ -8,7 +8,7 @@ Three things travel together:
 
 | | |
 |---|---|
-| **Live prototype** | _(paste the Vercel URL here)_ → `/logs`, then click any row |
+| **Live prototype** | https://cubeapm-platform.vercel.app/logs — sign in with anything, then click any row |
 | **Handoff document** | https://claude.ai/code/artifact/3774865c-8640-446e-b726-583262b7ef57 |
 | **This package** | the code, its tests, and its tokens |
 

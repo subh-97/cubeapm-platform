@@ -1,0 +1,23 @@
+{
+  "name": "cubeapm-traces",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "CubeAPM traces — the span explorer and the trace detail view: one query grammar shared with Logs, a facet rail, a waterfall, and the tabs that read a trace. Extracted from the redesigned frontend for integration.",
+  "scripts": {
+    "test": "node scripts/run-tests.mjs"
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.460.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "recharts": "^2.13.3"
+  },
+  "devDependencies": {
+    "autoprefixer": "^10.4.20",
+    "esbuild": "^0.24.0",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.16"
+  }
+}

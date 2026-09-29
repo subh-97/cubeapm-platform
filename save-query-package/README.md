@@ -7,7 +7,7 @@ Three things travel together:
 
 | | |
 |---|---|
-| **Live prototype** | _(paste the Vercel URL here)_ → `/logs`, build a query, Run, then Save Query |
+| **Live prototype** | https://cubeapm-platform.vercel.app/logs — sign in with anything, build a query, Run, then Save Query |
 | **Handoff document** | https://claude.ai/code/artifact/7268d8e3-0dce-4b3d-9da8-23a8f3f2102c |
 | **This package** | the code, its tests, and its tokens |
 

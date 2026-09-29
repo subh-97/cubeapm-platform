@@ -7,7 +7,7 @@ Three things travel together:
 
 | | |
 |---|---|
-| **Live prototype** | _(paste the Vercel URL here)_ → go to `/logs` |
+| **Live prototype** | https://cubeapm-platform.vercel.app/logs — sign in with any email and password, the gate checks nothing |
 | **Handoff document** | https://claude.ai/code/artifact/174e9d5a-31bc-4599-8a36-d8fd201163d2 |
 | **This package** | the code, its tests, and its tokens |
 

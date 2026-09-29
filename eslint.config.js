@@ -29,6 +29,7 @@ export default [
       'log-record-drawer-package/**',
       'save-query-package/**',
       'table-search-package/**',
+      'traces-package/**',
     ],
   },
 
