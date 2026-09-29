@@ -8,7 +8,7 @@ Three things travel together:
 
 | | |
 |---|---|
-| **Live prototype** | _(paste the Vercel URL here)_ → `/` for the single-column variant, Infrastructure → Kubernetes → Pod for the multi-column one |
+| **Live prototype** | https://cubeapm-platform.vercel.app/ for the single-column variant; https://cubeapm-platform.vercel.app/infrastructure → Kubernetes → Pod for the multi-column one. Sign in with anything. |
 | **Handoff document** | https://claude.ai/code/artifact/e32116ce-d267-4084-bdd2-9ed348b64dd9 |
 | **This package** | the code, its tests, and its tokens |
 
