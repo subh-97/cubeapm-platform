@@ -125,8 +125,18 @@ Note: canvas is MID-TONE, card is DARKER — intentionally inverted for floating
 - `tailwind.config.js` — all design tokens live here, matched to the style guide
 - `src/data/` — mock data, intentionally includes one critical service (order-service) to demonstrate severity-driven sorting and incident banners
 
-## Reference docs (in parent `Cube APM/` folder)
-- `CubeAPM_Style_Guide.md` — full token reference
-- `CubeAPM_vs_NewRelic_UX_Benchmark.md` — competitive analysis driving the redesign
-- `CubeAPM_UX_Review_and_Recommendations.md` — complete UX findings
-- `CubeAPM_Artifact_Design_Critique.md` — internal design review of the prototype
+## Reference docs (in `docs/reference/`)
+- `docs/reference/CubeAPM_Style_Guide.md` — full token reference
+- `docs/reference/CubeAPM_vs_NewRelic_UX_Benchmark.md` — competitive analysis driving the redesign
+- `docs/reference/CubeAPM_UX_Review_and_Recommendations.md` — complete UX findings
+- `docs/reference/CubeAPM_Artifact_Design_Critique.md` — internal design review of the prototype
+
+## Design decisions (in `docs/decisions/`)
+Decisions worth not re-deriving. Read the relevant one before reworking that area.
+- `docs/decisions/facet-interaction-datadog.md` — split-row facet control; facet admission tests value shape, not a cardinality ratio
+- `docs/decisions/query-builder-phase8.md` — what has shipped on the Logs query builder, and the one piece that hasn't (URL state sync)
+
+`docs/HANDOFF.md` describes where the project stands overall.
+
+## Working agreements
+- **Don't commit or push to `main`.** Stop after making changes and describe them; the user handles committing, opening PRs, and merging. Work on a branch and open a PR when asked to commit.
