@@ -97,12 +97,16 @@ export const infraCorrelation = [
   { host: 'ip-10-0-143-40', rpm: 151, latencyP90: 588, errorRatePct: 4.7, cpuUsedPct: 87, memUsedPct: 86 },
 ]
 
+// Deliberately not in the same order by latency and by time: slowest-first and
+// newest-first used to agree row for row, which made the panel's sort control
+// look like it did nothing. The source order is neither, so "None" is visibly
+// its own answer too.
 export const slowRequests = [
-  { endpoint: 'POST /v1/payments/:id/capture', latencyMs: 812, timestamp: '2m ago', traceId: '9f2a1c7e' },
-  { endpoint: 'GET /v1/payments/:id', latencyMs: 743, timestamp: '3m ago', traceId: '7bd410aa' },
-  { endpoint: 'POST /v1/payments', latencyMs: 690, timestamp: '4m ago', traceId: 'c1e0553f' },
-  { endpoint: 'PATCH /v1/payments/:id', latencyMs: 655, timestamp: '6m ago', traceId: '0a94eef2' },
-  { endpoint: 'GET /v1/payments/:id/status', latencyMs: 601, timestamp: '7m ago', traceId: '44d7bb10' },
+  { endpoint: 'POST /v1/payments', latencyMs: 690, timestamp: '9m ago', traceId: 'c1e0553f' },
+  { endpoint: 'POST /v1/payments/:id/capture', latencyMs: 812, timestamp: '6m ago', traceId: '9f2a1c7e' },
+  { endpoint: 'GET /v1/payments/:id/status', latencyMs: 601, timestamp: '12m ago', traceId: '44d7bb10' },
+  { endpoint: 'GET /v1/payments/:id', latencyMs: 743, timestamp: '1m ago', traceId: '7bd410aa' },
+  { endpoint: 'PATCH /v1/payments/:id', latencyMs: 655, timestamp: '3m ago', traceId: '0a94eef2' },
 ]
 
 export const SEARCH_INDEX = [

@@ -1,6 +1,9 @@
 /**
  * Minimal inline SVG sparkline, no Recharts dependency for this one.
  * Falls back cleanly when data is missing.
+ *
+ * Straight segments and a flat fill, same as every Recharts chart on the
+ * platform - see components/charts/chartDefaults.js for why.
  */
 export default function Sparkline({ data = [], color = '#3B82F6', height = 32 }) {
   if (!data.length) return null
@@ -23,15 +26,10 @@ export default function Sparkline({ data = [], color = '#3B82F6', height = 32 })
       className="w-full h-full"
       preserveAspectRatio="none"
     >
-      <defs>
-        <linearGradient id={`sparkGrad-${color.replace('#', '')}`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity="0.2" />
-          <stop offset="100%" stopColor={color} stopOpacity="0" />
-        </linearGradient>
-      </defs>
       <polygon
         points={`0,${height} ${points} ${width},${height}`}
-        fill={`url(#sparkGrad-${color.replace('#', '')})`}
+        fill={color}
+        fillOpacity="0.16"
       />
       <polyline
         points={points}

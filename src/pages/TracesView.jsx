@@ -29,6 +29,7 @@ import {
   TRACE_FIELD_CATALOG, getSpanFieldValue, SPAN_ALL_FIELDS, DEFAULT_ACTIVE_FIELDS,
   columnsFor, formatSpanDuration, statusForSpan,
 } from '@/utils/traceFields'
+import { GRID_PROPS, timeAxisProps, valueAxisProps, fmtCount } from '@/components/charts/chartDefaults'
 
 const AGG_ALL_FIELDS = TRACE_FIELD_CATALOG.map(f => f.field)
 const AGG_NUMERIC_FIELDS = new Set(TRACE_FIELD_CATALOG.filter(f => f.type === 'keyword').map(f => f.field))
@@ -682,6 +683,12 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
     return filteredVolume
   }, [zoom, timeRange, filteredVolume])
 
+  // Tallest stacked bucket on screen - the axis gutter is sized from it.
+  const volumeMax = useMemo(
+    () => visibleVolume.reduce((max, d) => (d.total > max ? d.total : max), 0),
+    [visibleVolume],
+  )
+
   const visibleTotals = useMemo(() => ({
     total: visibleVolume.reduce((a, b) => a + b.total, 0),
     unset: visibleVolume.reduce((a, b) => a + b.unset, 0),
@@ -783,7 +790,7 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
                 onApplyPipes={applyPastedPipes}
                 fieldCatalog={TRACE_FIELD_CATALOG}
                 rows={spanRows}
-                valueOf={getSpanFieldValue}
+                getValue={getSpanFieldValue}
                 placeholder="Type a field name (e.g. service, span_name, duration) or free text"
               />
               <button className="hbtn small icon-only" title="Query history" aria-label="Query history" onClick={() => setHistoryOpen(true)}>
@@ -1098,9 +1105,9 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
                         onMouseMove={onChartMouseMove}
                         style={{ cursor: brushStartRef.current ? 'ew-resize' : 'crosshair', userSelect: 'none' }}
                       >
-                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" vertical={false} />
-                        <XAxis dataKey="label" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} tickLine={false} axisLine={{ stroke: 'var(--border-subtle)' }} interval={Math.max(0, Math.floor(visibleVolume.length / 6))} minTickGap={20} />
-                        <YAxis tick={{ fontSize: 10, fill: 'var(--text-muted)' }} tickLine={false} axisLine={false} width={40} />
+                        <CartesianGrid {...GRID_PROPS} />
+                        <XAxis {...timeAxisProps(visibleVolume.length)} />
+                        <YAxis {...valueAxisProps({ format: fmtCount, allowDecimals: false, maxValue: volumeMax })} />
                         <Tooltip content={<VolumeTooltip />} cursor={{ fill: 'rgba(255,255,255,0.02)' }} isAnimationActive={false} />
                         {VOLUME_SERIES.map(s => (
                           <Bar key={s.key} dataKey={s.key} stackId="v" fill={s.color} fillOpacity={s.opacity} isAnimationActive={false} />

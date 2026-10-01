@@ -525,7 +525,7 @@ export default function DesignSystemPage({ theme, setTheme }) {
               ))}
             </div>
             <div className="ds-layout-tokens">
-              <div className="ds-lt"><code className="ds-token">--nav-w</code><span>222px</span><span className="ds-swatch-text">Expanded sidebar</span></div>
+              <div className="ds-lt"><code className="ds-token">--nav-w</code><span>182px</span><span className="ds-swatch-text">Expanded sidebar</span></div>
               <div className="ds-lt"><code className="ds-token">--nav-w-collapsed</code><span>66px</span><span className="ds-swatch-text">Collapsed sidebar</span></div>
               <div className="ds-lt"><code className="ds-token">--gutter</code><span>14px</span><span className="ds-swatch-text">Canvas padding</span></div>
             </div>
@@ -656,19 +656,19 @@ export default function DesignSystemPage({ theme, setTheme }) {
                 <DataTable columns={SVC_COLUMNS} data={SVC_DATA} />
               </Panel>
             </Spec>
-            <Spec title="Tab bar" note="TabBar · pill tabs, one pattern everywhere">
+            <Spec title="Tab bar" note="TabBar · .tabbar/.tab · one pattern everywhere">
               <TabBar
                 tabs={[{ id: 'overview', label: 'Overview' }, { id: 'red', label: 'RED', count: 12 }, { id: 'traces', label: 'Traces' }, { id: 'logs', label: 'Logs' }]}
                 active={tab}
                 onChange={setTab}
               />
             </Spec>
-            <Spec title="Compact tabs" note=".tabbar · .tab.active — dense contexts">
-              <div className="tabbar">
-                {['detail', 'health', 'graph'].map(t => (
-                  <div key={t} className={clsx('tab', compactTab === t && 'active')} onClick={() => setCompactTab(t)} style={{ textTransform: 'capitalize' }}>{t}</div>
-                ))}
-              </div>
+            <Spec title="Compact tabs" note="TabBar · the same component, no count">
+              <TabBar
+                tabs={[{ id: 'detail', label: 'Detail' }, { id: 'health', label: 'Health' }, { id: 'graph', label: 'Service Graph' }]}
+                active={compactTab}
+                onChange={setCompactTab}
+              />
             </Spec>
           </Section>
 
@@ -754,8 +754,8 @@ export default function DesignSystemPage({ theme, setTheme }) {
               <div className="ds-wt-frame">
                 <div className="wt-tooltip" style={{ position: 'static', width: 320, boxShadow: '0 24px 60px rgba(0,0,0,.5)' }}>
                   <div className="wt-badge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 10, height: 10 }}><path d="M12 2l1.6 5.4L19 9l-5.4 1.6L12 16l-1.6-5.4L5 9l5.4-1.6z" /></svg>Step 3</div>
-                  <div className="wt-title">Track your setup progress</div>
-                  <div className="wt-desc">The onboarding checklist keeps your workspace configuration front-and-center. Dismiss it anytime once you&apos;re set up.</div>
+                  <div className="wt-title">Fleet health at a glance</div>
+                  <div className="wt-desc">Total services, plus a live count of Critical, Warning, and Healthy. Colors are reserved strictly for severity across the platform.</div>
                   <div className="wt-progress">
                     <span className="wt-progress-dot done" /><span className="wt-progress-dot done" /><span className="wt-progress-dot active" /><span className="wt-progress-dot" /><span className="wt-progress-dot" /><span className="wt-progress-dot" />
                   </div>

@@ -254,12 +254,12 @@ export function getFieldValue(log, field) {
 // short enough that a deliberate stop feels immediate.
 const VALUE_DEBOUNCE_MS = 180
 
-function computeTopValues(field, k = 24, { rows = logRows, byName = FIELD_BY_NAME, valueOf = getFieldValue } = {}) {
+function computeTopValues(field, k = 24, { rows = logRows, byName = FIELD_BY_NAME, getValue = getFieldValue } = {}) {
   const meta = byName[field]
   if (meta?.highCard) return null
   const counts = {}
   for (const l of rows) {
-    const v = valueOf(l, field)
+    const v = getValue(l, field)
     if (v != null && v !== '') {
       const key = String(v)
       counts[key] = (counts[key] || 0) + 1
@@ -356,8 +356,8 @@ function matchesPrefix(haystack, value) {
   return hl.startsWith(vl) || tokenize(haystack).some(t => t.startsWith(vl))
 }
 
-function matchChip(log, c, valueOf = getFieldValue) {
-  const raw = valueOf(log, c.field)
+function matchChip(log, c, getValue = getFieldValue) {
+  const raw = getValue(log, c.field)
   const present = raw != null && raw !== ''
   if (c.op === 'exists') return present
   if (c.op === 'empty')  return !present
@@ -384,41 +384,45 @@ function matchChip(log, c, valueOf = getFieldValue) {
 // Evaluates a sibling list left-to-right, respecting each node's `connector`
 // (default AND). There is still no operator precedence WITHIN a list — groups
 // are what express precedence, and users can reorder chips as before.
-function evalNodes(log, nodes, valueOf = getFieldValue) {
+function evalNodes(log, nodes, getValue = getFieldValue) {
   if (!nodes?.length) return true
-  let result = evalNode(log, nodes[0], valueOf)
+  let result = evalNode(log, nodes[0], getValue)
   for (let i = 1; i < nodes.length; i++) {
     const n = nodes[i]
-    const m = evalNode(log, n, valueOf)
+    const m = evalNode(log, n, getValue)
     if (n.connector === 'OR') result = result || m
     else result = result && m
   }
   return result
 }
 
-function evalNode(log, n, valueOf = getFieldValue) {
-  return isGroup(n) ? evalNodes(log, n.children, valueOf) : matchChip(log, n, valueOf)
+function evalNode(log, n, getValue = getFieldValue) {
+  return isGroup(n) ? evalNodes(log, n.children, getValue) : matchChip(log, n, getValue)
 }
 
-// `valueOf` is the same dataset seam the builder takes: a span resolves its
+// `getValue` is the same dataset seam the builder takes: a span resolves its
 // fields differently from a log line, and the chip semantics above are
 // identical either way. Defaulting it keeps every existing caller unchanged.
-export function applyChipsToLog(log, chips, valueOf = getFieldValue) {
-  return evalNodes(log, chips, valueOf)
+export function applyChipsToLog(log, chips, getValue = getFieldValue) {
+  return evalNodes(log, chips, getValue)
 }
 
 // ---------- Component ----------
 
 /**
- * `fieldCatalog`, `rows` and `valueOf` are the dataset seam. Logs and Traces
+ * `fieldCatalog`, `rows` and `getValue` are the dataset seam. Logs and Traces
  * share one grammar, one keyboard model and one chip UI, and differ only in the
  * nouns they can be written about — so the page supplies the vocabulary and this
  * file stays the single definition of how a query is built.
+ *
+ * Do not call the accessor `valueOf`: props inherit Object.prototype.valueOf,
+ * so an omitted prop never falls back to its default and the builder calls the
+ * native method instead — which threw and blanked the Logs page.
  */
 export default function QueryBuilder({
   chips, setChips, recents = [], addRecent, savedQueries = [], onRun, onBlockedChange,
   onCopyQuery, parsePastedQuery, onApplyPipes, fetchFieldValues, leading,
-  fieldCatalog = FIELD_CATALOG, rows = logRows, valueOf = getFieldValue,
+  fieldCatalog = FIELD_CATALOG, rows = logRows, getValue = getFieldValue,
   placeholder = 'Type a field name (e.g. service, duration_ms) or free text',
 }) {
   const fieldByName = useMemo(() => Object.fromEntries(fieldCatalog.map(f => [f.field, f])), [fieldCatalog])
@@ -528,7 +532,7 @@ export default function QueryBuilder({
   useEffect(() => {
     if (!valueField) return
     if (!fetchFieldValues) {
-      setValueSource({ status: 'ready', field: valueField, items: computeTopValues(valueField, 24, { rows, byName: fieldByName, valueOf }) || [], error: null })
+      setValueSource({ status: 'ready', field: valueField, items: computeTopValues(valueField, 24, { rows, byName: fieldByName, getValue }) || [], error: null })
       return
     }
     let cancelled = false

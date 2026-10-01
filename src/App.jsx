@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
+import { Gauge, Crosshair, ChartLine, Globe, Database, TriangleAlert, GitBranch, Cpu } from 'lucide-react'
 import HomeSkeleton from '@/pages/HomeSkeleton'
 import Walkthrough from '@/components/Walkthrough'
 import Toast from '@/components/Toast'
@@ -29,6 +30,19 @@ function getInfraNavItems() {
   return items
 }
 const INFRA_NAV_ITEMS = getInfraNavItems()
+
+// The views of one service, listed in the card's left column. Which service
+// you are looking at is picked in the page itself, by ServicePicker.
+const SERVICE_VIEWS = [
+  { id: 'overview', label: 'Overview', Icon: Gauge },
+  { id: 'detail', label: 'Detail', Icon: Crosshair },
+  { id: 'red', label: 'RED', Icon: ChartLine },
+  { id: 'external', label: 'External', Icon: Globe },
+  { id: 'db', label: 'DB', Icon: Database },
+  { id: 'errors', label: 'Errors', Icon: TriangleAlert },
+  { id: 'traces', label: 'Traces', Icon: GitBranch },
+  { id: 'runtime', label: 'Runtime', Icon: Cpu },
+]
 
 export default function App() {
   const navigate = useNavigate()
@@ -175,7 +189,7 @@ export default function App() {
   }
 
   if (!loggedIn) {
-    return <LoginPage onSignIn={signIn} />
+    return <LoginPage onSignIn={signIn} theme={theme} setTheme={setTheme} />
   }
 
   const isService = view === 'service'
@@ -200,20 +214,19 @@ export default function App() {
       <div className="main">
         <div className={`surface-card${isService || isInfra ? ' svc-view' : ''}`}>
           {isService && (
-            <div className="svc-sidebar">
-              {services.map(s => (
+            <div className="svc-sidebar svc-views" role="tablist" aria-label="Service views" aria-orientation="vertical">
+              {SERVICE_VIEWS.map(({ Icon, ...v }) => (
                 <div
-                  key={s.id}
-                  className={`svc-sidebar-item${s.id === serviceId ? ' active' : ''}`}
-                  onClick={() => selectService(s.id)}
+                  key={v.id}
+                  role="tab"
+                  aria-selected={serviceSubTab === v.id}
+                  tabIndex={0}
+                  className={`svc-sidebar-item${serviceSubTab === v.id ? ' active' : ''}`}
+                  onClick={() => setServiceSubTab(v.id)}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setServiceSubTab(v.id) } }}
                 >
-                  <span className={`status-dot ${s.status}`} title={`Status: ${s.status}`} />
-                  <span className="svc-sidebar-name mono">{s.name}</span>
-                  {s.status !== 'healthy' && (
-                    <span className={`svc-sidebar-badge ${s.status}`}>
-                      {s.status === 'critical' ? 'crit' : 'warn'}
-                    </span>
-                  )}
+                  <Icon className="svc-sidebar-icon" size={14} strokeWidth={1.75} aria-hidden="true" />
+                  <span className="svc-sidebar-name">{v.label}</span>
                 </div>
               ))}
             </div>
@@ -272,11 +285,14 @@ export default function App() {
             {isService ? (
               <ServiceOverview
                 serviceId={serviceId}
+                onSelectService={selectService}
+                onOpenTrace={openTrace}
                 goHome={goHome}
                 serviceSubTab={serviceSubTab}
                 setServiceSubTab={setServiceSubTab}
                 serviceEndpoint={serviceEndpoint}
                 setServiceEndpoint={setServiceEndpoint}
+                setToast={setToast}
                 settingsOpen={settingsOpen}
                 setSettingsOpen={setSettingsOpen}
                 settingsTab={settingsTab}
