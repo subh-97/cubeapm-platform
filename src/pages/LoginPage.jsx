@@ -1,7 +1,15 @@
 import { useState } from 'react'
 import { LogoIcon, LogoWordmark } from '@/components/layout/Logo'
 
-export default function LoginPage({ onSignIn }) {
+// Same three choices as the account menu's Theme row, so the preference picked
+// here is the one the app opens with.
+const THEMES = [
+  { id: 'light', label: 'Light', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg> },
+  { id: 'dark', label: 'Dark', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg> },
+  { id: 'auto', label: 'Auto', icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg> },
+]
+
+export default function LoginPage({ onSignIn, theme, setTheme }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPw, setShowPw] = useState(false)
@@ -18,6 +26,23 @@ export default function LoginPage({ onSignIn }) {
   return (
     <div className="login-shell">
       <div className="login-ambient" aria-hidden />
+
+      {setTheme && (
+        <div className="login-theme" role="group" aria-label="Theme">
+          {THEMES.map(t => (
+            <button
+              key={t.id}
+              type="button"
+              className={theme === t.id ? 'on' : ''}
+              aria-pressed={theme === t.id}
+              title={t.id === 'auto' ? 'Follow your system setting' : `${t.label} theme`}
+              onClick={() => setTheme(t.id)}
+            >
+              {t.icon}{t.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="login-card">
         <div className="login-brand">

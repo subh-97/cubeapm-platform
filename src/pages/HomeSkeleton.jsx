@@ -1,31 +1,11 @@
 export default function HomeSkeleton() {
   return (
     <div className="skeleton-shell" aria-hidden aria-label="Loading dashboard">
-      <div className="sk-onboard">
-        {[0, 1, 2].map(i => (
-          <div key={i} className="sk-onboard-col">
-            <div className="sk-onboard-h" />
-            <div className="sk-onboard-line" />
-            <div className="sk-onboard-line short" />
-          </div>
-        ))}
-      </div>
-
       <div className="sk-summary">
         {[0, 1, 2, 3].map(i => (
           <div key={i} className="sk-pill">
             <div className="sk-num" />
             <div className="sk-lbl" />
-          </div>
-        ))}
-      </div>
-
-      <div className="sk-charts">
-        {[0, 1, 2].map(i => (
-          <div key={i} className="sk-chart-card">
-            <div className="sk-lbl" />
-            <div className="sk-val" />
-            <div className="sk-graph" />
           </div>
         ))}
       </div>

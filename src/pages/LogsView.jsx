@@ -25,6 +25,7 @@ import FacetGroup from '@/components/explorer/FacetGroup'
 import FieldsDropdown from '@/components/explorer/FieldsDropdown'
 import QueryHistoryDrawer from '@/components/explorer/QueryHistoryDrawer'
 import AlertDrawer from '@/components/explorer/AlertDrawer'
+import { GRID_PROPS, timeAxisProps, valueAxisProps, fmtCount } from '@/components/charts/chartDefaults'
 
 const AGG_ALL_FIELDS = FIELD_CATALOG.map(f => f.field)
 const AGG_NUMERIC_FIELDS = new Set(FIELD_CATALOG.filter(f => f.type === 'keyword').map(f => f.field))
@@ -987,6 +988,12 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
     return filteredVolume
   }, [zoom, timeRange, filteredVolume])
 
+  // Tallest stacked bucket on screen - the axis gutter is sized from it.
+  const volumeMax = useMemo(
+    () => visibleVolume.reduce((max, d) => (d.total > max ? d.total : max), 0),
+    [visibleVolume],
+  )
+
   const visibleTotals = useMemo(() => ({
     total: visibleVolume.reduce((a, b) => a + b.total, 0),
     error: visibleVolume.reduce((a, b) => a + b.error, 0),
@@ -1404,9 +1411,9 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
                 onMouseMove={onChartMouseMove}
                 style={{ cursor: brushStartRef.current ? 'ew-resize' : 'crosshair', userSelect: 'none' }}
               >
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" vertical={false} />
-                <XAxis dataKey="label" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} tickLine={false} axisLine={{ stroke: 'var(--border-subtle)' }} interval={Math.max(0, Math.floor(visibleVolume.length / 6))} minTickGap={20} />
-                <YAxis tick={{ fontSize: 10, fill: 'var(--text-muted)' }} tickLine={false} axisLine={false} width={34} />
+                <CartesianGrid {...GRID_PROPS} />
+                <XAxis {...timeAxisProps(visibleVolume.length)} />
+                <YAxis {...valueAxisProps({ format: fmtCount, allowDecimals: false, maxValue: volumeMax })} />
                 <Tooltip content={<VolumeTooltip />} cursor={{ fill: 'rgba(255,255,255,0.02)' }} isAnimationActive={false} />
                 <Bar dataKey="info" stackId="v" fill="#60A5FA" fillOpacity={0.55} isAnimationActive={false} />
                 <Bar dataKey="warn" stackId="v" fill="#F59E0B" fillOpacity={0.75} isAnimationActive={false} />

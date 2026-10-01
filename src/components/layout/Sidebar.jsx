@@ -86,8 +86,8 @@ export default function Sidebar({ navCollapsed, setNavCollapsed, view, goHome, s
   return (
     <nav className="nav">
       <div className="nav-top">
-        <LogoIcon size={34} />
-        <span className="nav-wordmark"><LogoWordmark height={20} /></span>
+        <LogoIcon size={28} />
+        <span className="nav-wordmark"><LogoWordmark height={16} /></span>
       </div>
       <div className="nav-scroll">
         {NAV_GROUPS.map(g => (

@@ -1,27 +1,28 @@
 import { clsx } from 'clsx'
 
 /**
- * Compact pill-style tab bar, one pattern, reused everywhere.
- * Matches: Home tabs (Detail/Health/Service Graph), service tabs, etc.
+ * Compact pill tab bar - the one tab pattern on the platform.
+ *
+ * It renders the .tabbar / .tab classes from the stylesheet rather than
+ * carrying its own utility styling. There used to be two tab looks that drifted
+ * apart: this component for Alerts, Settings, Logs and Metrics, and the same
+ * markup written by hand on Home. Both now read from one rule, so a change to
+ * the selected pill lands everywhere at once.
  */
-export default function TabBar({ tabs, active, onChange, className = '' }) {
+export default function TabBar({ tabs, active, onChange, className = '', ariaLabel }) {
   return (
-    <div className={clsx('flex items-center gap-1 p-1 bg-panel rounded-lg', className)}>
+    <div className={clsx('tabbar', className)} role="tablist" aria-label={ariaLabel}>
       {tabs.map(tab => (
         <button
           key={tab.id}
+          type="button"
+          role="tab"
+          aria-selected={active === tab.id}
+          className={clsx('tab', active === tab.id && 'active')}
           onClick={() => onChange(tab.id)}
-          className={clsx(
-            'px-3 py-1.5 rounded-md text-[12.5px] transition-all duration-100 whitespace-nowrap',
-            active === tab.id
-              ? 'bg-brand-muted text-text-primary font-semibold'
-              : 'text-text-secondary hover:text-text-primary hover:bg-panel-2'
-          )}
         >
           {tab.label}
-          {tab.count != null && (
-            <span className="ml-1.5 text-[10px] text-text-muted">{tab.count}</span>
-          )}
+          {tab.count != null && <span className="tab-count">{tab.count}</span>}
         </button>
       ))}
     </div>

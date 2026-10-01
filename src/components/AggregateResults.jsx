@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts'
 import { TrendingDown, TrendingUp } from 'lucide-react'
 import { paletteColor as palette } from '@/utils/chartPalette'
+import { GRID_PROPS, NO_ANIM, LINE_PROPS, valueAxisProps } from '@/components/charts/chartDefaults'
 
 function formatValue(n) {
   if (n == null || !Number.isFinite(n)) return '—'
@@ -119,7 +120,7 @@ export default function AggregateResults({ result, graphVisible = true }) {
           {graphVisible && <div className="agg-kpi-spark">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={chartData} margin={{ top: 4, right: 4, left: 4, bottom: 4 }}>
-                <Line type="monotone" dataKey="s0" stroke={palette(0)} strokeWidth={2} dot={false} isAnimationActive={false} />
+                <Line {...LINE_PROPS} dataKey="s0" stroke={palette(0)} strokeWidth={2} dot={false} isAnimationActive={false} />
               </LineChart>
             </ResponsiveContainer>
           </div>}
@@ -128,35 +129,43 @@ export default function AggregateResults({ result, graphVisible = true }) {
     )
   }
 
+  // The widest tick the data can produce decides the gutter, so a 1.2M series is
+  // not clipped and a 0-1 series does not reserve room for thousands.
+  const yMax = chartData.reduce((max, row) => {
+    for (const k of Object.keys(row)) {
+      if (k === 't') continue
+      const v = Number(row[k])
+      if (Number.isFinite(v) && v > max) max = v
+    }
+    return max
+  }, 0)
+
   // ---- Branch: line chart + table ----
   return (
     <div className="agg-panel">
       {graphVisible && <div className="agg-chart">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={chartData} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" vertical={false} />
+            <CartesianGrid {...GRID_PROPS} />
             <XAxis
               dataKey="t"
               tickFormatter={formatBucket}
               tick={{ fontSize: 10, fill: 'var(--text-muted)' }}
               tickLine={false}
               axisLine={{ stroke: 'var(--border-subtle)' }}
-              interval={Math.max(0, Math.floor(chartData.length / 8))}
-              minTickGap={24}
+              interval={chartData.length <= 5 ? 0 : Math.ceil(chartData.length / 5) - 1}
+              minTickGap={16}
             />
-            <YAxis
-              tick={{ fontSize: 10, fill: 'var(--text-muted)' }}
-              tickLine={false}
-              axisLine={false}
-              width={38}
-              tickFormatter={formatValue}
-            />
+            {/* The table and the KPI keep formatValue's fixed decimals, which read
+                as precision there. An axis of 0.00 / 2.00 / 4.00 reads as noise, so
+                the ticks use the platform formatter. */}
+            <YAxis {...valueAxisProps({ maxValue: yMax })} />
             <Tooltip content={<ChartTooltip />} isAnimationActive={false} cursor={{ stroke: 'var(--border-strong)', strokeDasharray: '3 3' }} />
             <ReferenceLine y={0} stroke="var(--border-subtle)" />
             {series.map((s, i) => (
               <Line
                 key={s.key}
-                type="monotone"
+                {...LINE_PROPS}
                 dataKey={`s${i}`}
                 name={s.groupLabel ? `${s.groupLabel} · ${s.fnLabel}` : s.fnLabel}
                 stroke={palette(i)}

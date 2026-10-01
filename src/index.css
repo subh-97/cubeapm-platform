@@ -83,7 +83,7 @@
   --radius-lg: var(--radius-3);
   --radius-card: var(--radius-4);
   /* Layout */
-  --nav-w: 222px;
+  --nav-w: 182px;
   --nav-w-collapsed: 66px;
   --gutter: 14px;
 
@@ -120,6 +120,15 @@
   --overlay-hover: rgba(255, 255, 255, .03);
   --swatch-edge: rgba(255, 255, 255, .07);
   --login-grid: rgba(35, 43, 59, .55);
+  /* Login inputs + SSO buttons. Dark sinks them into the card; light lifts
+     them to white with a visible edge, the usual affordance for a form. */
+  --login-control-bg: var(--panel);
+  --login-control-bg-focus: var(--panel-2);
+  --login-control-border: var(--border-subtle);
+  --login-glow:
+    radial-gradient(60% 45% at 25% 22%, rgba(59, 130, 246, .10), transparent 65%),
+    radial-gradient(50% 40% at 78% 78%, rgba(139, 92, 246, .08), transparent 65%),
+    radial-gradient(35% 30% at 50% 105%, rgba(34, 197, 94, .05), transparent 70%);
   --topbar-bg: rgba(21, 24, 32, .82);
 
   /* Tailwind channel mirrors (R G B) — let utility classes like bg-panel or
@@ -209,6 +218,15 @@
   --overlay-hover: rgba(15, 23, 42, .05);
   --swatch-edge: rgba(15, 23, 42, .12);
   --login-grid: rgba(148, 163, 184, .28);
+  --login-control-bg: var(--card);
+  --login-control-bg-focus: var(--card);
+  --login-control-border: var(--border-panel);
+  /* Same three washes, in the light brand hues and stronger — near-white
+     swallows the dark theme's alphas. */
+  --login-glow:
+    radial-gradient(60% 45% at 25% 22%, rgba(37, 99, 235, .13), transparent 65%),
+    radial-gradient(50% 40% at 78% 78%, rgba(124, 58, 237, .10), transparent 65%),
+    radial-gradient(35% 30% at 50% 105%, rgba(22, 163, 74, .07), transparent 70%);
   --topbar-bg: rgba(255, 255, 255, .82);
 
   /* Tailwind channel mirrors (R G B) — light */
@@ -261,20 +279,20 @@ a { color: inherit; }
 .app.nav-collapsed .nav-wordmark { display: none; }
 .nav-scroll { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 6px 10px 8px; }
 .nav-group-label {
-  font-size: 10px; font-weight: 600; letter-spacing: .9px; text-transform: uppercase;
-  color: var(--text-muted); padding: 14px 10px 6px; white-space: nowrap;
+  font-size: 9.5px; font-weight: 500; letter-spacing: .9px; text-transform: uppercase;
+  color: var(--text-muted); padding: 6px 10px 6px; white-space: nowrap;
 }
-.app.nav-collapsed .nav-group-label { text-align: center; padding: 14px 0 6px; color: #37405A; }
+.app.nav-collapsed .nav-group-label { text-align: center; padding: 6px 0; }
 .app.nav-collapsed .nav-group-label span { display: none; }
 .app.nav-collapsed .nav-group-label::after { content: "···"; letter-spacing: 1px; }
 .nav-item {
-  position: relative; display: flex; align-items: center; gap: 12px; padding: 8px 11px;
+  position: relative; display: flex; align-items: center; gap: 12px; padding: 6px 11px;
   border-radius: var(--radius-sm); color: var(--text-secondary); cursor: pointer;
-  font-size: 13px; font-weight: 500; white-space: nowrap; margin: 1px 0;
+  font-size: 12.5px; font-weight: 500; white-space: nowrap; margin: 2px 0;
 }
-.nav-item svg { width: 17px; height: 17px; flex-shrink: 0; }
+.nav-item svg { width: 15px; height: 15px; flex-shrink: 0; }
 .nav-item .nav-text { overflow: hidden; }
-.app.nav-collapsed .nav-item { justify-content: center; padding: 9px; }
+.app.nav-collapsed .nav-item { justify-content: center; padding: 6px 9px; min-height: 30px; }
 .app.nav-collapsed .nav-item .nav-text { display: none; }
 .nav-item:hover { background: var(--panel); color: var(--text-primary); }
 .nav-item.active { background: var(--brand-muted); color: var(--brand-on-muted); }
@@ -285,32 +303,20 @@ a { color: inherit; }
 .nav-item.disabled { opacity: .42; cursor: default; }
 .nav-item.disabled:hover { background: none; color: var(--text-secondary); }
 
-/* hover-expand */
-.app.nav-collapsed .nav:hover { width: var(--nav-w); }
-.app.nav-collapsed .nav:hover .nav-top { justify-content: flex-start; padding: 16px; }
-.app.nav-collapsed .nav:hover .nav-wordmark { display: block; }
-.app.nav-collapsed .nav:hover .nav-group-label { text-align: left; padding: 14px 10px 6px; color: var(--text-muted); }
-.app.nav-collapsed .nav:hover .nav-group-label span { display: inline; }
-.app.nav-collapsed .nav:hover .nav-group-label::after { display: none; }
-.app.nav-collapsed .nav:hover .nav-item { justify-content: flex-start; padding: 8px 11px; }
-.app.nav-collapsed .nav:hover .nav-item .nav-text { display: block; }
-.app.nav-collapsed .nav:hover .nav-collapse { justify-content: flex-start; padding: 9px 11px; }
-.app.nav-collapsed .nav:hover .nav-collapse .nav-text { display: block; }
-
 .nav-bottom { padding: 8px 10px 14px; display: flex; flex-direction: column; gap: 4px; }
 
 /* Help + Account row at the bottom of the sidebar (moved from the removed Header) */
 .nav-user-row { display: flex; flex-direction: column; gap: 2px; padding-bottom: 6px; margin-bottom: 4px; border-bottom: 1px solid var(--border-subtle); }
 .nav-user-btn {
-  flex: 1; width: 100%; display: flex; align-items: center; gap: 11px; padding: 8px 11px;
+  flex: 1; width: 100%; display: flex; align-items: center; gap: 11px; padding: 6px 11px;
   border-radius: var(--radius-sm); background: none; border: none;
-  color: var(--text-secondary); font-family: inherit; font-size: 13px; font-weight: 500;
+  color: var(--text-secondary); font-family: inherit; font-size: 12.5px; font-weight: 500;
   white-space: nowrap; overflow: hidden; cursor: pointer; text-align: left; min-width: 0;
   box-sizing: border-box;
 }
 .nav-user-btn:hover { background: var(--panel); color: var(--text-primary); }
 .nav-user-btn.active { background: var(--panel); color: var(--text-primary); }
-.nav-user-btn svg { width: 17px; height: 17px; flex-shrink: 0; }
+.nav-user-btn svg { width: 15px; height: 15px; flex-shrink: 0; }
 .nav-user-btn .nav-text { overflow: hidden; text-overflow: ellipsis; }
 .nav-avatar {
   width: 20px; height: 20px; border-radius: 50%;
@@ -319,22 +325,19 @@ a { color: inherit; }
   font-weight: 600; font-size: 10px; flex-shrink: 0;
 }
 /* Collapsed sidebar — center the icon in each stacked button, hide labels */
-.app.nav-collapsed .nav-user-btn { justify-content: center; padding: 9px; }
+.app.nav-collapsed .nav-user-btn { justify-content: center; padding: 6px 9px; min-height: 30px; }
 .app.nav-collapsed .nav-user-btn .nav-text { display: none; }
-/* Collapsed nav hovered — still stacked, but reveal labels like the rest of the rail */
-.app.nav-collapsed .nav:hover .nav-user-btn { justify-content: flex-start; padding: 8px 11px; }
-.app.nav-collapsed .nav:hover .nav-user-btn .nav-text { display: inline; }
 /* Profile popover — pops UP from the bottom-anchored button instead of down */
 .pop.nav-pop { top: auto; bottom: calc(100% + 8px); right: auto; left: 0; }
 
 .nav-collapse {
-  display: flex; align-items: center; gap: 11px; width: 100%; padding: 9px 11px;
+  display: flex; align-items: center; gap: 11px; width: 100%; padding: 6px 11px;
   border-radius: var(--radius-sm); background: none; border: none;
   color: var(--text-muted); font-family: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer;
 }
 .nav-collapse:hover { background: var(--panel); color: var(--text-primary); }
 .nav-collapse svg { width: 16px; height: 16px; flex-shrink: 0; }
-.app.nav-collapsed .nav-collapse { justify-content: center; padding: 9px; }
+.app.nav-collapsed .nav-collapse { justify-content: center; padding: 6px 9px; min-height: 30px; }
 .app.nav-collapsed .nav-collapse .nav-text { display: none; }
 
 /* ============ MAIN ============ */
@@ -456,7 +459,7 @@ a { color: inherit; }
   background: var(--panel-2);
   border-color: var(--border-strong);
 }
-.card-tab-strip { margin: 0 -16px; padding: 10px 16px 0; border-bottom: 1px solid var(--border-subtle); }
+.card-tab-strip { margin: 0 -16px; padding: 6px 16px 0; border-bottom: 1px solid var(--border-subtle); }
 
 /* service view sidebar */
 .surface-card.svc-view { flex-direction: row; }
@@ -475,9 +478,10 @@ a { color: inherit; }
 .svc-sidebar-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .svc-sidebar-count { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-muted); background: var(--panel); padding: 1px 6px; border-radius: 99px; flex-shrink: 0; }
 .svc-sidebar-item.active .svc-sidebar-count { background: rgba(207,224,255,.15); color: var(--brand-on-muted); }
-.svc-sidebar-badge { font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 99px; flex-shrink: 0; }
-.svc-sidebar-badge.critical { background: rgba(239,68,68,.15); color: var(--critical-fg); }
-.svc-sidebar-badge.warning { background: rgba(245,158,11,.15); color: var(--warning-fg); }
+/* The service views are short one-word labels, so their column runs narrower than Infra's sources */
+.svc-sidebar.svc-views { width: 154px; }
+.svc-sidebar-icon { flex-shrink: 0; color: var(--text-muted); }
+.svc-sidebar-item:hover .svc-sidebar-icon, .svc-sidebar-item.active .svc-sidebar-icon { color: inherit; }
 .svc-main { flex: 1; padding: 12px 0 24px; overflow-y: auto; min-width: 0; }
 
 /* accordion group sources (AWS / GCP / Kubernetes) */
@@ -533,7 +537,9 @@ a { color: inherit; }
 .panel { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); overflow: hidden; margin-bottom: 20px; }
 .panel-head { padding: 12px 16px; font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .panel-head .hint { font-size: 11px; color: var(--text-muted); font-weight: 400; }
-.panel-head-left { display: flex; align-items: center; gap: 8px; }
+.panel-head-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.panel-head-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.panel-head.is-divided { border-bottom: 1px solid var(--border-subtle); }
 .view-toggle { display: inline-flex; background: var(--panel); border-radius: var(--radius-sm); padding: 2px; gap: 1px; }
 .view-toggle-btn { display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 4px; cursor: pointer; color: var(--text-muted); transition: color .15s, background .15s; }
 .view-toggle-btn svg { width: 13px; height: 13px; }
@@ -679,14 +685,20 @@ tbody tr:hover { background: var(--panel-2); }
 
 /* ============ tabs ============ */
 .tabbar { display: inline-flex; gap: 2px; background: var(--panel); border: none; border-radius: var(--radius-sm); padding: 3px; }
-.tab { padding: 4px 14px; font-size: 12px; font-weight: 500; color: var(--text-secondary); border-radius: 4px; cursor: pointer; white-space: nowrap; }
-.tab.active { background: var(--brand-muted); color: var(--brand-on-muted); font-weight: 700; }
+.tab { display: inline-flex; align-items: center; gap: 6px; padding: 4px 14px; font-family: inherit; font-size: 12px;
+  font-weight: 500; color: var(--text-secondary); background: none; border: none; border-radius: 4px; cursor: pointer; white-space: nowrap; }
+.tab:hover { color: var(--text-primary); }
+/* The selected tab is the raised surface sitting on the track: white in light,
+   a lifted panel in dark. */
+.tab.active { background: var(--raised); color: var(--brand-on-muted); font-weight: 700; }
+.tab-count { font-size: 10px; font-weight: 500; color: var(--text-muted); }
 .tab:hover:not(.active) { color: var(--text-primary); }
 
 /* ============ charts ============ */
 .charts-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
 .chart-card { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); padding: 13px 15px 8px; }
 .chart-card .clbl { font-size: 12px; font-weight: 600; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.clbl-text { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
 .chart-card .cval { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
 .chart-card .cval .u { font-size: 12px; font-weight: 500; color: var(--text-secondary); margin-left: 2px; }
 .chart-host { width: 100%; height: 140px; }
@@ -708,45 +720,66 @@ tbody tr:hover { background: var(--panel-2); }
 
 /* KPI cards */
 .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 13px; margin-bottom: 20px; }
-.kpi-card { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); padding: 16px 16px 14px; position: relative; overflow: hidden; }
-.kpi-card-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 10px; }
+.kpi-card { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); padding: 10px 10px 14px 12px; position: relative; overflow: hidden; }
+.kpi-card-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 4px; }
 .kpi-card .lbl { font-size: 11.5px; color: var(--text-primary); font-weight: 500; letter-spacing: .2px; }
 .kpi-chip { font-size: 9.5px; font-weight: 700; padding: 2px 7px; border-radius: 99px; white-space: nowrap; flex-shrink: 0; }
 .kpi-chip.critical { background: rgba(239,68,68,.15); color: var(--critical-fg); }
 .kpi-chip.warning { background: rgba(245,158,11,.15); color: var(--warning-fg); }
 .kpi-chip.healthy { background: rgba(34,197,94,.13); color: var(--healthy-fg); }
-.kpi-card .val { font-size: 30px; font-weight: 600; line-height: 1; font-family: 'JetBrains Mono', monospace; margin-bottom: 12px; }
+.kpi-card .val { font-size: 30px; font-weight: 600; line-height: 1; font-family: 'JetBrains Mono', monospace; margin-bottom: 10px; }
 .kpi-card .val .unit { font-size: 13px; font-weight: 400; color: var(--text-secondary); margin-left: 3px; font-family: 'Rubik', sans-serif; }
 .kpi-card.critical .val { color: var(--critical); }
 .kpi-card.warning .val { color: var(--warning); }
 .kpi-card.healthy .val { color: var(--text-primary); }
-.kpi-spark { width: 100%; height: 140px; }
 .kpi-threshold { font-size: 10.5px; color: var(--text-secondary); margin-top: 8px; letter-spacing: .1px; }
 
 /* incident banner */
 .incident-banner {
-  display: flex; align-items: center; justify-content: space-between; gap: 14px;
-  padding: 11px 16px 11px 14px; border-radius: var(--radius-md); margin-bottom: 20px;
-  border-left: 3px solid var(--critical); background: rgba(239,68,68,.07);
-  border-top: none; border-right: none; border-bottom: none;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 6px 12px; border-radius: var(--radius-sm); margin-bottom: 10px; border: none;
+  background: color-mix(in srgb, var(--critical) 6%, transparent);
 }
-.incident-banner.warn { border-left-color: var(--warning); background: rgba(245,158,11,.07); }
-.incident-banner-left { display: flex; align-items: center; gap: 11px; min-width: 0; }
-.incident-badge { font-size: 9.5px; font-weight: 700; letter-spacing: .7px; text-transform: uppercase; padding: 3px 7px; border-radius: 4px; flex-shrink: 0; white-space: nowrap; }
-.incident-badge.critical { background: rgba(239,68,68,.18); color: var(--critical-fg); }
-.incident-badge.warn { background: rgba(245,158,11,.18); color: var(--warning-fg); }
-.incident-body { min-width: 0; display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
-.incident-title { font-size: 12.5px; font-weight: 600; color: var(--text-primary); white-space: nowrap; }
-.incident-desc { font-size: 11.5px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.incident-sep { color: var(--text-muted); font-size: 11.5px; }
-.incident-meta { font-size: 11px; color: var(--text-secondary); flex-shrink: 0; white-space: nowrap; display: flex; align-items: center; gap: 4px; line-height: 1; }
-.incident-meta svg { width: 13px; height: 13px; display: block; }
+.incident-banner.warn { background: color-mix(in srgb, var(--warning) 7%, transparent); }
+.incident-banner-left { display: flex; align-items: center; gap: 9px; min-width: 0; }
+/* Severity as a small live signal rather than a label: a dot with a slow ring
+   pulsing out of it. The global reduced-motion rule stills the ring. */
+.incident-pulse { position: relative; width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; background: var(--critical); }
+.incident-pulse.warn { background: var(--warning); }
+.incident-pulse::after {
+  content: ""; position: absolute; inset: 0; border-radius: 50%; background: inherit;
+  animation: incidentPing 2.4s cubic-bezier(0, 0, .2, 1) infinite;
+}
+@keyframes incidentPing { 0% { transform: scale(1); opacity: .45; } 70%, 100% { transform: scale(2.8); opacity: 0; } }
+.incident-body { min-width: 0; display: flex; align-items: baseline; gap: 5px; flex-wrap: wrap; }
+.incident-title { font-size: 11.5px; font-weight: 600; color: var(--text-primary); white-space: nowrap; }
+.incident-desc { font-size: 11px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.incident-sep { color: var(--text-muted); font-size: 11px; }
+.incident-meta { font-size: 10.5px; color: var(--text-muted); flex-shrink: 0; white-space: nowrap; display: flex; align-items: center; gap: 4px; line-height: 1; }
+.incident-meta svg { width: 11px; height: 11px; display: block; }
 
 /* latency drilldown */
 .drill2 { display: flex; align-items: stretch; }
-.drill2-chart { flex: 3; min-width: 0; padding: 4px 16px 14px; }
-.drill2-legend { flex: 2; min-width: 0; border-left: 1px solid var(--border-subtle); padding: 14px 16px; display: flex; flex-direction: column; gap: 11px; }
-.drill2-item { display: flex; flex-direction: column; gap: 5px; }
+.drill2-chart { flex: 7; min-width: 0; padding: 10px 16px 8px; }
+.drill2-legend { flex: 3; min-width: 0; border-left: 1px solid var(--border-subtle); padding: 14px 16px; display: flex; flex-direction: column; gap: 11px; }
+.drill2-search { display: flex; align-items: center; gap: 7px; padding: 5px 9px; margin-bottom: 1px;
+  background: var(--panel); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); }
+.drill2-search svg { width: 13px; height: 13px; color: var(--text-muted); flex-shrink: 0; }
+.drill2-search input { flex: 1; min-width: 0; background: none; border: none; outline: none;
+  font-family: inherit; font-size: 11.5px; color: var(--text-primary); }
+.drill2-search input::placeholder { color: var(--text-muted); }
+.drill2-search:focus-within { border-color: var(--brand); background: var(--panel-2); }
+
+/* Each row is a link into the External view, so it behaves like one: it takes
+   hover and focus, and carries the arrow that says it leads somewhere. */
+.drill2-item { display: flex; flex-direction: column; gap: 5px; width: 100%; padding: 4px 6px;
+  margin: -4px -6px; background: none; border: none; border-radius: var(--radius-sm);
+  font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.drill2-item:hover, .drill2-item:focus-visible { background: var(--panel); }
+.drill2-item:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.drill2-go { width: 12px; height: 12px; flex-shrink: 0; color: var(--text-muted); opacity: .45; }
+.drill2-item:hover .drill2-go, .drill2-item:focus-visible .drill2-go { opacity: 1; color: var(--brand); }
+.drill2-empty { font-size: 11.5px; color: var(--text-muted); padding: 4px 0; }
 .drill2-row { display: flex; align-items: center; gap: 7px; }
 .drill2-swatch { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; margin-top: 1px; }
 .drill2-label { flex: 1; font-size: 11.5px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -767,10 +800,37 @@ tbody tr:hover { background: var(--panel-2); }
 .drill2-insight strong { color: var(--critical-fg); font-weight: 600; }
 
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 4px; align-items: start; }
-.slowreq-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; border-top: 1px solid var(--border-subtle); }
+/* The list picks the trace, the preview shows it - so they sit side by side
+   inside one full-width panel rather than in separate cards. */
+.slowreq-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); align-items: start; }
+.slowreq-list { min-width: 0; border-right: 1px solid var(--border-subtle); }
+.slowreq-row { display: flex; width: 100%; justify-content: space-between; align-items: center; gap: 12px;
+  padding: 10px 16px; border: none; border-top: 1px solid var(--border-subtle);
+  background: none; font: inherit; text-align: left; cursor: pointer; }
+.slowreq-list .slowreq-row:first-child { border-top: none; }
+.slowreq-row:hover { background: var(--panel); }
+.slowreq-row.selected { background: var(--brand-muted); }
+.slowreq-row:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
 .slowreq-row .ep { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-primary); }
 .slowreq-row .meta { color: var(--text-muted); font-size: 10.5px; margin-top: 2px; }
-.slowreq-row .dur { font-weight: 600; color: var(--warning); font-size: 13px; }
+.slowreq-row .dur { font-weight: 600; color: var(--warning); font-size: 13px; white-space: nowrap; }
+.slowreq-preview { min-width: 0; padding: 12px 16px 14px; }
+.slowreq-preview-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.slowreq-preview-ep { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-primary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The id is the way into the trace details page, so it looks like a link and
+   carries the same arrow the drilldown rows use. */
+.slowreq-trace-link { display: inline-flex; align-items: center; gap: 5px; padding: 2px 4px; margin: -2px -4px;
+  background: none; border: none; border-radius: var(--radius-sm); font-family: inherit; font-size: 10.5px;
+  color: var(--text-muted); white-space: nowrap; cursor: pointer; }
+.slowreq-trace-link svg { width: 11px; height: 11px; opacity: .55; }
+.slowreq-trace-link:hover, .slowreq-trace-link:focus-visible { color: var(--brand); background: var(--panel); }
+.slowreq-trace-link:hover svg, .slowreq-trace-link:focus-visible svg { opacity: 1; }
+.slowreq-trace-link:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+/* The shared waterfall sizes itself to its rows; cap it so a deep trace scrolls
+   inside the preview instead of stretching the panel past the table beside it. */
+.slowreq-waterfall { max-height: 236px; overflow-y: auto; margin: 0 -6px; }
+.sort-lbl { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
 
 /* health strip */
 .health-row { display: flex; align-items: center; gap: 14px; padding: 11px 16px; border-top: 1px solid var(--border-subtle); }
@@ -812,7 +872,7 @@ tbody tr:hover { background: var(--panel-2); }
 .split-ep-bar .fill { height: 100%; border-radius: 2px; background: var(--brand); }
 .split-charts { display: flex; flex-direction: column; gap: 14px; }
 .split-chart-card { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); padding: 12px 14px 8px; }
-.split-chart-card .clbl { font-size: 11.5px; font-weight: 600; margin-bottom: 8px; color: var(--text-primary); }
+.split-chart-card .clbl { font-size: 11.5px; font-weight: 600; margin-bottom: 8px; color: var(--text-primary); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .split-chart-card .chart-host { height: 130px; }
 
 /* Slow Queries table */
@@ -892,10 +952,7 @@ tbody tr:hover { background: var(--panel-2); }
 }
 .login-ambient {
   position: absolute; inset: 0; pointer-events: none;
-  background:
-    radial-gradient(60% 45% at 25% 22%, rgba(59,130,246,0.10), transparent 65%),
-    radial-gradient(50% 40% at 78% 78%, rgba(139,92,246,0.08), transparent 65%),
-    radial-gradient(35% 30% at 50% 105%, rgba(34,197,94,0.05), transparent 70%);
+  background: var(--login-glow);
 }
 .login-shell::before {
   content: ''; position: absolute; inset: 0; pointer-events: none; opacity: .35;
@@ -915,6 +972,24 @@ tbody tr:hover { background: var(--panel-2); }
   padding: 36px 34px 28px;
   box-shadow: var(--shadow-login);
 }
+/* Theme switch — pinned to the shell's corner so it is there before sign-in,
+   the only other place to change theme being the signed-in account menu. */
+.login-theme {
+  position: absolute; top: 20px; right: 20px; z-index: 1;
+  display: flex; gap: 2px; padding: 3px;
+  background: var(--card); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm); box-shadow: var(--shadow-dropdown);
+}
+.login-theme button {
+  display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px;
+  background: none; border: none; border-radius: 4px; cursor: pointer;
+  color: var(--text-muted); font-family: inherit; font-size: 11.5px; font-weight: 500;
+  transition: background .1s, color .1s;
+}
+.login-theme button:hover { color: var(--text-primary); background: var(--overlay-hover); }
+.login-theme button.on { background: var(--brand-muted); color: var(--brand-on-muted); }
+.login-theme svg { width: 13px; height: 13px; flex-shrink: 0; }
+
 .login-brand { display: flex; align-items: center; gap: 10px; justify-content: center; margin-bottom: 26px; opacity: .95; }
 .login-heading { text-align: center; margin-bottom: 22px; }
 .login-title { font-size: 20px; font-weight: 600; color: var(--text-primary); letter-spacing: -.3px; margin-bottom: 5px; }
@@ -927,11 +1002,12 @@ tbody tr:hover { background: var(--panel-2); }
 .login-forgot:hover { color: var(--brand); }
 .login-input-wrap {
   display: flex; align-items: center; gap: 9px;
-  background: var(--panel); border: 1px solid var(--border-subtle);
+  background: var(--login-control-bg); border: 1px solid var(--login-control-border);
   border-radius: var(--radius-sm); padding: 0 11px; height: 40px;
-  transition: border-color .12s, background .12s;
+  transition: border-color .12s, background .12s, box-shadow .12s;
 }
-.login-input-wrap:focus-within { border-color: var(--brand); background: var(--panel-2); }
+.login-input-wrap:hover { border-color: var(--border-strong); }
+.login-input-wrap:focus-within { border-color: var(--brand); background: var(--login-control-bg-focus); box-shadow: var(--focus-ring); }
 .login-input-wrap > svg { width: 14px; height: 14px; color: var(--text-muted); flex-shrink: 0; }
 .login-input-wrap input {
   flex: 1; background: none; border: none; outline: none;
@@ -975,7 +1051,7 @@ tbody tr:hover { background: var(--panel-2); }
 .login-sso { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 22px; }
 .login-sso-btn {
   display: flex; align-items: center; justify-content: center; gap: 7px;
-  background: var(--panel); border: 1px solid var(--border-subtle);
+  background: var(--login-control-bg); border: 1px solid var(--login-control-border);
   color: var(--text-primary); font-family: inherit; font-size: 11.5px; font-weight: 500;
   height: 36px; border-radius: var(--radius-sm); cursor: pointer;
   transition: background .1s, border-color .1s;
@@ -1083,11 +1159,11 @@ tbody tr:hover { background: var(--panel-2); }
 .login-status {
   position: absolute; bottom: 22px; left: 50%; transform: translateX(-50%);
   display: flex; align-items: center; gap: 7px;
-  font-size: 10.5px; color: var(--text-muted); z-index: 1;
+  font-size: 10.5px; color: var(--text-muted); z-index: 1; white-space: nowrap;
 }
 .login-status-dot {
-  width: 6px; height: 6px; border-radius: 50%; background: var(--healthy);
-  box-shadow: 0 0 0 3px rgba(34,197,94,0.15);
+  width: 6px; height: 6px; border-radius: 50%; background: var(--healthy); flex-shrink: 0;
+  box-shadow: 0 0 0 3px var(--healthy-tint);
 }
 .login-status-sep { color: var(--border-strong); }
 .login-status a { color: var(--text-secondary); text-decoration: none; font-family: 'JetBrains Mono', monospace; font-size: 10px; }
@@ -3265,7 +3341,7 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 /* ============ Runtime tab ============ */
 .runtime-layout { display: grid; grid-template-columns: 200px 1fr; gap: 14px; align-items: start; margin-bottom: 20px; }
 .runtime-hosts { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); overflow: hidden; }
-.runtime-hosts-head { padding: 10px 14px; font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; border-bottom: 1px solid var(--border-subtle); }
+.runtime-hosts-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px 6px 14px; font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; border-bottom: 1px solid var(--border-subtle); }
 .runtime-host-row { display: flex; align-items: center; gap: 8px; padding: 9px 14px; font-size: 11.5px; cursor: pointer; transition: background .1s; font-family: 'JetBrains Mono', monospace; color: var(--text-secondary); }
 .runtime-host-row:hover { background: var(--panel-2); color: var(--text-primary); }
 .runtime-host-row.selected { background: var(--brand-muted); color: var(--brand-on-muted); }
@@ -3279,18 +3355,93 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 .runtime-legend-item { display: flex; align-items: center; gap: 5px; font-size: 10.5px; color: var(--text-secondary); }
 .runtime-legend-swatch { width: 8px; height: 8px; border-radius: 2px; }
 
+/* ============ info tip - the ⓘ beside a panel title ============ */
+.infotip-btn { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  width: 16px; height: 16px; padding: 0; border: none; background: none; border-radius: 50%;
+  color: var(--text-muted); cursor: help; }
+.infotip-btn svg { width: 13px; height: 13px; }
+.infotip-btn:hover, .infotip-btn:focus-visible, .infotip-btn.open { color: var(--text-secondary); }
+.infotip-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+
+/* Always the dark bubble, in both themes: it reads as an annotation over the
+   page rather than another panel competing with it. */
+.infotip { padding: 11px 13px; border-radius: var(--radius-md); background: var(--slate-900, #171C28);
+  color: #F1F3F9; font-size: 11.5px; font-weight: 400; line-height: 1.5; letter-spacing: .1px;
+  box-shadow: var(--shadow-tooltip); pointer-events: none; }
+.infotip::before { content: ''; position: absolute; top: -5px; left: var(--infotip-arrow); width: 10px; height: 10px;
+  margin-left: -5px; background: inherit; transform: rotate(45deg); border-radius: 2px; }
+.infotip.flip::before { top: auto; bottom: -5px; }
+
+/* ============ per-card overflow menu ============ */
+/* The kebab is quiet until the card is hovered or the menu is open, so a grid
+   of cards does not read as a grid of buttons. It stays visible on focus so a
+   keyboard reader can still find it. */
+.card-menu-btn { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  width: 22px; height: 22px; padding: 0; border: none; border-radius: var(--radius-sm);
+  background: none; color: var(--text-muted); cursor: pointer; opacity: .55; transition: opacity .12s, background .12s, color .12s; }
+.card-menu-btn svg { width: 15px; height: 15px; }
+.kpi-card:hover .card-menu-btn, .panel:hover .card-menu-btn, .chart-card:hover .card-menu-btn,
+.split-chart-card:hover .card-menu-btn, .runtime-chart-card:hover .card-menu-btn,
+.runtime-hosts:hover .card-menu-btn { opacity: 1; }
+.card-menu-btn:hover, .card-menu-btn:focus-visible, .card-menu-btn.open { opacity: 1; background: var(--panel-2); color: var(--text-primary); }
+.card-menu-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+
+.card-menu-panel { min-width: 178px; padding: 4px 0; background: var(--raised);
+  border: 1px solid var(--border-panel); border-radius: var(--radius-md);
+  box-shadow: var(--shadow-dropdown); outline: none; max-height: min(420px, calc(100vh - 24px)); overflow-y: auto; }
+.card-menu-item { display: flex; align-items: center; gap: 9px; padding: 7px 14px 7px 12px;
+  font-size: 11.5px; color: var(--text-secondary); cursor: pointer; white-space: nowrap; }
+.card-menu-item svg { width: 14px; height: 14px; flex-shrink: 0; color: var(--text-muted); }
+.card-menu-item:hover, .card-menu-item.hl { background: var(--panel-2); color: var(--text-primary); }
+.card-menu-item:hover svg, .card-menu-item.hl svg { color: var(--text-secondary); }
+.card-menu-sep { height: 1px; margin: 4px 0; background: var(--border-subtle); }
+
 /* ============ filter selects ============ */
 .subtab-filters { display: flex; align-items: stretch; gap: 6px; }
 .filter-select { display: inline-flex; align-items: center; justify-content: space-between; gap: 5px; width: 130px;
   background: var(--panel); border: none; color: var(--text-secondary);
   padding: 0 9px; border-radius: var(--radius-sm); font-size: 11.5px; font-family: inherit; cursor: pointer; overflow: hidden; }
 .filter-value { display: flex; align-items: center; gap: 3px; flex: 1; min-width: 0; overflow: hidden; justify-content: flex-end; }
-.filter-value > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.filter-value > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; font-size: 10.5px; font-weight: 500; }
 .filter-select:hover { color: var(--text-primary); }
 .filter-label { font-size: 10.5px; color: var(--text-muted); margin-right: 2px; flex-shrink: 0; }
 .filter-select svg { width: 12px; height: 12px; color: var(--text-muted); flex-shrink: 0; }
 .filter-select.dd-open { background: var(--panel-2); color: var(--text-primary); }
 .filter-select.dd-open svg { color: var(--text-secondary); }
+
+/* ============ service picker ============
+   A combobox after the production selector: the field becomes the search box
+   when opened, and the list hangs directly under it at the same width. */
+.svc-picker { display: flex; align-items: center; min-width: 0; }
+.svc-picker-field { position: relative; flex: none; width: 256px; }
+/* Outlined, not filled - the field sits on the card like the production one */
+.svc-picker-control {
+  display: flex; align-items: center; gap: 8px; width: 100%; height: 100%; min-height: 30px; box-sizing: border-box;
+  padding: 0 10px; background: transparent; border: 1px solid var(--border-panel); border-radius: var(--radius-sm);
+  color: var(--text-primary); font-family: inherit; font-size: 12px; text-align: left; cursor: pointer;
+  transition: border-color .12s, box-shadow .12s;
+}
+.svc-picker-control:hover { border-color: var(--border-strong); }
+.svc-picker-control:focus-visible { outline: none; border-color: var(--brand); box-shadow: var(--focus-ring); }
+.svc-picker-field.open .svc-picker-control { border-color: var(--brand); box-shadow: var(--focus-ring); cursor: text; }
+.svc-picker-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.svc-picker-input { flex: 1; min-width: 0; background: none; border: none; outline: none; padding: 0; color: var(--text-primary); font-size: 12px; }
+.svc-picker-input::placeholder { color: var(--text-muted); }
+.svc-picker-icon { width: 13px; height: 13px; color: var(--text-muted); flex-shrink: 0; }
+.svc-picker-list {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 500;
+  min-width: 100%; width: max-content; max-width: 420px;
+  /* About six rows, so a longer list scrolls inside the box instead of running down the page */
+  max-height: 200px; overflow-y: auto; overscroll-behavior: contain; padding: 4px;
+  background: var(--raised); border: 1px solid var(--border-panel); border-radius: var(--radius-md); box-shadow: var(--shadow-dropdown);
+}
+.svc-picker-item {
+  display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: var(--radius-sm);
+  font-size: 12px; color: var(--text-secondary); cursor: pointer;
+}
+.svc-picker-item.hl { background: var(--panel-2); color: var(--text-primary); }
+.svc-picker-item.active { background: var(--brand-muted); color: var(--brand-on-muted); font-weight: 600; }
+.svc-picker-empty { padding: 16px 10px; text-align: center; font-size: 12px; color: var(--text-muted); }
 
 /* ============ dropdown panels ============ */
 .dd-panel { background: var(--raised); border: 1px solid var(--border-panel); border-radius: var(--radius-md); box-shadow: var(--shadow-dropdown); pointer-events: auto; overflow: hidden; }
@@ -3415,6 +3566,10 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
   .kpi-grid, .summary-strip { grid-template-columns: repeat(2, 1fr); }
   .charts-row, .onboard-tiers { grid-template-columns: 1fr; }
   .two-col { grid-template-columns: 1fr; }
+  /* The list and its trace preview stack rather than squeezing a waterfall
+     into half of a narrow card. */
+  .slowreq-split { grid-template-columns: 1fr; }
+  .slowreq-list { border-right: none; border-bottom: 1px solid var(--border-subtle); }
 }
 @media (max-width: 720px) {
   .app.nav-collapsed .nav, .nav { width: var(--nav-w-collapsed); }
@@ -4141,14 +4296,16 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 
 /* ══ Endpoint detail ═══════════════════════════════════════════════════ */
 .ep-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
-.ep-bar label { font-size: 11.5px; color: var(--text-muted); }
+/* Outlined like the service picker; the native arrow is swapped for a drawn
+   chevron so it can sit clear of the right edge. */
 .ep-bar select {
-  height: 28px; padding: 0 9px; border-radius: 6px; min-width: 260px;
-  background: var(--panel); border: 1px solid var(--border-panel);
+  height: 28px; padding: 0 34px 0 10px; border-radius: 6px; min-width: 260px;
+  border: 1px solid var(--border-panel); cursor: pointer;
   color: var(--text-primary); font-family: 'JetBrains Mono', monospace; font-size: 12px;
+  appearance: none; -webkit-appearance: none;
+  background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23616C86' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") no-repeat right 12px center / 13px;
 }
 .ep-bar select:focus { outline: none; border-color: var(--border-strong); }
-.ep-bar-svc { font-size: 11.5px; color: var(--text-muted); margin-left: auto; }
 .ep-hits { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .ep-hits td { padding: 8px 12px; border-bottom: 1px solid var(--border-subtle); color: var(--text-primary); }
 .ep-hits tr:last-child td { border-bottom: none; }
