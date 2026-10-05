@@ -109,6 +109,17 @@ export const slowRequests = [
   { endpoint: 'PATCH /v1/payments/:id', latencyMs: 655, timestamp: '3m ago', traceId: '0a94eef2' },
 ]
 
+// Requests that failed, not the slowest. Latencies sit around the service's
+// baseline because a 500 generally returns fast - the signal is the failure,
+// not the duration.
+export const errorRequests = [
+  { endpoint: 'POST /v1/payments/:id/capture', latencyMs: 70, timestamp: '2m ago', traceId: '469567625', status: 'critical' },
+  { endpoint: 'POST /v1/payments/:id/capture', latencyMs: 141, timestamp: '5m ago', traceId: '1734459584', status: 'critical' },
+  { endpoint: 'PATCH /v1/payments/:id', latencyMs: 72, timestamp: '5m ago', traceId: '836005139', status: 'critical' },
+  { endpoint: 'GET /v1/payments/:id', latencyMs: 70, timestamp: '12m ago', traceId: '1252473574', status: 'critical' },
+  { endpoint: 'POST /v1/payments', latencyMs: 73, timestamp: '7m ago', traceId: '1715416823', status: 'critical' },
+]
+
 export const SEARCH_INDEX = [
   { id: 'payment-service', name: 'payment-service', type: 'service', category: 'APM · Services', status: 'critical' },
   { id: 'order-service', name: 'order-service', type: 'service', category: 'APM · Services', status: 'warning' },

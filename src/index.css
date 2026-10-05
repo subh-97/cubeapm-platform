@@ -541,7 +541,9 @@ a { color: inherit; }
 .panel-head-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .panel-head.is-divided { border-bottom: 1px solid var(--border-subtle); }
 .view-toggle { display: inline-flex; background: var(--panel); border-radius: var(--radius-sm); padding: 2px; gap: 1px; }
-.view-toggle-btn { display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 4px; cursor: pointer; color: var(--text-muted); transition: color .15s, background .15s; }
+.view-toggle-btn { display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; padding: 0;
+  background: none; border: none; border-radius: 4px; cursor: pointer; color: var(--text-muted); transition: color .15s, background .15s; }
+.view-toggle-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
 .view-toggle-btn svg { width: 13px; height: 13px; }
 .view-toggle-btn:hover { color: var(--text-secondary); }
 .view-toggle-btn.active { background: var(--raised); color: var(--text-primary); }
@@ -706,17 +708,6 @@ tbody tr:hover { background: var(--panel-2); }
 .flag.crit { background: rgba(239,68,68,.15); color: var(--critical-fg); }
 .flag.ok { background: rgba(34,197,94,.14); color: var(--healthy-fg); }
 
-/* RED multi-line chart */
-.red-chart-section { border-bottom: 1px solid var(--border-subtle); }
-.red-chart-section:last-child { border-bottom: none; }
-.red-chart-title-row { font-size: 11.5px; font-weight: 600; color: var(--text-secondary); text-align: center; padding: 10px 16px 0; letter-spacing: .1px; }
-.red-chart-body { display: flex; align-items: stretch; }
-.red-chart-svg-wrap { flex: 1; min-width: 0; padding: 2px 12px 10px; }
-.red-chart-legend { width: 216px; flex-shrink: 0; border-left: 1px solid var(--border-subtle); padding: 10px 14px; display: flex; flex-direction: column; justify-content: center; gap: 8px; }
-.red-legend-row { display: flex; align-items: center; gap: 7px; }
-.red-legend-dash { flex-shrink: 0; width: 16px; height: 2px; border-radius: 1px; }
-.red-legend-ep { flex: 1; font-size: 10.5px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.red-legend-val { font-size: 11px; font-weight: 600; font-family: 'JetBrains Mono', monospace; color: var(--text-primary); white-space: nowrap; }
 
 /* KPI cards */
 .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 13px; margin-bottom: 20px; }
@@ -762,6 +753,11 @@ tbody tr:hover { background: var(--panel-2); }
 .drill2 { display: flex; align-items: stretch; }
 .drill2-chart { flex: 7; min-width: 0; padding: 10px 16px 8px; }
 .drill2-legend { flex: 3; min-width: 0; border-left: 1px solid var(--border-subtle); padding: 14px 16px; display: flex; flex-direction: column; gap: 11px; }
+/* p90 Latency view of the drilldown panel: single line chart, no sidebar. */
+.drill2-single .drill2-chart { flex: 1; padding: 10px 16px 12px; }
+.drill2-single-legend { display: flex; align-items: center; justify-content: center; gap: 8px;
+  font-size: 11.5px; color: var(--text-secondary); padding-top: 6px; }
+.drill2-single-legend .drill2-swatch { width: 10px; height: 10px; border-radius: 50%; }
 .drill2-search { display: flex; align-items: center; gap: 7px; padding: 5px 9px; margin-bottom: 1px;
   background: var(--panel); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); }
 .drill2-search svg { width: 13px; height: 13px; color: var(--text-muted); flex-shrink: 0; }
@@ -770,15 +766,16 @@ tbody tr:hover { background: var(--panel-2); }
 .drill2-search input::placeholder { color: var(--text-muted); }
 .drill2-search:focus-within { border-color: var(--brand); background: var(--panel-2); }
 
-/* Each row is a link into the External view, so it behaves like one: it takes
-   hover and focus, and carries the arrow that says it leads somewhere. */
 .drill2-item { display: flex; flex-direction: column; gap: 5px; width: 100%; padding: 4px 6px;
   margin: -4px -6px; background: none; border: none; border-radius: var(--radius-sm);
-  font: inherit; color: inherit; text-align: left; cursor: pointer; }
-.drill2-item:hover, .drill2-item:focus-visible { background: var(--panel); }
-.drill2-item:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+  font: inherit; color: inherit; text-align: left; cursor: pointer;
+  transition: opacity .15s ease; }
+.drill2-item.dimmed { opacity: .35; }
 .drill2-go { width: 12px; height: 12px; flex-shrink: 0; color: var(--text-muted); opacity: .45; }
-.drill2-item:hover .drill2-go, .drill2-item:focus-visible .drill2-go { opacity: 1; color: var(--brand); }
+.drill2-go-btn { display: inline-flex; background: none; border: none; padding: 2px;
+  margin: -2px; cursor: pointer; border-radius: 3px; color: inherit; }
+.drill2-go-btn:hover .drill2-go { opacity: 1; color: var(--brand); }
+.drill2-go-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 0; }
 .drill2-empty { font-size: 11.5px; color: var(--text-muted); padding: 4px 0; }
 .drill2-row { display: flex; align-items: center; gap: 7px; }
 .drill2-swatch { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; margin-top: 1px; }
@@ -830,6 +827,9 @@ tbody tr:hover { background: var(--panel-2); }
 /* The shared waterfall sizes itself to its rows; cap it so a deep trace scrolls
    inside the preview instead of stretching the panel past the table beside it. */
 .slowreq-waterfall { max-height: 236px; overflow-y: auto; margin: 0 -6px; }
+.slowreq-empty { display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; height: 100%; min-height: 180px; color: var(--text-muted); font-size: 12px; }
+.slowreq-empty svg { width: 28px; height: 28px; opacity: .35; }
 .sort-lbl { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
 
 /* health strip */
@@ -3397,7 +3397,8 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 .card-menu-sep { height: 1px; margin: 4px 0; background: var(--border-subtle); }
 
 /* ============ filter selects ============ */
-.subtab-filters { display: flex; align-items: stretch; gap: 6px; }
+.subtab-filters { display: flex; align-items: center; gap: 6px; }
+.subtab-filters .filter-select { align-self: stretch; }
 .filter-select { display: inline-flex; align-items: center; justify-content: space-between; gap: 5px; width: 130px;
   background: var(--panel); border: none; color: var(--text-secondary);
   padding: 0 9px; border-radius: var(--radius-sm); font-size: 11.5px; font-family: inherit; cursor: pointer; overflow: hidden; }

@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
-import { services, paymentServiceSeries, latencyDrilldown, redEndpoints, infraCorrelation, slowRequests, externalEndpoints, dbEndpoints, slowQueries, errorGroups, tracesList, traceDetail, runtimeHosts, runtimeMetrics, FILTER_OPTS } from '@/data/services'
+import { services, paymentServiceSeries, latencyDrilldown, redEndpoints, infraCorrelation, slowRequests, errorRequests, externalEndpoints, dbEndpoints, slowQueries, errorGroups, tracesList, traceDetail, runtimeHosts, runtimeMetrics, FILTER_OPTS } from '@/data/services'
 import { statusForLatency, statusForErrorRate } from '@/utils/status'
 import PageBar from '@/components/layout/PageBar'
 import ServicePicker from '@/components/ServicePicker'
@@ -11,6 +11,11 @@ import { buildTrace } from '@/data/traceDetail'
 import { GRID_PROPS, NO_ANIM, AREA_PROPS, LINE_PROPS, timeAxisProps, valueAxisProps, maxOf, fmtCompact } from '@/components/charts/chartDefaults'
 
 const BASE_TIME = new Date()
+
+const RED_EP_COLORS = ['#3B82F6', '#34D399', '#F472B6', '#A78BFA']
+const fmtRedMs = v => `${Math.round(v)} ms`
+const fmtRedRpm = v => v >= 1000 ? `${(v / 1000).toFixed(1)}K` : Math.round(v).toString()
+const fmtRedPct = v => `${v.toFixed(2)}%`
 
 function chartData(series) {
   return series.map(d => {
@@ -63,11 +68,12 @@ function RedChartTooltip({ active, payload, label, eps, colors, fmtFn }) {
     <div style={{ background: 'var(--raised)', border: '1px solid var(--border-panel)', borderRadius: 6, padding: '5px 9px', fontSize: 11, lineHeight: '1.5', minWidth: 180 }}>
       <div style={{ color: 'var(--text-primary)', fontWeight: 600, marginBottom: 1 }}>{exactTime}</div>
       <div style={{ color: 'var(--text-muted)', fontSize: 10, marginBottom: 4 }}>{label}</div>
-      {payload.map((p, i) => {
-        const ep = eps[i]?.endpoint || ''
+      {payload.map(p => {
+        const ei = parseInt(p.dataKey.replace('ep', ''), 10)
+        const ep = eps[ei]?.endpoint || ''
         const short = ep.length > 28 ? ep.slice(0, 26) + '…' : ep
         return (
-          <div key={i} style={{ color: colors[i], display: 'flex', justifyContent: 'space-between', gap: 16 }}>
+          <div key={p.dataKey} style={{ color: colors[ei], display: 'flex', justifyContent: 'space-between', gap: 16 }}>
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 140, whiteSpace: 'nowrap' }}>{short}</span>
             <span style={{ fontWeight: 600, flexShrink: 0 }}>{fmtFn(p.value)}</span>
           </div>
@@ -143,7 +149,7 @@ function syntheticEndpoint(name) {
 // The endpoint view: the same four numbers as the service, narrowed to one
 // route. It exists because a log record knows its endpoint, and sending that
 // link to the service overview would drop the one thing the record told us.
-function EndpointTab({ endpoint, setEndpoint, onOpenUpstream }) {
+function EndpointTab({ endpoint, setEndpoint, onOpenUpstream, onOpenTrace }) {
   // An endpoint arriving from a log record will often not be in the RED list -
   // that list is what the service page happens to chart, not everything the
   // service serves. Showing the picker's first row instead would quietly answer
@@ -196,39 +202,54 @@ function EndpointTab({ endpoint, setEndpoint, onOpenUpstream }) {
         ))}
       </div>
 
-      <div className="two-col">
-        <LatencyDrilldown onOpenUpstream={onOpenUpstream} />
-        <div className="panel">
-          <div className="panel-head">
-            <div className="panel-head-left">Hits per request <span className="hint">what one call sets off downstream</span></div>
-            <CardMenu kind="list" title="Hits per request" />
-          </div>
-          <table className="ep-hits">
-            <tbody>
-              {hits.map(h => (
-                <tr key={h.name}>
-                  <td className="mono">{h.name}</td>
-                  <td className="num mono">{h.count}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <LatencyDrilldown
+        onOpenUpstream={onOpenUpstream}
+        p90Series={paymentServiceSeries.latencyP90}
+        p90EndpointLabel={ep.endpoint}
+      />
+      <div className="panel">
+        <div className="panel-head">
+          <div className="panel-head-left">Hits per request <span className="hint">what one call sets off downstream</span></div>
+          <CardMenu kind="list" title="Hits per request" />
         </div>
+        <table className="ep-hits">
+          <tbody>
+            {hits.map(h => (
+              <tr key={h.name}>
+                <td className="mono">{h.name}</td>
+                <td className="num mono">{h.count}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
+
+      <TrendCharts />
+      <SlowRequests onOpenTrace={onOpenTrace} />
+      <SlowRequests onOpenTrace={onOpenTrace} data={errorRequests} title="Requests with Errors" initialSort="none" />
+      <InfraCorrelation />
     </>
   )
 }
 
-function LatencyDrilldown({ onOpenUpstream }) {
+function LatencyDrilldown({ onOpenUpstream, p90Series, p90EndpointLabel }) {
   const layers = latencyDrilldown
   const total = layers.reduce((a, b) => a + b.ms, 0)
   const [search, setSearch] = useState('')
+  const [selected, setSelected] = useState(null)
+  // The Detail tab wants the same chart to also render a single p90 line for the
+  // open endpoint. The toggle is opt-in via `p90Series`, so Overview's call site
+  // keeps the old single-title header unchanged.
+  const [view, setView] = useState('drilldown')
+  const hasP90Toggle = !!p90Series
+  const isP90 = hasP90Toggle && view === 'p90'
 
-  // One list drives both halves of the panel: filtering the legend filters the
-  // chart. A legend that still lists four upstreams while the chart draws one
-  // would be the panel disagreeing with itself.
   const q = search.trim().toLowerCase()
   const shown = q ? layers.filter(l => l.label.toLowerCase().includes(q)) : layers
+
+  const chartLayers = selected && shown.some(l => l.label === selected)
+    ? shown.filter(l => l.label === selected)
+    : shown
 
   const N = 30, INCIDENT_IDX = 18
   const baselines = [40, 18, 12, 14], peaks = layers.map(d => d.ms)
@@ -248,20 +269,77 @@ function LatencyDrilldown({ onOpenUpstream }) {
     return entry
   }), [])
 
+  const p90Data = useMemo(() => p90Series ? chartData(p90Series) : null, [p90Series])
+
+  const info = (
+    <InfoTip label="About Latency Drilldown">
+      Break-down of average latency. Total latency can be less than the sum of individual
+      latencies for several reasons - parallel execution, async execution and so on. Total
+      latency reflects latency from the caller&apos;s perspective, while the sum of individual
+      latencies reflects the amount of resources consumed on the server.
+    </InfoTip>
+  )
+
   return (
     <div className="panel">
       <div className="panel-head is-divided">
         <div className="panel-head-left">
-          Latency Drilldown
-          <InfoTip label="About Latency Drilldown">
-            Break-down of average latency. Total latency can be less than the sum of individual
-            latencies for several reasons - parallel execution, async execution and so on. Total
-            latency reflects latency from the caller&apos;s perspective, while the sum of individual
-            latencies reflects the amount of resources consumed on the server.
-          </InfoTip>
+          {hasP90Toggle ? (
+            <>
+              <div className="seg-toggle" role="tablist" aria-label="Latency view">
+                <div
+                  role="tab"
+                  aria-selected={!isP90}
+                  className={`seg${!isP90 ? ' active' : ''}`}
+                  onClick={() => setView('drilldown')}
+                >
+                  Latency Drilldown
+                </div>
+                <div
+                  role="tab"
+                  aria-selected={isP90}
+                  className={`seg${isP90 ? ' active' : ''}`}
+                  onClick={() => setView('p90')}
+                >
+                  p90 Latency
+                </div>
+              </div>
+              {!isP90 && info}
+            </>
+          ) : (
+            <>
+              Latency Drilldown
+              {info}
+            </>
+          )}
         </div>
-        <CardMenu kind="chart" title="Latency Drilldown" total="Total" />
+        {isP90
+          ? <CardMenu kind="chart" title="p90 Latency" />
+          : <CardMenu kind="chart" title="Latency Drilldown" total="Total" />}
       </div>
+      {isP90 ? (
+        <div className="drill2 drill2-single">
+          <div className="drill2-chart" style={{ width: '100%' }}>
+            <div style={{ width: '100%', height: 260 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={p90Data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid {...GRID_PROPS} />
+                  <XAxis {...timeAxisProps(p90Data.length)} />
+                  <YAxis {...valueAxisProps({ format: v => `${Math.round(v)} ms`, maxValue: maxOf(p90Data, 'value') })} />
+                  <Tooltip content={<SvcTooltip color="#F472B6" unit=" ms" formatVal={v => Math.round(v)} />} {...NO_ANIM} />
+                  <Line {...LINE_PROPS} dataKey="value" stroke="#F472B6" strokeWidth={1.6} dot={false} activeDot={{ r: 3, strokeWidth: 0 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+            {p90EndpointLabel && (
+              <div className="drill2-single-legend">
+                <span className="drill2-swatch" style={{ background: '#F472B6' }} />
+                <span className="mono">{p90EndpointLabel}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
       <div className="drill2">
         <div className="drill2-chart">
           <div style={{ width: '100%', height: 260 }}>
@@ -269,9 +347,9 @@ function LatencyDrilldown({ onOpenUpstream }) {
               <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                 <CartesianGrid {...GRID_PROPS} />
                 <XAxis {...timeAxisProps(data.length)} />
-                <YAxis {...valueAxisProps({ maxValue: total })} />
+                <YAxis {...valueAxisProps({ maxValue: selected ? maxOf(data, [selected]) : total })} />
                 <Tooltip content={<DrilldownTooltip />} {...NO_ANIM} />
-                {shown.map(layer => (
+                {chartLayers.map(layer => (
                   <Area key={layer.label} {...AREA_PROPS} dataKey={layer.label} stackId="stack"
                     stroke={layer.color} fill={layer.color} fillOpacity={0.18} strokeWidth={1.5}
                     dot={false} activeDot={{ r: 3, strokeWidth: 0 }} />
@@ -292,32 +370,36 @@ function LatencyDrilldown({ onOpenUpstream }) {
             />
           </div>
           {shown.map(d => {
-            // The share stays measured against the whole, so filtering narrows
-            // what is on screen without restating what each upstream costs.
             const pct = ((d.ms / total) * 100).toFixed(1)
+            const dimmed = selected && selected !== d.label
             return (
-              <button
-                type="button"
-                className="drill2-item"
+              <div
+                className={`drill2-item${dimmed ? ' dimmed' : ''}`}
                 key={d.label}
-                onClick={() => onOpenUpstream?.(d.label)}
-                title={`${d.label} - open the External view`}
+                onClick={() => setSelected(s => s === d.label ? null : d.label)}
               >
                 <div className="drill2-row">
                   <span className="drill2-swatch" style={{ background: d.color }} />
                   <span className="drill2-label">{d.label}</span>
                   <span className="drill2-pct">{pct}%</span>
                   <span className="drill2-val">{d.ms}<span className="drill2-unit"> ms</span></span>
-                  <svg className="drill2-go" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M14 4h6v6M20 4l-8 8M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5" />
-                  </svg>
+                  <button
+                    type="button"
+                    className="drill2-go-btn"
+                    onClick={e => { e.stopPropagation(); onOpenUpstream?.(d.label) }}
+                    title={`${d.label} - open the External view`}
+                  >
+                    <svg className="drill2-go" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M14 4h6v6M20 4l-8 8M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5" />
+                    </svg>
+                  </button>
                 </div>
                 <div className="drill2-bartrack"><div className="drill2-barfill" style={{ width: `${pct}%`, background: d.color, opacity: 0.75 }} /></div>
-              </button>
+              </div>
             )
           })}
           {shown.length === 0 && (
-            <div className="drill2-empty">No upstream matches “{search.trim()}”</div>
+            <div className="drill2-empty">No upstream matches "{search.trim()}"</div>
           )}
           <div className="drill2-total">
             <span className="drill2-total-lbl">Total</span>
@@ -325,6 +407,7 @@ function LatencyDrilldown({ onOpenUpstream }) {
           </div>
         </div>
       </div>
+      )}
     </div>
   )
 }
@@ -354,27 +437,23 @@ const SLOWREQ_SORTS = [
   { id: 'none', label: 'None' },
 ]
 
-function SlowRequests({ onOpenTrace }) {
-  const [sortBy, setSortBy] = useState('latency')
-  const [selected, setSelected] = useState(slowRequests[0].traceId)
+function SlowRequests({ onOpenTrace, data = slowRequests, title = 'Slow Requests', initialSort = 'latency' }) {
+  const [sortBy, setSortBy] = useState(initialSort)
+  const [selected, setSelected] = useState(null)
   const [collapsed, setCollapsed] = useState(() => new Set())
   const [span, setSpan] = useState(null)
 
-  // "None" is the order the backend returned, so it has to be the untouched
-  // list rather than another sort that happens to look unsorted.
   const rows = useMemo(() => {
-    if (sortBy === 'none') return slowRequests
-    const list = [...slowRequests]
+    if (sortBy === 'none') return data
+    const list = [...data]
     if (sortBy === 'latency') list.sort((a, b) => b.latencyMs - a.latencyMs)
     else list.sort((a, b) => parseInt(a.timestamp, 10) - parseInt(b.timestamp, 10))
     return list
-  }, [sortBy])
+  }, [sortBy, data])
 
-  const row = rows.find(r => r.traceId === selected) ?? rows[0]
+  const row = selected ? rows.find(r => r.traceId === selected) : null
 
-  // The same builder the trace details page uses, so the preview is that page's
-  // trace rather than a sketch of one.
-  const trace = useMemo(() => buildTrace(row.traceId), [row.traceId])
+  const trace = useMemo(() => row ? buildTrace(row.traceId) : null, [row?.traceId])
 
   const toggle = useCallback(id => setCollapsed(prev => {
     const next = new Set(prev)
@@ -386,7 +465,7 @@ function SlowRequests({ onOpenTrace }) {
   return (
     <div className="panel">
       <div className="panel-head is-divided">
-        <div className="panel-head-left">Slow Requests <span className="hint">{rows.length} results</span></div>
+        <div className="panel-head-left">{title} <span className="hint">{rows.length} results</span></div>
         <div className="panel-head-right">
           <span className="sort-lbl">Sort by</span>
           <div className="seg-toggle">
@@ -394,7 +473,7 @@ function SlowRequests({ onOpenTrace }) {
               <div key={s.id} className={`seg${sortBy === s.id ? ' active' : ''}`} onClick={() => setSortBy(s.id)}>{s.label}</div>
             ))}
           </div>
-          <CardMenu kind="list" title="Slow Requests" />
+          <CardMenu kind="list" title={title} />
         </div>
       </div>
       <div className="slowreq-split">
@@ -402,10 +481,10 @@ function SlowRequests({ onOpenTrace }) {
           {rows.map(r => (
             <button
               type="button"
-              className={`slowreq-row${r.traceId === row.traceId ? ' selected' : ''}`}
+              className={`slowreq-row${r.traceId === selected ? ' selected' : ''}`}
               key={r.traceId}
               onClick={() => setSelected(r.traceId)}
-              aria-pressed={r.traceId === row.traceId}
+              aria-pressed={r.traceId === selected}
             >
               <div>
                 <div className="ep">{r.endpoint}</div>
@@ -416,32 +495,43 @@ function SlowRequests({ onOpenTrace }) {
           ))}
         </div>
         <div className="slowreq-preview">
-          <div className="slowreq-preview-head">
-            <span className="slowreq-preview-ep">{row.endpoint}</span>
-            <button
-              type="button"
-              className="slowreq-trace-link"
-              onClick={() => onOpenTrace?.(row.traceId)}
-              title={`Open trace ${row.traceId} in trace details`}
-            >
-              Trace ID · <span className="mono">{row.traceId}</span>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M14 4h6v6M20 4l-8 8M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5" />
-              </svg>
-            </button>
-          </div>
-          {trace ? (
-            <div className="slowreq-waterfall">
-              <Waterfall
-                trace={trace}
-                selected={span}
-                onSelect={setSpan}
-                collapsed={collapsed}
-                onToggle={toggle}
-              />
-            </div>
+          {row ? (
+            <>
+              <div className="slowreq-preview-head">
+                <span className="slowreq-preview-ep">{row.endpoint}</span>
+                <button
+                  type="button"
+                  className="slowreq-trace-link"
+                  onClick={() => onOpenTrace?.(row.traceId)}
+                  title={`Open trace ${row.traceId} in trace details`}
+                >
+                  Trace ID · <span className="mono">{row.traceId}</span>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M14 4h6v6M20 4l-8 8M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5" />
+                  </svg>
+                </button>
+              </div>
+              {trace ? (
+                <div className="slowreq-waterfall">
+                  <Waterfall
+                    trace={trace}
+                    selected={span}
+                    onSelect={setSpan}
+                    collapsed={collapsed}
+                    onToggle={toggle}
+                  />
+                </div>
+              ) : (
+                <div className="drill2-empty">No spans recorded for this trace.</div>
+              )}
+            </>
           ) : (
-            <div className="drill2-empty">No spans recorded for this trace.</div>
+            <div className="slowreq-empty">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M3 12h4l3-9 4 18 3-9h4" />
+              </svg>
+              <span>Select a request to view its trace</span>
+            </div>
           )}
         </div>
       </div>
@@ -475,111 +565,143 @@ function InfraCorrelation() {
   )
 }
 
-const RED_COLUMNS = ['Total Req', 'Time Consumed %', 'RPM', 'p90', 'Avg', 'Error %']
+// The table/graph choice belongs to the page rather than the panel - it now
+// sits in the filter strip beside Category, Host and Version, which is where a
+// reader already goes to change what the page is showing.
+function RedViewToggle({ view, setView }) {
+  const isGraph = view === 'graph'
+  return (
+    <div className="view-toggle">
+      <button
+        type="button"
+        className={`view-toggle-btn${!isGraph ? ' active' : ''}`}
+        onClick={() => setView('table')}
+        title="Table view"
+        aria-label="Table view"
+        aria-pressed={!isGraph}
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18M3 15h18M9 3v18" /></svg>
+      </button>
+      <button
+        type="button"
+        className={`view-toggle-btn${isGraph ? ' active' : ''}`}
+        onClick={() => setView('graph')}
+        title="Graph view"
+        aria-label="Graph view"
+        aria-pressed={isGraph}
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg>
+      </button>
+    </div>
+  )
+}
 
-function RedTab() {
-  const [redView, setRedView] = useState('table')
-  const isGraph = redView === 'graph'
+function RedDrilldownChart({ title, eps, dataKey, fmtFn }) {
+  const [search, setSearch] = useState('')
+  const [selected, setSelected] = useState(null)
 
-  const EP_COLORS = ['#3B82F6', '#34D399', '#F472B6', '#A78BFA']
-  const eps = redEndpoints.slice(0, 4)
-  const N2 = 30, INC2 = 18
+  const q = search.trim().toLowerCase()
+  const shownIdxs = q
+    ? eps.reduce((a, ep, i) => ep.endpoint.toLowerCase().includes(q) ? [...a, i] : a, [])
+    : eps.map((_, i) => i)
 
-  const makeRedChart = (title, valFn, fmtFn) => {
-    const chartData2 = Array.from({ length: N2 }, (_, i) => {
-      const minsAgo = (N2 - 1 - i) * 2
+  const chartIdxs = selected != null && shownIdxs.includes(selected)
+    ? [selected]
+    : shownIdxs
+
+  const data = useMemo(() => {
+    const N = 30, INC = 18
+    return Array.from({ length: N }, (_, i) => {
+      const minsAgo = (N - 1 - i) * 2
       const t = new Date(BASE_TIME.getTime() - minsAgo * 60 * 1000)
       const hh = t.getHours().toString().padStart(2, '0')
       const mm = t.getMinutes().toString().padStart(2, '0')
-      const label = minsAgo === 0 ? 'now' : `-${minsAgo}m`
-      const entry = { label, exactTime: `${hh}:${mm}` }
+      const entry = { label: minsAgo === 0 ? 'now' : `-${minsAgo}m`, exactTime: `${hh}:${mm}` }
       eps.forEach((ep, ei) => {
-        const base = valFn(ep)
+        const base = ep[dataKey]
         const j = Math.sin(i * 3.7 + ei * 2.1) * 0.09 + Math.cos(i * 6.3 + ei * 1.4) * 0.05
-        const spike = i >= INC2 ? Math.min(1, (i - INC2) / 6) * (ep.errPct > 3 ? 0.28 : 0.04) : 0
+        const spike = i >= INC ? Math.min(1, (i - INC) / 6) * (ep.errPct > 3 ? 0.28 : 0.04) : 0
         entry[`ep${ei}`] = base * (1 + j + spike)
       })
       return entry
     })
+  }, [eps, dataKey])
 
-    return (
-      <div className="red-chart-section" key={title}>
-        <div className="red-chart-title-row">{title}</div>
-        <div className="red-chart-body">
-          <div className="red-chart-svg-wrap">
-            <div style={{ width: '100%', height: 130 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chartData2} margin={{ top: 6, right: 8, left: 0, bottom: 0 }}>
-                  <CartesianGrid {...GRID_PROPS} />
-                  <XAxis {...timeAxisProps(chartData2.length)} />
-                  <YAxis {...valueAxisProps({ format: fmtFn, maxValue: maxOf(chartData2, eps.map((_, ei) => `ep${ei}`)) })} />
-                  <Tooltip content={(p) => <RedChartTooltip {...p} eps={eps} colors={EP_COLORS} fmtFn={fmtFn} />} {...NO_ANIM} />
-                  {eps.map((_, ei) => (
-                    <Line key={ei} {...LINE_PROPS} dataKey={`ep${ei}`} stroke={EP_COLORS[ei]} strokeWidth={1.5} dot={false} activeDot={{ r: 3, strokeWidth: 0 }} />
-                  ))}
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-          <div className="red-chart-legend">
-            {eps.map((ep, ei) => {
-              const epShort = ep.endpoint.length > 26 ? ep.endpoint.slice(0, 24) + '…' : ep.endpoint
-              return (
-                <div className="red-legend-row" key={ei}>
-                  <div className="red-legend-dash" style={{ background: EP_COLORS[ei] }} />
-                  <span className="red-legend-ep">{epShort}</span>
-                  <span className="red-legend-val">{fmtFn(valFn(ep))}</span>
-                </div>
-              )
-            })}
+  return (
+    <div className="panel">
+      <div className="panel-head is-divided">
+        <div className="panel-head-left">{title}</div>
+        <CardMenu kind="chart" title={title} />
+      </div>
+      <div className="drill2">
+        <div className="drill2-chart">
+          <div style={{ width: '100%', height: 260 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid {...GRID_PROPS} />
+                <XAxis {...timeAxisProps(data.length)} />
+                <YAxis {...valueAxisProps({ format: fmtFn, maxValue: maxOf(data, chartIdxs.map(i => `ep${i}`)) })} />
+                <Tooltip content={p => <RedChartTooltip {...p} eps={eps} colors={RED_EP_COLORS} fmtFn={fmtFn} />} {...NO_ANIM} />
+                {chartIdxs.map(ei => (
+                  <Line key={ei} {...LINE_PROPS} dataKey={`ep${ei}`} stroke={RED_EP_COLORS[ei]} strokeWidth={1.5} dot={false} activeDot={{ r: 3, strokeWidth: 0 }} />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
           </div>
         </div>
-      </div>
-    )
-  }
-
-  const fmtMs = v => `${Math.round(v)} ms`
-  const fmtRpm = v => v >= 1000 ? `${(v / 1000).toFixed(1)}K` : Math.round(v).toString()
-  const fmtPct = v => `${v.toFixed(2)}%`
-
-  const viewToggle = (
-    <div className="view-toggle">
-      <div className={`view-toggle-btn${!isGraph ? ' active' : ''}`} onClick={() => setRedView('table')} title="Table view">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18M3 15h18M9 3v18" /></svg>
-      </div>
-      <div className={`view-toggle-btn${isGraph ? ' active' : ''}`} onClick={() => setRedView('graph')} title="Graph view">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg>
+        <div className="drill2-legend">
+          <div className="drill2-search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></svg>
+            <input
+              type="search"
+              aria-label="Search endpoints"
+              placeholder="Search endpoints…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </div>
+          {shownIdxs.map(ei => {
+            const dimmed = selected != null && selected !== ei
+            return (
+              <div
+                className={`drill2-item${dimmed ? ' dimmed' : ''}`}
+                key={ei}
+                onClick={() => setSelected(s => s === ei ? null : ei)}
+              >
+                <div className="drill2-row">
+                  <span className="drill2-swatch" style={{ background: RED_EP_COLORS[ei] }} />
+                  <span className="drill2-label">{eps[ei].endpoint}</span>
+                  <span className="drill2-val">{fmtFn(eps[ei][dataKey])}</span>
+                </div>
+              </div>
+            )
+          })}
+          {shownIdxs.length === 0 && (
+            <div className="drill2-empty">No endpoints match &ldquo;{search.trim()}&rdquo;</div>
+          )}
+        </div>
       </div>
     </div>
   )
+}
+
+function RedTab({ redView }) {
+  const isGraph = redView === 'graph'
+  const eps = redEndpoints.slice(0, 4)
 
   if (isGraph) {
     return (
-      <div className="panel">
-        <div className="panel-head">
-          <div className="panel-head-left">RED - endpoint breakdown <span className="hint">POST /v1/payments/:id/capture is slowest &amp; highest-error</span></div>
-          <div className="panel-head-right">
-            {viewToggle}
-            <CardMenu kind="table" title="RED - endpoint breakdown" columns={RED_COLUMNS} />
-          </div>
-        </div>
-        {makeRedChart('RPM', ep => ep.rpm, fmtRpm)}
-        {makeRedChart('Response Time (p90)', ep => ep.p90, fmtMs)}
-        {makeRedChart('Response Time (avg)', ep => ep.avg, fmtMs)}
-        {makeRedChart('Error %', ep => ep.errPct, fmtPct)}
-      </div>
+      <>
+        <RedDrilldownChart title="RPM" eps={eps} dataKey="rpm" fmtFn={fmtRedRpm} />
+        <RedDrilldownChart title="Response Time (p90)" eps={eps} dataKey="p90" fmtFn={fmtRedMs} />
+        <RedDrilldownChart title="Response Time (avg)" eps={eps} dataKey="avg" fmtFn={fmtRedMs} />
+        <RedDrilldownChart title="Error %" eps={eps} dataKey="errPct" fmtFn={fmtRedPct} />
+      </>
     )
   }
 
   return (
     <div className="panel">
-      <div className="panel-head">
-        <div className="panel-head-left">RED - endpoint breakdown <span className="hint">POST /v1/payments/:id/capture is slowest &amp; highest-error</span></div>
-        <div className="panel-head-right">
-          {viewToggle}
-          <CardMenu kind="table" title="RED - endpoint breakdown" columns={RED_COLUMNS} />
-        </div>
-      </div>
       <table>
         <thead><tr><th style={{ textAlign: 'left' }}>Endpoint</th><th>Total Req</th><th>Time Consumed %</th><th>RPM</th><th>p90</th><th>Avg</th><th>Error %</th></tr></thead>
         <tbody>
@@ -1088,6 +1210,7 @@ export default function ServiceOverview({ serviceId, onSelectService, onOpenTrac
   const view = serviceSubTab || 'overview'
   const viewLabel = view === 'red' ? 'RED' : view === 'db' ? 'DB' : view[0].toUpperCase() + view.slice(1)
 
+  const [redView, setRedView] = useState('table')
   const [filterCategory, setFilterCategory] = useState('ALL')
   const [filterHost, setFilterHost] = useState('ALL')
   const [filterVersion, setFilterVersion] = useState('ALL')
@@ -1118,9 +1241,9 @@ export default function ServiceOverview({ serviceId, onSelectService, onOpenTrac
       </>
     )
   } else if (serviceSubTab === 'detail') {
-    body = <EndpointTab endpoint={endpoint} setEndpoint={setEndpoint} onOpenUpstream={openExternal} />
+    body = <EndpointTab endpoint={endpoint} setEndpoint={setEndpoint} onOpenUpstream={openExternal} onOpenTrace={onOpenTrace} />
   } else if (serviceSubTab === 'red') {
-    body = <RedTab />
+    body = <RedTab redView={redView} />
   } else if (serviceSubTab === 'external') {
     body = <ExternalTab svc={svc} />
   } else if (serviceSubTab === 'db') {
@@ -1163,6 +1286,7 @@ export default function ServiceOverview({ serviceId, onSelectService, onOpenTrac
         <div className="subtab-row">
           <ServicePicker serviceId={svc.id} onSelect={onSelectService} />
           <div className="subtab-filters">
+            {serviceSubTab === 'red' && <RedViewToggle view={redView} setView={setRedView} />}
             <FilterSelect label="Category" value={filterCategory} options={FILTER_OPTS.category} onSelect={setFilterCategory} />
             <FilterSelect label="Host" value={filterHost} options={FILTER_OPTS.host} onSelect={setFilterHost} />
             <FilterSelect label="Version" value={filterVersion} options={FILTER_OPTS.version} onSelect={setFilterVersion} />
