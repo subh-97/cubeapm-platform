@@ -1,6 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { Gauge, Crosshair, ChartLine, Globe, Database, TriangleAlert, GitBranch, Cpu } from 'lucide-react'
 import HomeSkeleton from '@/pages/HomeSkeleton'
 import Walkthrough from '@/components/Walkthrough'
 import Toast from '@/components/Toast'
@@ -33,17 +32,6 @@ const INFRA_NAV_ITEMS = getInfraNavItems()
 
 // The views of one service, listed in the card's left column. Which service
 // you are looking at is picked in the page itself, by ServicePicker.
-const SERVICE_VIEWS = [
-  { id: 'overview', label: 'Overview', Icon: Gauge },
-  { id: 'detail', label: 'Detail', Icon: Crosshair },
-  { id: 'red', label: 'RED', Icon: ChartLine },
-  { id: 'external', label: 'External', Icon: Globe },
-  { id: 'db', label: 'DB', Icon: Database },
-  { id: 'errors', label: 'Errors', Icon: TriangleAlert },
-  { id: 'traces', label: 'Traces', Icon: GitBranch },
-  { id: 'runtime', label: 'Runtime', Icon: Cpu },
-]
-
 export default function App() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -212,25 +200,7 @@ export default function App() {
         setTheme={setTheme}
       />
       <div className="main">
-        <div className={`surface-card${isService || isInfra ? ' svc-view' : ''}`}>
-          {isService && (
-            <div className="svc-sidebar svc-views" role="tablist" aria-label="Service views" aria-orientation="vertical">
-              {SERVICE_VIEWS.map(({ Icon, ...v }) => (
-                <div
-                  key={v.id}
-                  role="tab"
-                  aria-selected={serviceSubTab === v.id}
-                  tabIndex={0}
-                  className={`svc-sidebar-item${serviceSubTab === v.id ? ' active' : ''}`}
-                  onClick={() => setServiceSubTab(v.id)}
-                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setServiceSubTab(v.id) } }}
-                >
-                  <Icon className="svc-sidebar-icon" size={14} strokeWidth={1.75} aria-hidden="true" />
-                  <span className="svc-sidebar-name">{v.label}</span>
-                </div>
-              ))}
-            </div>
-          )}
+        <div className={`surface-card${isInfra ? ' svc-view' : ''}`}>
           {isInfra && (
             <div className="svc-sidebar">
               <div className="svc-sidebar-label">Sources</div>
