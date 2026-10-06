@@ -70,6 +70,60 @@ export const paymentServiceSeries = {
   apdex: generateSeries({ baseline: 0.98, incidentStartMinutesAgo: 22, incidentMultiplier: 0.55, noise: 0.02, seed: 44 }),
 }
 
+// Deploys roll one version at a time, so in any given minute a single version is
+// serving and the rest are idle. Charted by version, that paints the window in
+// bands: the envelope is the metric, the colour is whatever was deployed then.
+const ROLLOUT_VERSIONS = [
+  'v2.48.21', 'v2.48.22', 'v2.48.23', 'v2.49.0', 'v2.49.1', 'v2.49.2', 'v2.49.3',
+  'v2.49.4', 'v2.49.5', 'v2.49.6', 'v2.49.7', 'v2.49.8', 'v2.49.9', 'v2.49.10',
+]
+
+const BAND_POINTS = 60
+
+// Which version owns each minute, in runs of three to six.
+const VERSION_AT = (() => {
+  const out = []
+  let s = 7, vi = 0
+  const rnd = () => { s = (s * 9301 + 49297) % 233280; return s / 233280 }
+  while (out.length < BAND_POINTS) {
+    const run = 3 + Math.floor(rnd() * 4)
+    const v = ROLLOUT_VERSIONS[vi++ % ROLLOUT_VERSIONS.length]
+    for (let i = 0; i < run && out.length < BAND_POINTS; i++) out.push(v)
+  }
+  return out
+})()
+
+// Traffic swells and settles across the window rather than holding flat. The
+// wave is phased to cross zero at the newest sample, so the chart still lands on
+// the rate the KPI card reports for "now".
+const rpmSwell = paymentServiceSeries.rpm.map((d, i) => {
+  const x = i - BAND_POINTS + 1
+  return { m: d.m, value: d.value * (1 + 0.45 * Math.sin(x / 6.4) + 0.16 * Math.sin(x / 2.3)) }
+})
+
+// Spread an aggregate across the bands. `idle` is 0 where the chart stacks - the
+// band has to reach the axis - and null where it draws lines, so a line stops at
+// the end of its deploy instead of diving to zero.
+function bandByVersion(series, { idle = null, jitter = 0, seed = 1 } = {}) {
+  let s = seed
+  const rnd = () => { s = (s * 9301 + 49297) % 233280; return s / 233280 }
+  return ROLLOUT_VERSIONS.map(v => ({
+    label: v,
+    series: series.map((d, i) => ({
+      m: d.m,
+      value: VERSION_AT[i] === v
+        ? Math.round(d.value * (1 + (rnd() - 0.5) * jitter) * 1000) / 1000
+        : idle,
+    })),
+  }))
+}
+
+export const versionBands = {
+  rpm: bandByVersion(rpmSwell, { idle: 0, jitter: 0.12, seed: 301 }),
+  errorRatePct: bandByVersion(paymentServiceSeries.errorRatePct, { jitter: 0.55, seed: 302 }),
+  apdex: bandByVersion(paymentServiceSeries.apdex, { jitter: 0.04, seed: 303 }),
+}
+
 export const fleetSeries = {
   rpm: generateSeries({ baseline: 5700, noise: 0.05, seed: 101 }),
   errorsPerMin: generateSeries({ baseline: 3, incidentStartMinutesAgo: 22, incidentMultiplier: 15, noise: 0.2, seed: 102 }),
@@ -152,6 +206,30 @@ export const externalEndpoints = [
   { endpoint: 'POST maps.googleapis.com/maps/api/geocode', kind: 'http', timeConsumedPct: 12, rpm: 14.7, avg: 62, p90: 110, errPct: 0.4 },
   { endpoint: 'GET email.ap-south-1.amazonaws.com/v1/send', kind: 'http', timeConsumedPct: 8, rpm: 8.3, avg: 41, p90: 90, errPct: 0 },
 ]
+
+// Which service endpoints originate each external call. Rows roll up the same
+// metrics as the external row itself, split by the caller; percentages add to
+// 100 within one external endpoint.
+export const externalEndpointCallers = {
+  'POST api.twilio.com/2010-04-01/Messages.json': [
+    { endpoint: 'POST /v1/payments/:id/capture', kind: 'web', timeConsumedPct: 54, rpm: 22.3, avg: 221, errPct: 6.3 },
+    { endpoint: 'POST /v1/payments', kind: 'web', timeConsumedPct: 31, rpm: 12.8, avg: 208, errPct: 5.4 },
+    { endpoint: 'PATCH /v1/payments/:id', kind: 'web', timeConsumedPct: 15, rpm: 6.1, avg: 196, errPct: 4.1 },
+  ],
+  'GET api.twilio.com/2010-04-01/Accounts': [
+    { endpoint: 'GET /v1/payments/:id', kind: 'web', timeConsumedPct: 71, rpm: 16.3, avg: 85, errPct: 0.2 },
+    { endpoint: 'GET /v1/payments/:id/status', kind: 'web', timeConsumedPct: 29, rpm: 6.6, avg: 82, errPct: 0.2 },
+  ],
+  'POST maps.googleapis.com/maps/api/geocode': [
+    { endpoint: 'POST /v1/payments', kind: 'web', timeConsumedPct: 48, rpm: 7.1, avg: 64, errPct: 0.5 },
+    { endpoint: 'POST /v1/payments/:id/capture', kind: 'web', timeConsumedPct: 28, rpm: 4.1, avg: 61, errPct: 0.3 },
+    { endpoint: 'GET /v1/payments/:id', kind: 'web', timeConsumedPct: 16, rpm: 2.3, avg: 60, errPct: 0.4 },
+    { endpoint: 'PATCH /v1/payments/:id', kind: 'web', timeConsumedPct: 8, rpm: 1.2, avg: 58, errPct: 0.3 },
+  ],
+  'GET email.ap-south-1.amazonaws.com/v1/send': [
+    { endpoint: 'POST /v1/payments/:id/capture', kind: 'web', timeConsumedPct: 100, rpm: 8.3, avg: 41, errPct: 0 },
+  ],
+}
 
 export const dbEndpoints = [
   { endpoint: 'SELECT payments.transactions', kind: 'mysql', timeConsumedPct: 54, rpm: 210.4, avg: 38, p90: 65, errPct: 0 },

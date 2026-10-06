@@ -555,7 +555,10 @@ a { color: inherit; }
 .panel-head .hint { font-size: 11px; color: var(--text-muted); font-weight: 400; }
 .panel-head-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .panel-head-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-.panel-head.is-divided { border-bottom: 1px solid var(--border-subtle); }
+/* A panel's own header rule reads as part of the container, so it matches the
+   container's border rather than sitting a shade lighter than it. Rules nested
+   deeper inside a panel stay on the subtler token. */
+.panel-head.is-divided { border-bottom: 1px solid var(--card-border); }
 .view-toggle { display: inline-flex; background: var(--panel); border-radius: var(--radius-sm); padding: 2px; gap: 1px; }
 .view-toggle-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 26px; padding: 0 10px;
   background: none; border: none; border-radius: 4px; cursor: pointer; color: var(--text-muted); font-size: 11.5px; font-weight: 500;
@@ -717,11 +720,33 @@ tbody tr:hover { background: var(--panel-2); }
  * The mock data makes that call noisier than useful (every value lights up red),
  * so these two classes now keep weight for emphasis and defer color to the
  * surrounding text. Status is still carried by the row's dot / badge. */
-.val-critical { color: var(--text-primary); font-weight: 600; }
-.val-warning { color: var(--text-primary); font-weight: 600; }
+/* Numeric cells in service tables used to pick a severity color per threshold
+ * and bump weight to 600. Both were doing the same job — shouting severity.
+ * Now that the color is gone, the extra weight shouts without justification,
+ * so these just render as plain text. Severity still reads from status dots /
+ * badges / card borders. */
+.val-critical { color: var(--text-primary); font-weight: 400; }
+.val-warning { color: var(--text-primary); font-weight: 400; }
 .cell-bar { display: inline-flex; align-items: center; gap: 9px; justify-content: flex-end; width: 100%; }
-.cell-bar .track { width: 54px; height: 4px; border-radius: 2px; background: var(--border-panel); overflow: hidden; flex-shrink: 0; }
-.cell-bar .fill { height: 100%; border-radius: 2px; }
+/* Track and fill are spans, so both need an explicit block display: an inline
+   box ignores width and height, which left every fill a 0x0 element and the
+   bar reading as an empty track whatever the value was. */
+.cell-bar .track { display: block; width: 54px; height: 4px; border-radius: 2px; background: var(--border-panel); overflow: hidden; flex-shrink: 0; }
+.cell-bar .fill { display: block; height: 100%; border-radius: 2px; min-width: 1px; }
+
+/* RED table header: a single row where the search input stretches and the
+   overflow menu sits at the far right. No title - the columns name themselves. */
+.red-table-head { padding: 10px 12px; }
+.red-head-left { flex: 1; min-width: 0; gap: 10px; }
+.red-head-left .red-table-search { flex: 1; min-width: 0; width: auto; }
+/* The four RED charts read as one set, so they sit in a single panel under the
+   shared header and are separated from each other by a rule rather than a gap. */
+.red-chart-section + .red-chart-section { border-top: 1px solid var(--border-subtle); }
+.red-chart-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px 10px; font-size: 13px; font-weight: 600;
+  border-bottom: 1px solid var(--border-subtle); }
+.red-table-search { width: 100%; background: transparent; border: 1px solid var(--border-subtle); color: var(--text-primary); font-family: inherit; font-size: 11.5px; border-radius: var(--radius-sm); padding: 7px 11px; outline: none; }
+.red-table-search::placeholder { color: var(--text-muted); }
+.red-table-search:focus { border-color: var(--brand); }
 .badge { font-size: 9.5px; font-weight: 600; padding: 2px 7px; border-radius: 99px; text-transform: uppercase; letter-spacing: .3px; }
 .badge.critical { background: rgba(239,68,68,.15); color: var(--critical-fg); }
 .badge.warning { background: rgba(245,158,11,.15); color: var(--warning-fg); }
@@ -802,12 +827,12 @@ tbody tr:hover { background: var(--panel-2); }
   font-size: 11.5px; color: var(--text-secondary); padding-top: 6px; }
 .drill2-single-legend .drill2-swatch { width: 10px; height: 10px; border-radius: 50%; }
 .drill2-search { display: flex; align-items: center; gap: 7px; padding: 5px 9px; margin-bottom: 1px;
-  background: var(--panel); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); }
+  background: transparent; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); }
 .drill2-search svg { width: 13px; height: 13px; color: var(--text-muted); flex-shrink: 0; }
 .drill2-search input { flex: 1; min-width: 0; background: none; border: none; outline: none;
   font-family: inherit; font-size: 11.5px; color: var(--text-primary); }
 .drill2-search input::placeholder { color: var(--text-muted); }
-.drill2-search:focus-within { border-color: var(--brand); background: var(--panel-2); }
+.drill2-search:focus-within { border-color: var(--brand); }
 
 .drill2-item { display: flex; flex-direction: column; gap: 5px; width: 100%; padding: 4px 6px;
   margin: -4px -6px; background: none; border: none; border-radius: var(--radius-sm);
@@ -854,7 +879,7 @@ tbody tr:hover { background: var(--panel-2); }
 .slowreq-row:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
 .slowreq-row .ep { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-primary); }
 .slowreq-row .meta { color: var(--text-muted); font-size: 10.5px; margin-top: 2px; }
-.slowreq-row .dur { font-weight: 600; color: var(--text-primary); font-size: 13px; white-space: nowrap; }
+.slowreq-row .dur { font-weight: 400; color: var(--text-primary); font-size: 13px; white-space: nowrap; }
 .slowreq-preview { min-width: 0; padding: 12px 16px 14px; }
 .slowreq-preview-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .slowreq-preview-ep { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-primary);
@@ -893,19 +918,24 @@ tbody tr:hover { background: var(--panel-2); }
 .placeholder { padding: 44px; text-align: center; color: var(--text-muted); }
 .placeholder svg { width: 20px; height: 20px; margin-bottom: 8px; }
 
-/* ============ split-breakdown (External / DB tabs) ============ */
-.svc-split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 20px; align-items: start; }
-.split-endpoints { }
+/* ============ split-breakdown (External / DB tabs) ============
+ * The two halves — endpoint list on the left, trend charts on the right — read
+ * as one bounded panel split by a single vertical rule, so the eye stops
+ * treating them as unrelated cards. */
+.svc-split { display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin-bottom: 20px; align-items: stretch;
+  background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); overflow: hidden; }
+.svc-split > .split-endpoints { border-right: 1px solid var(--border-subtle); }
+.split-endpoints { background: transparent; border: none; border-radius: 0; }
 .split-endpoints .panel-head { border-bottom: 1px solid var(--border-subtle); }
-.split-endpoints-search { padding: 8px 12px; border-bottom: 1px solid var(--border-subtle); background: var(--card); }
-.split-endpoints-search input { width: 100%; background: var(--panel); border: 1px solid var(--border-subtle); color: var(--text-primary); font-family: inherit; font-size: 11.5px; border-radius: var(--radius-sm); padding: 6px 10px; outline: none; }
+.split-endpoints-search { padding: 8px 12px; border-bottom: 1px solid var(--border-subtle); background: transparent; }
+.split-endpoints-search input { width: 100%; background: transparent; border: 1px solid var(--border-subtle); color: var(--text-primary); font-family: inherit; font-size: 11.5px; border-radius: var(--radius-sm); padding: 6px 10px; outline: none; }
 .split-endpoints-search input::placeholder { color: var(--text-muted); }
-.split-endpoints-search input:focus { border-color: var(--brand); background: var(--panel-2); }
-.split-ep-row { display: grid; grid-template-columns: 1fr 88px 60px 66px 60px; gap: 10px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--border-subtle); font-size: 11.5px; cursor: pointer; transition: background .1s; }
+.split-endpoints-search input:focus { border-color: var(--brand); }
+.split-ep-row { display: grid; grid-template-columns: 1fr 88px 60px 66px 72px; gap: 10px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--border-subtle); font-size: 11.5px; cursor: pointer; transition: background .1s; }
 .split-ep-row:hover { background: var(--panel-2); }
 .split-ep-row.selected { background: var(--brand-muted); }
-.split-ep-head { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; padding: 8px 14px; display: grid; grid-template-columns: 1fr 88px 60px 66px 60px; gap: 10px; align-items: center; }
-.split-ep-head span { text-align: right; }
+.split-ep-head { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; padding: 8px 14px; display: grid; grid-template-columns: 1fr 88px 60px 66px 72px; gap: 10px; align-items: center; }
+.split-ep-head span { text-align: right; white-space: nowrap; }
 .split-ep-head span:first-child { text-align: left; }
 .split-ep-head.is-sortable .split-ep-head-cell { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; justify-content: flex-end; }
 .split-ep-head.is-sortable .split-ep-head-cell:first-child { justify-content: flex-start; }
@@ -915,29 +945,39 @@ tbody tr:hover { background: var(--panel-2); }
 .split-ep-cell { text-align: right; font-family: 'JetBrains Mono', monospace; color: var(--text-primary); }
 .split-ep-cell.dim { color: var(--text-secondary); }
 .split-ep-bar { display: flex; align-items: center; gap: 6px; justify-content: flex-end; }
-.split-ep-bar .track { width: 40px; height: 3px; border-radius: 2px; background: var(--border-panel); overflow: hidden; flex-shrink: 0; }
-.split-ep-bar .fill { height: 100%; border-radius: 2px; background: var(--brand); }
-.split-charts { display: flex; flex-direction: column; gap: 14px; }
-.split-chart-card { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); padding: 12px 14px 8px; }
+.split-ep-bar .track { display: block; width: 40px; height: 3px; border-radius: 2px; background: var(--border-panel); overflow: hidden; flex-shrink: 0; }
+.split-ep-bar .fill { display: block; height: 100%; border-radius: 2px; background: var(--brand); }
+.split-charts { display: flex; flex-direction: column; gap: 0; }
+.split-chart-card { background: transparent; border: none; border-radius: 0; padding: 12px 14px 8px; }
+.split-chart-card + .split-chart-card { border-top: 1px solid var(--border-subtle); }
 .split-chart-card .clbl { font-size: 11.5px; font-weight: 600; margin-bottom: 8px; color: var(--text-primary); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .split-chart-card .chart-host { height: 130px; }
+.split-chart-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 10px 14px 12px; border-top: 1px solid var(--border-subtle); font-size: 11px; color: var(--text-secondary); }
+.split-chart-legend-item { display: inline-flex; align-items: center; gap: 6px; cursor: default; transition: opacity .1s; }
+.split-chart-legend-item.dim { opacity: .35; }
+.split-chart-legend-swatch { width: 10px; height: 2px; border-radius: 1px; display: inline-block; }
+.split-ep-clear { background: transparent; border: none; color: var(--brand); font-size: 11.5px; font-weight: 500; cursor: pointer; padding: 2px 4px; border-radius: 3px; }
+.split-ep-clear:hover { background: var(--panel-2); }
+.split-ep-row.no-hover { cursor: default; }
+.split-ep-row.no-hover:hover { background: transparent; }
+.split-breakdown { border-top: 1px solid var(--border-subtle); }
 
 /* Slow Queries table */
 .slowq-row { display: grid; grid-template-columns: 130px 1fr 84px; gap: 12px; padding: 10px 16px; border-top: 1px solid var(--border-subtle); align-items: center; font-size: 12px; }
 .slowq-row .t { color: var(--text-muted); font-size: 10.5px; }
 .slowq-row .q { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.slowq-row .d { text-align: right; font-family: 'JetBrains Mono', monospace; font-weight: 600; color: var(--text-primary); }
+.slowq-row .d { text-align: right; font-family: 'JetBrains Mono', monospace; font-weight: 400; color: var(--text-primary); }
 
 /* ============ Errors tab ============ */
-.err-row { display: grid; grid-template-columns: 1fr 1.4fr 60px 200px; gap: 14px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--border-subtle); font-size: 12px; cursor: pointer; transition: background .1s; }
+.err-row { display: grid; grid-template-columns: 1fr 1.4fr 60px 320px; gap: 14px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--border-subtle); font-size: 12px; cursor: pointer; transition: background .1s; }
 .err-row:hover { background: var(--panel-2); }
 .err-endpoint { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-primary); }
 .err-exc { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .err-exc-cls { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--critical-fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .err-exc-msg { font-size: 10.5px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.err-count { text-align: right; font-family: 'JetBrains Mono', monospace; font-weight: 600; font-size: 15px; color: var(--text-primary); }
-.err-spark { height: 40px; }
-.err-head { display: grid; grid-template-columns: 1fr 1.4fr 60px 200px; gap: 14px; padding: 8px 16px; font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
+.err-count { text-align: right; font-family: 'JetBrains Mono', monospace; font-weight: 400; font-size: 15px; color: var(--text-primary); }
+.err-spark { height: 72px; }
+.err-head { display: grid; grid-template-columns: 1fr 1.4fr 60px 320px; gap: 14px; padding: 8px 16px; font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
 .err-head span:nth-child(3) { text-align: right; }
 .err-empty { padding: 60px 20px; text-align: center; color: var(--text-muted); font-size: 12px; }
 .err-empty svg { width: 34px; height: 34px; margin-bottom: 10px; color: var(--border-strong); }
@@ -973,7 +1013,7 @@ tbody tr:hover { background: var(--panel-2); }
 .trace-list-ep { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-primary); display: flex; align-items: center; gap: 8px; }
 .trace-list-ep .status-dot { width: 7px; height: 7px; }
 .trace-list-meta { font-size: 10.5px; color: var(--text-muted); margin-top: 2px; padding-left: 15px; }
-.trace-list-dur { font-family: 'JetBrains Mono', monospace; font-weight: 600; font-size: 12.5px; text-align: right; }
+.trace-list-dur { font-family: 'JetBrains Mono', monospace; font-weight: 400; font-size: 12.5px; text-align: right; }
 .trace-list-dur .t { display: block; font-size: 10px; color: var(--text-muted); font-weight: 400; }
 .trace-detail-panel { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); overflow: hidden; }
 .trace-detail-head { padding: 12px 16px; display: flex; flex-direction: column; gap: 4px; border-bottom: 1px solid var(--border-subtle); }
@@ -3300,8 +3340,8 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 .isr-host { display: flex; align-items: center; gap: 8px; }
 .isr-host .status-dot { width: 8px; height: 8px; }
 .isr-bar { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
-.isr-bar .track { flex: 1; height: 4px; background: var(--border-panel); border-radius: 2px; overflow: hidden; min-width: 40px; }
-.isr-bar .fill { height: 100%; border-radius: 2px; }
+.isr-bar .track { display: block; flex: 1; height: 4px; background: var(--border-panel); border-radius: 2px; overflow: hidden; min-width: 40px; }
+.isr-bar .fill { display: block; height: 100%; border-radius: 2px; }
 .isr-val { font-family: 'JetBrains Mono', monospace; font-weight: 600; color: var(--text-primary); font-size: 11.5px; text-align: right; }
 
 /* Host detail */
