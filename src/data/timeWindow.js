@@ -261,6 +261,32 @@ export function calibratePeak(baseline, target, win = REFERENCE_WINDOW) {
 }
 
 /**
+ * The worst the incident got at any INSTANT in an interval, given that
+ * interval's newest edge in minutes before now.
+ *
+ * This is the other half of `incidentWeightOver`, and the two answer different
+ * questions. Averaging says what the window as a whole was like; this says
+ * whether it breached at all. A monitoring product needs both, and it reports
+ * the second one as the status: an incident does not stop having happened
+ * because you widened the chart, and nobody stops paging on a service because
+ * its weekly average looks fine.
+ *
+ * `incidentWeight` only falls as you go further back, so the worst instant in
+ * any interval is its newest one.
+ */
+export function peakIncidentWeight(newestMinutesAgo) {
+  return incidentWeight(Math.max(0, newestMinutesAgo))
+}
+
+/**
+ * A profile's value at a given incident weight — no jitter, no daily wave. The
+ * reading at one instant rather than over a span.
+ */
+export function valueAtWeight(profile, w) {
+  return profile.baseline * (1 + (peakOf(profile) - 1) * w)
+}
+
+/**
  * A metric profile.
  *
  * @typedef {object} Profile

@@ -32,6 +32,19 @@ function SummaryStrip({ summary: s }) {
   )
 }
 
+// What a severity badge says when it disagrees with the numbers beside it.
+//
+// Over a wide range both readings are true and they differ: the window averages
+// out fine, and the service still broke inside it. Without this the row looks
+// like a bug — a red badge next to a healthy-looking p90 — so the badge says
+// which question it is answering.
+function statusTitle(s) {
+  if (s.status === s.aggregateStatus) return `Status: ${s.status}`
+  return `Breached during this window: p90 reached ${s.peakLatencyP90} ms and errors ${s.peakErrorRatePct}%. `
+    + `The figures in this row are the window's averages, which is why they read ${s.aggregateStatus} — `
+    + `narrow the range to see the breach.`
+}
+
 function DetailTable({ services, onServiceClick }) {
   const [search, setSearch] = useState('')
   const term = search.trim()
@@ -96,7 +109,7 @@ function DetailTable({ services, onServiceClick }) {
               <tr key={s.id} onClick={() => onServiceClick(s.id)}>
                 <td>
                   <div className="svc-name">
-                    <span className={`status-dot ${s.status}`} title={`Status: ${s.status}`} />
+                    <span className={`status-dot ${s.status}`} title={statusTitle(s)} />
                     {/* One element whether highlighted or not: .svc-name is a
                         flex row with a gap, so returning the name as several
                         nodes would space each fragment apart. */}
@@ -104,7 +117,7 @@ function DetailTable({ services, onServiceClick }) {
                       {highlightTerms(s.name, hits.service, 'svc-hit')}
                     </span>
                     <span className="svc-lang">{s.language}</span>
-                    <span className={`badge ${s.status}`}>{s.status}</span>
+                    <span className={`badge ${s.status}`} title={statusTitle(s)}>{s.status}</span>
                     {/* The tags live in this column, so they are searched
                         through it: service.team:payments. */}
                     {Object.entries(s.tags ?? {}).map(([k, v]) => (
@@ -154,7 +167,7 @@ function HealthTab({ services, win }) {
         return (
           <div className="health-row" key={s.id}>
             <div className="name">
-              <span className={`status-dot ${s.status}`} title={`Status: ${s.status}`} />
+              <span className={`status-dot ${s.status}`} title={statusTitle(s)} />
               {s.name}
             </div>
             <div className="health-strip">

@@ -23,7 +23,7 @@ draws. Everything else is a function of that window.
 promoted out of `utils/explore/` to be the app-wide model; `formatLocal` moved
 with it and `utils/explore/format` re-exports it. There is one time model.
 
-## The three decisions worth not re-deriving
+## The four decisions worth not re-deriving
 
 **1. One incident, one profile.** The whole product is anchored to a single
 event: payment-service's Redis pool starts failing 22 minutes before
@@ -54,18 +54,40 @@ the slowest 10% of that hour's requests are all incident requests and p90 reads
 the range to find the fire. `windowQuantile` weights each bucket by the requests
 it served to get this.
 
-Two consequences that look like bugs and are not:
+One consequence that looks like a bug and is not: **p90 turns over sharply**,
+somewhere between two and three hours, where the incident's share of requests
+crosses 10%. Just past the turn it does not drop to baseline but lands on the
+ramp — the least-slow of the slow requests — because that is where the 90th
+percentile actually falls. Exactly where it turns depends on how the buckets sit
+against the incident, so the tests pin the ends of the range and not the middle.
 
-- **p90 turns over sharply**, somewhere between two and three hours, where the
-  incident's share of requests crosses 10%. Just past the turn it does not drop
-  to baseline but lands on the ramp — the least-slow of the slow requests —
-  because that is where the 90th percentile actually falls. Exactly where it
-  turns depends on how the buckets sit against the incident, so the tests pin
-  the ends of the range and not the middle.
-- **Over a day or a week the whole fleet reads healthy.** That is the honest
-  answer for a 22-minute outage averaged over 10,000 minutes, and it is the
-  argument for the range picker existing. The incident is still visible as a
-  spike at the right-hand edge of every chart.
+**4. Status is the worst INSTANT, not the average.** The first cut reported
+status from the aggregates, which meant the whole fleet went green on any range
+wider than about six hours. Arithmetically that is right and as a product it is
+wrong: the service did go down, and a monitor that drops it to green because you
+widened the chart has hidden the one thing you opened it to see. Alerting has
+never worked that way either — an alert fires on a breach, not on a weekly mean.
+
+So `peakIncidentWeight` reads the window's newest instant (the incident only
+gets better as you go back, so the worst moment in any interval is its newest
+one), and the badge, the status dot, the summary counts, the severity sort and
+the health strip all come from that. payment-service is critical on every range
+that contains the outage, and the list keeps it on top — which is what the
+severity sort is for.
+
+The figures themselves are NOT floored to match. A row shows the window's real
+averages next to a red badge, and each service carries both readings —
+`status` for the breach, `aggregateStatus` for what the numbers alone resolve
+to, plus `peakLatencyP90` / `peakErrorRatePct`. Where the two disagree the badge
+says so on hover, because a red badge beside a healthy-looking p90 otherwise
+reads as a bug rather than as the point:
+
+> Breached during this window: p90 reached 602 ms and errors 14.38%. The figures
+> in this row are the window's averages, which is why they read healthy —
+> narrow the range to see the breach.
+
+A window that genuinely never contained the incident — "three days back", say —
+reports healthy, because nothing broke in it.
 
 ### Three bugs this shape made easy, and the guards against them
 
@@ -114,11 +136,15 @@ volume; the table carries a sample of it.
 ## The health strip is derived, not shuffled
 
 Home's health history used to be a seeded random with "the last eight blocks are
-bad" written into it. Each block is now the status that slice of the window
-averaged out at, read off the same profile as every number on the page. Over an
-hour the incident is roughly the last third of the strip; over a week it
-survives as a single amber block at the right-hand edge, which is the strip
-earning its place — something happened recently, narrow the range.
+bad" written into it. Each block is now the worst that slice of the window got,
+read off the same profile as every number on the page — worst-instant like the
+badge beside it, because "when did it break" is a question about instants and a
+block covering five hours would average a 22-minute outage down to amber.
+
+Over five minutes the whole strip is red; over an hour it is the last third;
+over a week it is a single red block at the right-hand edge. That narrowing is
+the strip earning its place — it answers *when*, which is the question the badge
+leaves open.
 
 ## Drag-to-zoom is a time range
 

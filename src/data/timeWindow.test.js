@@ -67,9 +67,38 @@ test('widening the window dilutes the incident', () => {
   }
 })
 
-test('severity follows the window rather than being written down', () => {
-  assert.equal(payment(preset('5m')).status, 'critical')
-  assert.equal(payment(preset('7d')).status, 'healthy')
+// Status answers "did this breach", not "what did this average to". The two
+// readings diverge on any range wide enough to dilute a 22-minute outage, and
+// both are reported — the badge from the first, the figures from the second.
+test('a service that broke in the window stays critical however wide it is', () => {
+  for (const v of ['5m', '15m', '1h', '3h', '6h', '24h', '2d', '7d', 'today']) {
+    assert.equal(payment(preset(v)).status, 'critical',
+      `${v}: payment-service breached and should say so`)
+  }
+  // And the figures beside it stay honest rather than being floored to match.
+  assert.equal(payment(preset('1h')).aggregateStatus, 'critical')
+  assert.equal(payment(preset('7d')).aggregateStatus, 'healthy')
+  assert.ok(payment(preset('7d')).latencyP90 < 200, 'the published p90 is still the window average')
+})
+
+test('a window that never contained the incident reports no breach', () => {
+  const now = BASE_TIME.getTime()
+  const before = resolveWindow({
+    kind: 'absolute',
+    from: now - 180 * 60000,
+    to: now - (INCIDENT_START_MIN + 15) * 60000,
+  })
+  const p = servicesForWindow(before).find(s => s.id === 'payment-service')
+  assert.equal(p.status, 'healthy', 'nothing broke in that window, so nothing is red')
+  assert.equal(p.aggregateStatus, 'healthy')
+})
+
+test('the breach is reported with the numbers that justify it', () => {
+  const p = payment(preset('7d'))
+  assert.ok(p.peakLatencyP90 > 500, `peak p90 should carry the incident, got ${p.peakLatencyP90}`)
+  assert.ok(p.peakErrorRatePct > 3, `peak error rate should carry the incident, got ${p.peakErrorRatePct}`)
+  // The pair the UI shows side by side: averaged fine, peaked badly.
+  assert.ok(p.latencyP90 < p.peakLatencyP90 / 3)
 })
 
 test('services stay sorted worst-first at every range', () => {
@@ -96,6 +125,7 @@ test('a window that ends before the incident does not contain it', () => {
   assert.ok(p.latencyP90 < 200, `quiet window should be quiet, got ${p.latencyP90}ms`)
   assert.ok(p.errorRatePct < 0.5, `quiet window should be quiet, got ${p.errorRatePct}%`)
   assert.equal(p.status, 'healthy')
+  assert.equal(p.aggregateStatus, 'healthy')
 
   const during = resolveWindow({ kind: 'absolute', from: now - 20 * 60000, to: now })
   assert.ok(payment(during).latencyP90 > 500, 'a window inside the incident sees it')
@@ -204,7 +234,7 @@ test('the health strip puts the incident where the incident was', () => {
   // used to be floored to a 3-hour step, which pushed its end up to three hours
   // into the past and dropped the incident out of the range entirely.
   const week = healthHistoryForWindow(resolveWindow({ kind: 'preset', value: '7d' }), 'payment-service', 36)
-  assert.notEqual(week.at(-1), 'healthy', 'the incident is still visible at the right-hand edge of a week')
+  assert.equal(week.at(-1), 'critical', 'the incident is still visible at the right-hand edge of a week')
   assert.ok(week.slice(0, -2).every(b => b === 'healthy'), 'and nowhere else')
 })
 

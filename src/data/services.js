@@ -1,7 +1,7 @@
 import { statusForLatency, statusForErrorRate, worstStatus } from '@/utils/status'
 import {
-  REFERENCE_WINDOW, calibratePeak, incidentWeightOver, pinToReference, sampleAt,
-  windowMean, windowQuantile, windowSeries,
+  REFERENCE_WINDOW, calibratePeak, peakIncidentWeight, pinToReference,
+  valueAtWeight, windowMean, windowQuantile, windowSeries,
 } from './timeWindow'
 
 const RANK = { healthy: 0, warning: 1, critical: 2 }
@@ -89,13 +89,48 @@ export const serviceProfile = id => PROFILES[id]
 const round2 = v => Math.round(v * 100) / 100
 
 /**
+ * The worst this service got at any instant inside the window.
+ *
+ * Status is reported from this rather than from the averages, because status is
+ * a different question from "what did this window average to". A 22-minute
+ * outage is 0.2% of a week, so every average over a week is fine — but the
+ * service did go down, and a monitoring product that quietly drops it to green
+ * because you widened the chart has hidden the one thing you opened it to see.
+ * Alerting works the same way: an alert fires on a breach, not on a weekly mean.
+ *
+ * So the numbers on screen stay honest window aggregates and the badge stays
+ * red, and the two together say the useful thing — "the average is fine, this
+ * still broke, narrow the range to see when".
+ */
+export function peakMetricsForWindow(win, serviceId) {
+  const p = PROFILES[serviceId] ?? PROFILES['payment-service']
+  // The window's newest instant: how recently it can see.
+  const w = peakIncidentWeight((win.nowSec - win.end) / 60)
+  return {
+    latencyP90: Math.round(valueAtWeight(p.p90, w)),
+    errorRatePct: round2(valueAtWeight(p.err, w)),
+  }
+}
+
+function peakStatus(win, serviceId) {
+  const peak = peakMetricsForWindow(win, serviceId)
+  return worstStatus(
+    statusForLatency(peak.latencyP90),
+    statusForErrorRate(peak.errorRatePct),
+  )
+}
+
+/**
  * Every service as the selected window saw it, worst first.
  *
  * The sort is the point of the page and survives the window: severity order,
- * never alphabetical. What the window changes is which services are severe —
- * over five minutes the incident is the whole picture and payment-service is
- * critical; over seven days it is twenty minutes in ten thousand and the fleet
- * reads healthy, which is the honest answer and the reason to narrow the range.
+ * never alphabetical. Because `status` is the window's worst instant rather
+ * than its average, a range that contains the incident keeps payment-service at
+ * the top of the list however wide it is — which is what the sort is for.
+ *
+ * Each row carries both readings. `status` is the breach; `aggregateStatus` is
+ * what the figures beside it resolve to on their own, and where the two differ
+ * the UI has something worth saying.
  */
 export function servicesForWindow(win) {
   return RAW_SERVICES.map(s => {
@@ -104,12 +139,18 @@ export function servicesForWindow(win) {
     const latencyP90 = Math.round(windowQuantile(win, p.p90, 0.9, p.rpm))
     const latencyAvg = Math.round(windowMean(win, p.avg))
     const errorRatePct = round2(windowMean(win, p.err))
+    const peak = peakMetricsForWindow(win, s.id)
     return {
       ...s,
       rpm, latencyP90, latencyAvg, errorRatePct,
-      status: worstStatus(statusForLatency(latencyP90), statusForErrorRate(errorRatePct)),
+      peakLatencyP90: peak.latencyP90,
+      peakErrorRatePct: peak.errorRatePct,
+      status: peakStatus(win, s.id),
+      aggregateStatus: worstStatus(statusForLatency(latencyP90), statusForErrorRate(errorRatePct)),
     }
-  }).sort((a, b) => (RANK[b.status] || 0) - (RANK[a.status] || 0) || b.errorRatePct - a.errorRatePct)
+  }).sort((a, b) => (RANK[b.status] || 0) - (RANK[a.status] || 0)
+    || (RANK[b.aggregateStatus] || 0) - (RANK[a.aggregateStatus] || 0)
+    || b.errorRatePct - a.errorRatePct)
 }
 
 export function serviceSummaryForWindow(win) {
@@ -128,26 +169,26 @@ export const serviceSummary = serviceSummaryForWindow(REFERENCE_WINDOW)
 
 /**
  * The Home page's health strip: one block per slice of the window, coloured by
- * the status that slice averaged out at.
+ * the worst that slice got.
  *
- * Derived from the same profile as everything else rather than from a seeded
- * random, so the red blocks are where the incident actually was. On a week the
- * incident is a fraction of one block and the strip ends in a single amber
- * square — which is the strip doing its job: something happened recently,
- * narrow the range.
+ * Worst-instant, like the badge beside it, and for the same reason — a block
+ * covering five hours of a seven-day window would average a 22-minute outage
+ * down to amber, and the strip exists to answer "when did it break", which is a
+ * question about instants. Derived from the same profile as every number on the
+ * page rather than from a seeded random, so the red is where the incident was.
  */
 export function healthHistoryForWindow(win, serviceId, blocks = 36) {
-  const p = PROFILES[serviceId] ?? PROFILES['payment-service']
   const blockSec = win.spanSec / blocks
   const blockMin = blockSec / 60
+  const p = PROFILES[serviceId] ?? PROFILES['payment-service']
   return Array.from({ length: blocks }, (_, i) => {
     const t = win.start + i * blockSec
     if (t >= win.nowSec) return 'neutral'
-    const m = (win.nowSec - t) / 60
-    const slice = { m, ms: t * 1000, t: Math.round(t), w: incidentWeightOver(m, blockMin) }
+    // The block's newest edge, which is its worst moment.
+    const w = peakIncidentWeight((win.nowSec - t) / 60 - blockMin)
     return worstStatus(
-      statusForLatency(sampleAt(p.p90, slice)),
-      statusForErrorRate(sampleAt(p.err, slice)),
+      statusForLatency(valueAtWeight(p.p90, w)),
+      statusForErrorRate(valueAtWeight(p.err, w)),
     )
   })
 }
