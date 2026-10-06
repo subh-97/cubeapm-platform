@@ -1,14 +1,14 @@
 import { useState, useMemo } from 'react'
-import { services, serviceSummary, serviceEdges, externalDependencies } from '@/data/services'
-import { statusForLatency, statusForErrorRate, statusColor } from '@/utils/status'
+import { servicesForWindow, serviceSummaryForWindow, healthHistoryForWindow, serviceEdges, externalDependencies } from '@/data/services'
+import { resolveWindow, windowHint } from '@/data/timeWindow'
+import { statusForLatency, statusColor } from '@/utils/status'
 import PageBar from '@/components/layout/PageBar'
 import { highlightTerms } from '@/utils/highlight'
 import TableSearch from '@/components/TableSearch'
 import TabBar from '@/components/shared/TabBar'
 import { parsePodQuery, matchesPod, highlightsFor, tagHighlightsFor, tagTerms, SERVICE_FIELDS } from '@/utils/tableQuery'
 
-function SummaryStrip() {
-  const s = serviceSummary
+function SummaryStrip({ summary: s }) {
   const pills = [
     { cls: 'total', num: s.total, lbl: 'SERVICES', icon: <><rect x="3" y="4" width="18" height="6" rx="1"/><rect x="3" y="14" width="18" height="6" rx="1"/><circle cx="7" cy="7" r=".7"/><circle cx="7" cy="17" r=".7"/></> },
     { cls: 'critical', num: s.critical, lbl: 'CRITICAL', icon: <><path d="M12 3l9 17H3z"/><path d="M12 10v4M12 17v.01"/></> },
@@ -32,7 +32,7 @@ function SummaryStrip() {
   )
 }
 
-function DetailTable({ onServiceClick }) {
+function DetailTable({ services, onServiceClick }) {
   const [search, setSearch] = useState('')
   const term = search.trim()
   // A query that does not parse leaves the rows alone rather than emptying the
@@ -44,7 +44,7 @@ function DetailTable({ onServiceClick }) {
   // the thing that quietly reorders the list alphabetically.
   const shown = useMemo(
     () => (ok ? services.filter(s => matchesPod(queryNode, s, SERVICE_FIELDS)) : services),
-    [queryNode, ok]
+    [services, queryNode, ok]
   )
 
   // Two highlight sets: the service name, and the tag chips. A term aimed at
@@ -92,7 +92,6 @@ function DetailTable({ onServiceClick }) {
           )}
           {shown.map(s => {
             const latS = statusForLatency(s.latencyP90)
-            const errS = statusForErrorRate(s.errorRatePct)
             return (
               <tr key={s.id} onClick={() => onServiceClick(s.id)}>
                 <td>
@@ -122,9 +121,9 @@ function DetailTable({ onServiceClick }) {
                 <td>
                   <span className="cell-bar">
                     <span className="track">
-                      <span className="fill" style={{ width: `${Math.min(100, s.errorRatePct * 12)}%`, background: statusColor(errS) }} />
+                      <span className="fill" style={{ width: `${Math.min(100, s.errorRatePct * 12)}%`, background: 'var(--brand)' }} />
                     </span>
-                    <span className={errS === 'critical' ? 'val-critical' : errS === 'warning' ? 'val-warning' : ''}>{s.errorRatePct}%</span>
+                    <span>{s.errorRatePct}%</span>
                   </span>
                 </td>
               </tr>
@@ -136,23 +135,22 @@ function DetailTable({ onServiceClick }) {
   )
 }
 
-function HealthTab() {
-  const buckets = 36
-  const seriesFor = (status, seed) => {
-    let s = seed
-    const rnd = () => { s = (s * 9301 + 49297) % 233280; return s / 233280 }
-    return Array.from({ length: buckets }, (_, i) => {
-      const recent = i > buckets - 8
-      if (status === 'critical') return recent ? 'critical' : (rnd() < 0.3 ? 'warning' : 'healthy')
-      if (status === 'warning') return recent ? 'warning' : (rnd() < 0.15 ? 'warning' : 'healthy')
-      return 'healthy'
-    })
-  }
+const HEALTH_BLOCKS = 36
+
+function HealthTab({ services, win }) {
+  // Each block is the status that slice of the window averaged out at, read off
+  // the same profile as every number on the page — so the red blocks sit where
+  // the incident actually was, and narrowing the range spreads it out rather
+  // than redrawing a different random history.
+  const history = useMemo(
+    () => Object.fromEntries(services.map(s => [s.id, healthHistoryForWindow(win, s.id, HEALTH_BLOCKS)])),
+    [services, win],
+  )
   return (
     <div className="panel">
-      <div className="panel-head">Health history <span className="hint">Last 1 hour · {buckets} buckets</span></div>
-      {services.map((s, idx) => {
-        const blocks = seriesFor(s.status, idx * 7 + 3)
+      <div className="panel-head">Health history <span className="hint">{windowHint(win)}</span></div>
+      {services.map(s => {
+        const blocks = history[s.id]
         return (
           <div className="health-row" key={s.id}>
             <div className="name">
@@ -171,7 +169,7 @@ function HealthTab() {
   )
 }
 
-function GraphTab() {
+function GraphTab({ services }) {
   const pos = {
     'payment-service': [50, 18], 'order-service': [22, 18], 'shipment-service': [78, 18],
     'notify-service': [22, 44], 'search-service': [50, 44], 'analytics-service': [78, 44],
@@ -215,6 +213,13 @@ const HOME_TABS = [
 export default function HomePage({ selectService, timeRange, setTimeRange }) {
   const [homeTab, setHomeTab] = useState('detail')
 
+  // The fleet as the selected window saw it. Severity order is recomputed with
+  // it: a range that does not contain the incident has nothing critical in it,
+  // and the list says so rather than carrying yesterday's verdict forward.
+  const win = useMemo(() => resolveWindow(timeRange), [timeRange])
+  const services = useMemo(() => servicesForWindow(win), [win])
+  const summary = useMemo(() => serviceSummaryForWindow(win), [win])
+
   return (
     <>
       <PageBar timeRange={timeRange} setTimeRange={setTimeRange}>
@@ -223,13 +228,13 @@ export default function HomePage({ selectService, timeRange, setTimeRange }) {
         <span className="current">Home</span>
       </PageBar>
       <div className="home-scroll">
-      <SummaryStrip />
+      <SummaryStrip summary={summary} />
       <div style={{ marginBottom: 12 }}>
         <TabBar tabs={HOME_TABS} active={homeTab} onChange={setHomeTab} ariaLabel="Service view" />
       </div>
-      {homeTab === 'detail' && <DetailTable onServiceClick={selectService} />}
-      {homeTab === 'health' && <HealthTab />}
-      {homeTab === 'graph' && <GraphTab />}
+      {homeTab === 'detail' && <DetailTable services={services} onServiceClick={selectService} />}
+      {homeTab === 'health' && <HealthTab services={services} win={win} />}
+      {homeTab === 'graph' && <GraphTab services={services} />}
       </div>
     </>
   )

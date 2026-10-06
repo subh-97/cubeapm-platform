@@ -291,8 +291,13 @@ function elasticRow(t, hex) {
  * Builds the non-request records and stamps them onto the same timeline as the
  * generated request logs, so they interleave in the stream rather than sitting
  * in a block at one end of it.
+ *
+ * `spread(n)` hands back n instants (ms) across the window being looked at, so
+ * these records sit among the request logs whatever range is selected. Without
+ * it they fall back to the hour behind `baseTime`, which is what they did
+ * before the stream learned about time ranges.
  */
-export function extraLogRecords({ baseTime, rnd }) {
+export function extraLogRecords({ baseTime, rnd, spread }) {
   const hex = (len) => Array.from({ length: len }, () => Math.floor(rnd() * 16).toString(16)).join('')
   const now = baseTime.getTime()
   const specs = [
@@ -302,9 +307,12 @@ export function extraLogRecords({ baseTime, rnd }) {
     (t) => newRelicRow(t, hex),
     (t) => elasticRow(t, hex),
   ]
+  const times = spread?.(specs.length)
   return specs.map((make, i) => {
-    // Spread across the same window the request logs occupy (180 rows, 20s apart).
-    const t = new Date(now - ((i * 13 + 7) * 20 + rnd() * 8) * 1000)
+    // Spread across the same window the request logs occupy.
+    const t = times?.length
+      ? new Date(times[i])
+      : new Date(now - ((i * 13 + 7) * 20 + rnd() * 8) * 1000)
     const row = make(t)
     return {
       ...row,

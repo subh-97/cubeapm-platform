@@ -15,6 +15,7 @@ import LoginPage from '@/pages/LoginPage'
 import DesignSystemPage from '@/pages/DesignSystemPage'
 import { services, redEndpoints } from '@/data/services'
 import { INFRA_SOURCES, infraHosts } from '@/data/observability'
+import { TIME_PRESETS, DEFAULT_PRESET, rangeLabel } from '@/utils/timeRange'
 import { useTheme } from '@/hooks/useTheme'
 
 function getInfraNavItems() {
@@ -64,7 +65,11 @@ export default function App() {
   const [logsQuery, setLogsQuery] = useState(null)
   const [tracesQuery, setTracesQuery] = useState(null)
   const [navCollapsed, setNavCollapsed] = useState(true)
-  const [timeRange, setTimeRange] = useState('Last 1 hour')
+  // One range for the whole app, in the form the data layer reads:
+  // { kind: 'preset', value: '1h' } or { kind: 'absolute', from, to }. Pages
+  // pass it through to PageBar and resolve it for their own data; none of them
+  // needs to know which form it is in.
+  const [timeRange, setTimeRange] = useState({ kind: 'preset', value: DEFAULT_PRESET })
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsTab, setSettingsTab] = useState(null)
   const [serviceSubTab, setServiceSubTab] = useState('overview')
@@ -448,10 +453,8 @@ function SettingsBody({ tab, view, serviceSubTab, svc, timeRange, redEndpoints }
         <div className="drawer-section">
           <div className="drawer-section-label">Default time range</div>
           <div className="drawer-row">
-            <select className="drawer-select" defaultValue={timeRange}>
-              {['Last 5 minutes','Last 15 minutes','Last 30 minutes','Last 1 hour','Last 2 hours','Last 3 hours','Last 6 hours','Last 12 hours','Last 24 hours','Last 2 days','Last 3 days','Last 7 days','Today','Today so far'].map(p => (
-                <option key={p}>{p}</option>
-              ))}
+            <select className="drawer-select" defaultValue={rangeLabel(timeRange)}>
+              {TIME_PRESETS.map(p => <option key={p.value}>{p.label}</option>)}
             </select>
             <button className="drawer-save">Save</button>
           </div>

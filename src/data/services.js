@@ -1,4 +1,8 @@
 import { statusForLatency, statusForErrorRate, worstStatus } from '@/utils/status'
+import {
+  REFERENCE_WINDOW, calibratePeak, incidentWeightOver, pinToReference, sampleAt,
+  windowMean, windowQuantile, windowSeries,
+} from './timeWindow'
 
 const RANK = { healthy: 0, warning: 1, critical: 2 }
 
@@ -14,18 +18,138 @@ const RAW_SERVICES = [
   { id: 'demo-nodejs-service', name: 'demo-nodejs-service', tags: { team: 'platform', tier: 'sandbox' }, rpm: 27.1, latencyP90: 13, latencyAvg: 9, errorRatePct: 0, language: 'node', note: null },
 ]
 
-export const services = RAW_SERVICES.map(s => ({
-  ...s,
-  status: worstStatus(statusForLatency(s.latencyP90), statusForErrorRate(s.errorRatePct)),
-}))
+// What each service was doing when nothing was wrong, and how far the incident
+// moved it. The figures in RAW_SERVICES above are not readings — they are what
+// the last hour AVERAGES to, which is a different thing and the reason this
+// table exists: a quiet p90 of 140 ms and a published p90 of 612 ms describe
+// the same service, one before the Redis pool gave out and one across the hour
+// that contains both.
+//
+// `quiet` is the value with the incident absent. `target` is the published
+// figure the reference hour has to reproduce; the peak that gets there is
+// solved for, never written down, so moving a published number here does not
+// mean re-deriving an incident by hand.
+//
+// Only the three services on the incident path carry one. The rest are flat
+// plus the daily traffic wave, which is why widening the range nudges their rpm
+// and leaves their latency alone.
+const SERVICE_PROFILES = {
+  'payment-service': { quiet: { rpm: 452.7, p90: 140, avg: 78, err: 0.05 }, seed: 11 },
+  'order-service': { quiet: { rpm: 476.4, p90: 120, avg: 72, err: 0.2 }, seed: 12 },
+  'shipment-service': { quiet: { rpm: 477.1, p90: 110, avg: 64, err: 0.15 }, seed: 13 },
+  'notify-service': { seed: 14 },
+  'search-service': { seed: 15 },
+  'analytics-service': { seed: 16 },
+  'demo-nodejs-service': { seed: 17 },
+}
 
-services.sort((a, b) => (RANK[b.status] || 0) - (RANK[a.status] || 0) || b.errorRatePct - a.errorRatePct)
+const NOISE = { rpm: 0.08, p90: 0.1, avg: 0.1, err: 0.15 }
 
-export const serviceSummary = {
-  total: services.length,
-  critical: services.filter(s => s.status === 'critical').length,
-  warning: services.filter(s => s.status === 'warning').length,
-  healthy: services.filter(s => s.status === 'healthy').length,
+// A metric's profile: quiet value, the peak that makes the reference hour
+// average to the published figure, then pinned so it does so exactly.
+//
+// p90 is pinned against the request-weighted percentile rather than the mean,
+// because that is how it is read back. Its peak needs no solving: once a third
+// of the window's requests are slow, the 90th percentile IS the slow plateau,
+// so the plateau is simply the published figure.
+function metricProfile(svc, key, { quantile = false, diurnal = false } = {}) {
+  const prof = SERVICE_PROFILES[svc.id]
+  const target = key === 'rpm' ? svc.rpm
+    : key === 'p90' ? svc.latencyP90
+      : key === 'avg' ? svc.latencyAvg : svc.errorRatePct
+  const quiet = prof.quiet?.[key] ?? target
+  const seed = prof.seed * 10 + { rpm: 1, p90: 2, avg: 3, err: 4 }[key]
+  const base = {
+    baseline: quiet,
+    noise: NOISE[key],
+    seed,
+    diurnal,
+    peak: quantile ? (quiet > 0 ? target / quiet : 1) : calibratePeak(quiet, target),
+  }
+  if (!(target > 0)) return { ...base, baseline: 0, peak: 1 }
+  return quantile
+    ? pinToReference(base, (w, pr) => windowQuantile(w, pr, 0.9, rateProfile(svc)), target)
+    : pinToReference(base, windowMean, target)
+}
+
+// Built first and on its own, because the percentile weights by it.
+function rateProfile(svc) {
+  return metricProfile(svc, 'rpm', { diurnal: true })
+}
+
+const PROFILES = Object.fromEntries(RAW_SERVICES.map(svc => [svc.id, {
+  rpm: rateProfile(svc),
+  p90: metricProfile(svc, 'p90', { quantile: true }),
+  avg: metricProfile(svc, 'avg'),
+  err: metricProfile(svc, 'err'),
+}]))
+
+export const serviceProfile = id => PROFILES[id]
+
+const round2 = v => Math.round(v * 100) / 100
+
+/**
+ * Every service as the selected window saw it, worst first.
+ *
+ * The sort is the point of the page and survives the window: severity order,
+ * never alphabetical. What the window changes is which services are severe —
+ * over five minutes the incident is the whole picture and payment-service is
+ * critical; over seven days it is twenty minutes in ten thousand and the fleet
+ * reads healthy, which is the honest answer and the reason to narrow the range.
+ */
+export function servicesForWindow(win) {
+  return RAW_SERVICES.map(s => {
+    const p = PROFILES[s.id]
+    const rpm = round2(windowMean(win, p.rpm))
+    const latencyP90 = Math.round(windowQuantile(win, p.p90, 0.9, p.rpm))
+    const latencyAvg = Math.round(windowMean(win, p.avg))
+    const errorRatePct = round2(windowMean(win, p.err))
+    return {
+      ...s,
+      rpm, latencyP90, latencyAvg, errorRatePct,
+      status: worstStatus(statusForLatency(latencyP90), statusForErrorRate(errorRatePct)),
+    }
+  }).sort((a, b) => (RANK[b.status] || 0) - (RANK[a.status] || 0) || b.errorRatePct - a.errorRatePct)
+}
+
+export function serviceSummaryForWindow(win) {
+  const list = servicesForWindow(win)
+  return {
+    total: list.length,
+    critical: list.filter(s => s.status === 'critical').length,
+    warning: list.filter(s => s.status === 'warning').length,
+    healthy: list.filter(s => s.status === 'healthy').length,
+  }
+}
+
+/** The reference hour, for the places that read the fleet without a window. */
+export const services = servicesForWindow(REFERENCE_WINDOW)
+export const serviceSummary = serviceSummaryForWindow(REFERENCE_WINDOW)
+
+/**
+ * The Home page's health strip: one block per slice of the window, coloured by
+ * the status that slice averaged out at.
+ *
+ * Derived from the same profile as everything else rather than from a seeded
+ * random, so the red blocks are where the incident actually was. On a week the
+ * incident is a fraction of one block and the strip ends in a single amber
+ * square — which is the strip doing its job: something happened recently,
+ * narrow the range.
+ */
+export function healthHistoryForWindow(win, serviceId, blocks = 36) {
+  const p = PROFILES[serviceId] ?? PROFILES['payment-service']
+  const blockSec = win.spanSec / blocks
+  const blockMin = blockSec / 60
+  return Array.from({ length: blocks }, (_, i) => {
+    const t = win.start + i * blockSec
+    if (t >= win.nowSec) return 'neutral'
+    const m = (win.nowSec - t) / 60
+    const slice = { m, ms: t * 1000, t: Math.round(t), w: incidentWeightOver(m, blockMin) }
+    return worstStatus(
+      statusForLatency(sampleAt(p.p90, slice)),
+      statusForErrorRate(sampleAt(p.err, slice)),
+    )
+  })
 }
 
 export const externalDependencies = [
@@ -45,32 +169,32 @@ export const serviceEdges = [
   ['demo-nodejs-service', 'mysql.cubedemo'], ['demo-nodejs-service', 'email.ap-south-1.amazonaws.com'],
 ]
 
-function generateSeries({ points = 60, baseline, noise = 0.06, incidentStartMinutesAgo = null, incidentMultiplier = 1, seed = 1 }) {
-  const out = []
-  let s = seed
-  const rnd = () => { s = (s * 9301 + 49297) % 233280; return s / 233280 }
-  for (let i = points - 1; i >= 0; i--) {
-    const m = i
-    let v = baseline * (1 + (rnd() - 0.5) * noise)
-    if (incidentStartMinutesAgo !== null && m <= incidentStartMinutesAgo) {
-      const into = incidentStartMinutesAgo - m
-      const ramp = Math.min(1, into / 4)
-      v = baseline * (1 + (incidentMultiplier - 1) * ramp) * (1 + (rnd() - 0.5) * noise)
-    }
-    out.push({ m, value: Math.round(v * 100) / 100 })
+// The apdex is the one metric with a ceiling, so it is written out rather than
+// calibrated: a satisfaction score cannot be scaled past 1, and there is no
+// published hourly figure for it to hit.
+const APDEX_PROFILE = { baseline: 0.98, peak: 0.55, noise: 0.02, seed: 44, ceil: 1 }
+
+/**
+ * The five charts a service page draws, over whatever window is selected.
+ *
+ * Same profiles the KPI numbers aggregate, sampled instead of reduced — so the
+ * chart and the number above it can never tell different stories, which is the
+ * failure mode of keeping a static series next to a static headline figure.
+ */
+export function seriesForWindow(win, serviceId = 'payment-service') {
+  const p = PROFILES[serviceId] ?? PROFILES['payment-service']
+  return {
+    rpm: windowSeries(win, p.rpm),
+    latencyP90: windowSeries(win, p.p90),
+    latencyAvg: windowSeries(win, p.avg),
+    errorRatePct: windowSeries(win, p.err),
+    apdex: windowSeries(win, APDEX_PROFILE, { round: 3 }),
   }
-  return out
 }
 
-export const paymentServiceSeries = {
-  rpm: generateSeries({ baseline: 452, noise: 0.08, seed: 11 }),
-  latencyP90: generateSeries({ baseline: 140, incidentStartMinutesAgo: 22, incidentMultiplier: 4.4, noise: 0.1, seed: 22 }),
-  latencyAvg: generateSeries({ baseline: 78, incidentStartMinutesAgo: 22, incidentMultiplier: 4.36, noise: 0.1, seed: 55 }),
-  errorRatePct: generateSeries({ baseline: 0.05, incidentStartMinutesAgo: 22, incidentMultiplier: 96, noise: 0.15, seed: 33 }),
-  apdex: generateSeries({ baseline: 0.98, incidentStartMinutesAgo: 22, incidentMultiplier: 0.55, noise: 0.02, seed: 44 }),
-}
+export const paymentServiceSeries = seriesForWindow(REFERENCE_WINDOW)
 
-// Deploys roll one version at a time, so in any given minute a single version is
+// Deploys roll one version at a time, so in any given bucket a single version is
 // serving and the rest are idle. Charted by version, that paints the window in
 // bands: the envelope is the metric, the colour is whatever was deployed then.
 const ROLLOUT_VERSIONS = [
@@ -78,57 +202,73 @@ const ROLLOUT_VERSIONS = [
   'v2.49.4', 'v2.49.5', 'v2.49.6', 'v2.49.7', 'v2.49.8', 'v2.49.9', 'v2.49.10',
 ]
 
-const BAND_POINTS = 60
-
-// Which version owns each minute, in runs of three to six.
-const VERSION_AT = (() => {
+// Which version owns each bucket, in runs of three to six. A wider window is
+// more buckets, so the same fourteen releases simply cover more of it — the
+// rollout is not re-told at a different speed for each range.
+function versionAt(points) {
   const out = []
   let s = 7, vi = 0
   const rnd = () => { s = (s * 9301 + 49297) % 233280; return s / 233280 }
-  while (out.length < BAND_POINTS) {
+  while (out.length < points) {
     const run = 3 + Math.floor(rnd() * 4)
     const v = ROLLOUT_VERSIONS[vi++ % ROLLOUT_VERSIONS.length]
-    for (let i = 0; i < run && out.length < BAND_POINTS; i++) out.push(v)
+    for (let i = 0; i < run && out.length < points; i++) out.push(v)
   }
   return out
-})()
-
-// Traffic swells and settles across the window rather than holding flat. The
-// wave is phased to cross zero at the newest sample, so the chart still lands on
-// the rate the KPI card reports for "now".
-const rpmSwell = paymentServiceSeries.rpm.map((d, i) => {
-  const x = i - BAND_POINTS + 1
-  return { m: d.m, value: d.value * (1 + 0.45 * Math.sin(x / 6.4) + 0.16 * Math.sin(x / 2.3)) }
-})
+}
 
 // Spread an aggregate across the bands. `idle` is 0 where the chart stacks - the
 // band has to reach the axis - and null where it draws lines, so a line stops at
 // the end of its deploy instead of diving to zero.
-function bandByVersion(series, { idle = null, jitter = 0, seed = 1 } = {}) {
+function bandByVersion(series, owner, { idle = null, jitter = 0, seed = 1 } = {}) {
   let s = seed
   const rnd = () => { s = (s * 9301 + 49297) % 233280; return s / 233280 }
   return ROLLOUT_VERSIONS.map(v => ({
     label: v,
     series: series.map((d, i) => ({
-      m: d.m,
-      value: VERSION_AT[i] === v
+      ...d,
+      value: owner[i] === v
         ? Math.round(d.value * (1 + (rnd() - 0.5) * jitter) * 1000) / 1000
         : idle,
     })),
   }))
 }
 
-export const versionBands = {
-  rpm: bandByVersion(rpmSwell, { idle: 0, jitter: 0.12, seed: 301 }),
-  errorRatePct: bandByVersion(paymentServiceSeries.errorRatePct, { jitter: 0.55, seed: 302 }),
-  apdex: bandByVersion(paymentServiceSeries.apdex, { jitter: 0.04, seed: 303 }),
+export function versionBandsForWindow(win) {
+  const series = seriesForWindow(win)
+  const n = win.buckets.length
+  const owner = versionAt(n)
+  // Traffic swells and settles across the window rather than holding flat. The
+  // wave is phased to cross zero at the newest sample, so the chart still lands
+  // on the rate the KPI card reports for "now".
+  const rpmSwell = series.rpm.map((d, i) => {
+    const x = i - n + 1
+    return { ...d, value: d.value * (1 + 0.45 * Math.sin(x / 6.4) + 0.16 * Math.sin(x / 2.3)) }
+  })
+  return {
+    rpm: bandByVersion(rpmSwell, owner, { idle: 0, jitter: 0.12, seed: 301 }),
+    errorRatePct: bandByVersion(series.errorRatePct, owner, { jitter: 0.55, seed: 302 }),
+    apdex: bandByVersion(series.apdex, owner, { jitter: 0.04, seed: 303 }),
+  }
 }
 
-export const fleetSeries = {
-  rpm: generateSeries({ baseline: 5700, noise: 0.05, seed: 101 }),
-  errorsPerMin: generateSeries({ baseline: 3, incidentStartMinutesAgo: 22, incidentMultiplier: 15, noise: 0.2, seed: 102 }),
-  p90: generateSeries({ baseline: 150, incidentStartMinutesAgo: 22, incidentMultiplier: 2.7, noise: 0.08, seed: 103 }),
+export const versionBands = versionBandsForWindow(REFERENCE_WINDOW)
+
+const FLEET_PROFILES = {
+  rpm: { baseline: 5700, noise: 0.05, seed: 101, diurnal: true },
+  errorsPerMin: { baseline: 3, peak: 15, noise: 0.2, seed: 102 },
+  p90: { baseline: 150, peak: 2.7, noise: 0.08, seed: 103 },
 }
+
+export function fleetSeriesForWindow(win) {
+  return {
+    rpm: windowSeries(win, FLEET_PROFILES.rpm),
+    errorsPerMin: windowSeries(win, FLEET_PROFILES.errorsPerMin),
+    p90: windowSeries(win, FLEET_PROFILES.p90),
+  }
+}
+
+export const fleetSeries = fleetSeriesForWindow(REFERENCE_WINDOW)
 
 export const latencyDrilldown = [
   { label: 'DB redis', ms: 210, color: '#EF4444' },
@@ -173,6 +313,212 @@ export const errorRequests = [
   { endpoint: 'GET /v1/payments/:id', latencyMs: 70, timestamp: '12m ago', traceId: '1252473574', status: 'critical' },
   { endpoint: 'POST /v1/payments', latencyMs: 73, timestamp: '7m ago', traceId: '1715416823', status: 'critical' },
 ]
+
+/* ---- derived tables ---- */
+
+// How far each metric sat below its published figure when nothing was wrong.
+// Taken from payment-service's own profile, because every row in the tables
+// below is a slice of the same traffic and the same incident — an endpoint does
+// not have an outage of its own.
+const QUIET_RATIO = { rpm: 1, p90: 612 / 140, avg: 340 / 78, err: 4.8 / 0.05, cpu: 1.35, mem: 1.08 }
+
+let profileSeed = 900
+
+/**
+ * A calibrated profile from one number: what the last hour publishes. The quiet
+ * value comes from the ratio table, the peak is solved for, and the result is
+ * pinned so the reference hour still reads exactly what was passed in.
+ *
+ * A profile must be pinned against the aggregate it will be READ with. Pinning
+ * a p90 as a mean and then reading it as a percentile reports the incident
+ * plateau as if it were the hour's average, which is roughly 2.6x too high.
+ */
+function derivedProfile(published, kind, rate) {
+  profileSeed += 7
+  if (!(published > 0)) return { baseline: 0, peak: 1, seed: profileSeed }
+  const quiet = published / (QUIET_RATIO[kind] ?? 1)
+  const isQuantile = kind === 'p90'
+  const base = {
+    baseline: quiet,
+    // Once a third of the window's requests are slow, the 90th percentile IS
+    // the slow plateau — so for a percentile the plateau is simply the
+    // published figure, and there is nothing to solve.
+    peak: isQuantile ? published / quiet : calibratePeak(quiet, published),
+    noise: 0.06,
+    seed: profileSeed,
+    diurnal: kind === 'rpm',
+  }
+  return isQuantile
+    ? pinToReference(base, (w, pr) => windowQuantile(w, pr, 0.9, rate), published)
+    : pinToReference(base, windowMean, published)
+}
+
+// Profiles are built once per published figure, not per render — calibration
+// walks the reference window, and these tables are read on every tab switch.
+const memo = new WeakMap()
+function derivedTable(rows, spec) {
+  if (memo.has(rows)) return memo.get(rows)
+  const rateKey = Object.keys(spec).find(k => spec[k] === 'rpm')
+  const built = rows.map(r => {
+    const profiles = {}
+    // The rate is built first, because a percentile weights by it.
+    const rate = rateKey ? derivedProfile(r[rateKey], 'rpm') : null
+    if (rateKey) profiles[rateKey] = rate
+    for (const [key, kind] of Object.entries(spec)) {
+      if (key === rateKey) continue
+      profiles[key] = derivedProfile(r[key], kind, rate)
+    }
+    return { row: r, profiles }
+  })
+  memo.set(rows, built)
+  return built
+}
+
+/**
+ * Read a derived profile back with the aggregate it was pinned against. Pin and
+ * read have to be the same question or the reference hour stops reproducing
+ * what it publishes — the two directions of that mistake read about 2.6x high
+ * and about 2.1x low respectively.
+ */
+function readProfile(win, profile, kind, rate) {
+  return kind === 'p90' ? windowQuantile(win, profile, 0.9, rate) : windowMean(win, profile)
+}
+
+const round1 = v => Math.round(v * 10) / 10
+const compact = v => (v >= 1000 ? `${(v / 1000).toFixed(1)}K` : String(Math.round(v)))
+
+/** Minutes of the window that have actually happened. */
+const windowMinutes = win => win.pastMinutes
+
+const RED_SPEC = { rpm: 'rpm', p90: 'p90', avg: 'avg', errPct: 'err' }
+
+export function redEndpointsForWindow(win) {
+  const minutes = windowMinutes(win)
+  return derivedTable(redEndpoints, RED_SPEC).map(({ row, profiles }) => {
+    const rpm = round1(windowMean(win, profiles.rpm))
+    return {
+      ...row,
+      rpm,
+      // A percentile, taken the same way the service's own p90 is.
+      p90: Math.round(windowQuantile(win, profiles.p90, 0.9, profiles.rpm)),
+      avg: Math.round(windowMean(win, profiles.avg)),
+      errPct: round1(windowMean(win, profiles.errPct)),
+      // The one figure that GROWS with the window: a count, not a rate.
+      totalReq: compact(rpm * minutes),
+    }
+  })
+}
+
+const EXT_SPEC = { rpm: 'rpm', p90: 'p90', avg: 'avg', errPct: 'err' }
+
+export function externalEndpointsForWindow(win) {
+  return derivedTable(externalEndpoints, EXT_SPEC).map(({ row, profiles }) => ({
+    ...row,
+    rpm: round1(windowMean(win, profiles.rpm)),
+    p90: Math.round(windowQuantile(win, profiles.p90, 0.9, profiles.rpm)),
+    avg: Math.round(windowMean(win, profiles.avg)),
+    errPct: round1(windowMean(win, profiles.errPct)),
+  }))
+}
+
+export function dbEndpointsForWindow(win) {
+  return derivedTable(dbEndpoints, EXT_SPEC).map(({ row, profiles }) => ({
+    ...row,
+    rpm: round1(windowMean(win, profiles.rpm)),
+    p90: Math.round(windowQuantile(win, profiles.p90, 0.9, profiles.rpm)),
+    avg: round1(windowMean(win, profiles.avg)),
+    errPct: round1(windowMean(win, profiles.errPct)),
+  }))
+}
+
+const INFRA_SPEC = {
+  rpm: 'rpm', latencyP90: 'p90', errorRatePct: 'err', cpuUsedPct: 'cpu', memUsedPct: 'mem',
+}
+
+export function infraCorrelationForWindow(win) {
+  return derivedTable(infraCorrelation, INFRA_SPEC).map(({ row, profiles }) => ({
+    ...row,
+    rpm: Math.round(windowMean(win, profiles.rpm)),
+    latencyP90: Math.round(windowQuantile(win, profiles.latencyP90, 0.9, profiles.rpm)),
+    errorRatePct: round1(windowMean(win, profiles.errorRatePct)),
+    cpuUsedPct: Math.round(windowMean(win, profiles.cpuUsedPct)),
+    memUsedPct: Math.round(windowMean(win, profiles.memUsedPct)),
+  }))
+}
+
+// The drilldown's layers add up to the service's average latency, so they are
+// calibrated individually: only the Redis layer carries the incident, which is
+// why over a week the bar collapses to the 78 ms the service is quiet at and
+// Redis stops being the thing you look at first.
+const DRILLDOWN_QUIET = { 'DB redis': 8, 'HTTP External (twilio)': 30, 'DB mysql': 22, 'App / internal': 18 }
+
+const DRILLDOWN_PROFILES = latencyDrilldown.map((l, i) => {
+  const quiet = DRILLDOWN_QUIET[l.label] ?? l.ms
+  return pinToReference(
+    { baseline: quiet, peak: calibratePeak(quiet, l.ms), noise: 0.06, seed: 970 + i },
+    windowMean, l.ms,
+  )
+})
+
+export function latencyDrilldownForWindow(win) {
+  return latencyDrilldown.map((l, i) => ({ ...l, ms: Math.round(windowMean(win, DRILLDOWN_PROFILES[i])) }))
+}
+
+/**
+ * The same layers sampled per bucket, for the stacked chart above the list.
+ *
+ * The chart used to invent its own thirty points with the incident hard-coded
+ * at index 18, which meant it drew the same ramp in the same place whatever
+ * range was selected. Sampling the layers' own profiles ties it to the window
+ * and to the totals underneath it.
+ */
+export function latencyDrilldownSeriesForWindow(win) {
+  return latencyDrilldown.map((l, i) => ({
+    label: l.label,
+    color: l.color,
+    series: windowSeries(win, DRILLDOWN_PROFILES[i]),
+  }))
+}
+
+/** One endpoint's metric sampled across the window, for the RED graph view. */
+export function redEndpointSeriesForWindow(win, key) {
+  return derivedTable(redEndpoints, RED_SPEC).map(({ row, profiles }) => ({
+    endpoint: row.endpoint,
+    series: windowSeries(win, profiles[key]),
+  }))
+}
+
+/** '9m ago' / '4h ago' / '3d ago' — how a sample request is dated. */
+function agoLabel(minutes) {
+  if (minutes < 60) return `${Math.max(1, Math.round(minutes))}m ago`
+  if (minutes < 1440) return `${Math.round(minutes / 60)}h ago`
+  return `${Math.round(minutes / 1440)}d ago`
+}
+
+// Sample requests are dated within the window and scaled with it. Their offsets
+// stretch with the range — the rows sit in the newest fifth of it, because an
+// example offered to click into should be a recent one — and the stretch is 1
+// at the reference hour, so Last 1 hour still dates them exactly as before.
+const SAMPLE_REACH_MIN = 60 / 5
+
+function sampleRequests(win, rows, kind) {
+  const stretch = Math.max(1, windowMinutes(win) / 5) / SAMPLE_REACH_MIN
+  return derivedTable(rows, { latencyMs: kind }).map(({ row, profiles }) => ({
+    ...row,
+    latencyMs: Math.round(readProfile(win, profiles.latencyMs, kind)),
+    timestamp: agoLabel(parseInt(row.timestamp, 10) * stretch),
+  }))
+}
+
+export function slowRequestsForWindow(win) {
+  return sampleRequests(win, slowRequests, 'p90')
+}
+
+// A failing request is fast — the signal is the failure, not the duration — so
+// its latency tracks the service's average rather than its percentile.
+export function errorRequestsForWindow(win) {
+  return sampleRequests(win, errorRequests, 'avg')
+}
 
 export const SEARCH_INDEX = [
   { id: 'payment-service', name: 'payment-service', type: 'service', category: 'APM · Services', status: 'critical' },
@@ -318,11 +664,19 @@ export const runtimeHosts = [
   { id: 'ip-10-0-130-150', name: 'ip-10-0-130-150', status: 'healthy' },
 ]
 
-export const runtimeMetrics = {
-  cpuPct: generateSeries({ baseline: 68, incidentStartMinutesAgo: 22, incidentMultiplier: 1.35, noise: 0.08, seed: 201 }),
-  heapUsedMB: generateSeries({ baseline: 480, incidentStartMinutesAgo: 22, incidentMultiplier: 1.28, noise: 0.06, seed: 202 }),
-  heapLimitMB: generateSeries({ baseline: 640, noise: 0.005, seed: 203 }),
-  threads: generateSeries({ baseline: 220, incidentStartMinutesAgo: 22, incidentMultiplier: 1.4, noise: 0.05, seed: 204 }),
-  gcMinorMs: generateSeries({ baseline: 8, incidentStartMinutesAgo: 22, incidentMultiplier: 2.4, noise: 0.25, seed: 205 }),
-  gcMajorMs: generateSeries({ baseline: 3, incidentStartMinutesAgo: 22, incidentMultiplier: 3.2, noise: 0.3, seed: 206 }),
+const RUNTIME_PROFILES = {
+  cpuPct: { baseline: 68, peak: 1.35, noise: 0.08, seed: 201 },
+  heapUsedMB: { baseline: 480, peak: 1.28, noise: 0.06, seed: 202 },
+  heapLimitMB: { baseline: 640, noise: 0.005, seed: 203 },
+  threads: { baseline: 220, peak: 1.4, noise: 0.05, seed: 204 },
+  gcMinorMs: { baseline: 8, peak: 2.4, noise: 0.25, seed: 205 },
+  gcMajorMs: { baseline: 3, peak: 3.2, noise: 0.3, seed: 206 },
 }
+
+export function runtimeMetricsForWindow(win) {
+  return Object.fromEntries(
+    Object.entries(RUNTIME_PROFILES).map(([k, profile]) => [k, windowSeries(win, profile)]),
+  )
+}
+
+export const runtimeMetrics = runtimeMetricsForWindow(REFERENCE_WINDOW)

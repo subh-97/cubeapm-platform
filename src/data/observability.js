@@ -1,7 +1,13 @@
 import { extraLogRecords } from './logRecordTypes'
 import { isNoiseField } from '@/utils/logFields'
+import {
+  BASE_TIME, REFERENCE_WINDOW, calibratePeak, incidentWeight,
+  sampleAt, sampleCount, spreadTimes, windowCount,
+} from './timeWindow'
 
-export const BASE_TIME = new Date()
+// The anchor now lives with the time model; re-exported because every module
+// that reads the mock stream has always imported it from here.
+export { BASE_TIME }
 
 const seededRnd = seed => {
   let s = seed
@@ -34,19 +40,48 @@ function hexId(rnd, len) {
   return Array.from({ length: len }, () => Math.floor(rnd() * 16).toString(16)).join('')
 }
 
-function generateLogs(n = 180) {
+// The level mix is not flat across the window. While the pool is exhausted
+// almost a third of what the stream carries is an error; outside the incident
+// it is a few percent. Shares are calibrated so the reference hour still reads
+// 12% error / 26% warn — the mix this page has always shown — which leaves a
+// five-minute window dominated by errors and a seven-day one almost free of
+// them, from the same two numbers.
+const LEVEL_MIX = {
+  error: { baseline: 0.03, target: 0.12 },
+  warn: { baseline: 0.17, target: 0.26 },
+}
+const ERROR_PEAK = calibratePeak(LEVEL_MIX.error.baseline, LEVEL_MIX.error.target)
+const WARN_PEAK = calibratePeak(LEVEL_MIX.warn.baseline, LEVEL_MIX.warn.target)
+
+function levelAt(minutesAgo, r) {
+  const w = incidentWeight(minutesAgo)
+  const error = LEVEL_MIX.error.baseline * (1 + (ERROR_PEAK - 1) * w)
+  const warn = LEVEL_MIX.warn.baseline * (1 + (WARN_PEAK - 1) * w)
+  if (r < error) return 'error'
+  if (r < error + warn) return 'warn'
+  return 'info'
+}
+
+/**
+ * The request-log sample for a window.
+ *
+ * A sample, not the stream: the volume chart above the table says the window
+ * holds hundreds of thousands of records, and the table shows a few hundred of
+ * them spread across the same window. Taking the newest few hundred instead
+ * would collapse every range wider than an hour onto the same last hour, which
+ * is exactly the blindness this work exists to remove.
+ */
+function generateLogs(win) {
+  const n = sampleCount(win, 3)
+  const times = spreadTimes(win, n)
   const rnd = seededRnd(17)
-  const now = BASE_TIME.getTime()
+  const endMs = win.end * 1000
   const rows = []
   for (let i = 0; i < n; i++) {
-    const offsetSec = i * 20 + rnd() * 8
-    const t = new Date(now - offsetSec * 1000)
+    const t = new Date(times[i])
+    const minutesAgo = (endMs - times[i]) / 60000
     const svc = LOG_SERVICES[Math.floor(rnd() * LOG_SERVICES.length)]
-    let level
-    const r = rnd()
-    if (r < 0.12) level = 'error'
-    else if (r < 0.38) level = 'warn'
-    else level = 'info'
+    const level = levelAt(minutesAgo, rnd())
     const isError = level === 'error'
     const ts = t.toISOString()
     const message = makeMessage(level, svc, ts)
@@ -83,26 +118,62 @@ function generateLogs(n = 180) {
   return rows
 }
 
-// Request logs keep their own seed so adding another record type never
-// reshuffles them. The rest are merged in and the whole stream re-sorted,
-// because a drawer that only ever sees one record shape is not being tested.
-export const logRows = [
-  ...generateLogs(180),
-  ...extraLogRecords({ baseTime: BASE_TIME, rnd: seededRnd(43) }),
-].sort((a, b) => b.time - a.time)
-
-function generateLogVolume(points = 60) {
-  const rnd = seededRnd(29)
-  const out = []
-  for (let i = points - 1; i >= 0; i--) {
-    const info = Math.round(30 + rnd() * 25)
-    const warn = Math.round(2 + rnd() * 6)
-    const error = Math.round(0.5 + rnd() * 3)
-    out.push({ m: i, info, warn, error, total: info + warn + error, label: i === 0 ? 'now' : `-${i}m` })
-  }
-  return out
+/**
+ * Every record the window holds, request logs and the other shapes together.
+ *
+ * Request logs keep their own seed so adding another record type never
+ * reshuffles them. The rest are merged in and the whole stream re-sorted,
+ * because a drawer that only ever sees one record shape is not being tested.
+ */
+export function logRowsForWindow(win) {
+  const extras = extraLogRecords({
+    baseTime: BASE_TIME,
+    rnd: seededRnd(43),
+    // The special records spread across whatever window is being looked at, so
+    // a k8s event is not always sitting in the same minute of the same hour.
+    spread: n => spreadTimes(win, n),
+  })
+  return [...generateLogs(win), ...extras].sort((a, b) => b.time - a.time)
 }
-export const logVolume = generateLogVolume(60)
+
+// Records per minute by level. `info` carries the daily traffic wave; `warn`
+// and `error` carry the incident, calibrated to the rates the reference hour
+// has always averaged.
+const LOG_RATE = {
+  info: { baseline: 42.5, noise: 0.55, seed: 29, diurnal: true },
+  warn: { baseline: 3.4, target: 5, noise: 0.55, seed: 31 },
+  error: { baseline: 0.55, target: 2, noise: 0.6, seed: 37 },
+}
+
+/**
+ * The stacked histogram over the window. A bar covers its own span in minutes
+ * stacks that many minutes of the rate — which is why a seven-day chart reads
+ * in hundreds of thousands and an hour's reads in tens.
+ */
+export function logVolumeForWindow(win) {
+  return win.buckets.map(b => {
+    const info = b.future ? 0 : Math.round(sampleAt(LOG_RATE.info, b) * b.durMin)
+    const warn = b.future ? 0 : Math.round(sampleAt(LOG_RATE.warn, b) * b.durMin)
+    const error = b.future ? 0 : Math.round(sampleAt(LOG_RATE.error, b) * b.durMin)
+    return {
+      m: b.m, t: b.t, label: b.label, exactTime: b.exactTime,
+      info, warn, error, total: info + warn + error,
+    }
+  })
+}
+
+/** What the level bands total over a window, without drawing it. */
+export function logTotalsForWindow(win) {
+  const info = Math.round(windowCount(win, LOG_RATE.info))
+  const warn = Math.round(windowCount(win, LOG_RATE.warn))
+  const error = Math.round(windowCount(win, LOG_RATE.error))
+  return { info, warn, error, total: info + warn + error }
+}
+
+// The reference hour, for the modules that want the stream without choosing a
+// window: the facet-shape tests, and Explore's own store.
+export const logRows = logRowsForWindow(REFERENCE_WINDOW)
+export const logVolume = logVolumeForWindow(REFERENCE_WINDOW)
 
 // Facets are derived from the rows rather than listed by hand, so a new tag
 // becomes filterable without anyone remembering to add it here.
@@ -162,7 +233,7 @@ export function isNumericValue(v) {
   return /^-?\d+(\.\d+)?$/.test(v)
 }
 
-function buildLogFacets(rows) {
+export function buildLogFacets(rows) {
   const out = {}
   // Keys come from every row, not just the first. Records arrive in several
   // shapes now - a k8s event, a database span and a request log carry different

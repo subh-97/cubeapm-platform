@@ -1,6 +1,8 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceArea, ResponsiveContainer } from 'recharts'
-import { logRows, logVolume, logFacets, BASE_TIME } from '@/data/observability'
+import { logRowsForWindow, logVolumeForWindow, buildLogFacets, BASE_TIME } from '@/data/observability'
+import { resolveWindow, bucketIndexOf } from '@/data/timeWindow'
+import { zoomRange } from '@/utils/timeRange'
 import PageBar from '@/components/layout/PageBar'
 import QueryBuilder, { applyChipsToLog, chipsToString, FIELD_CATALOG, getFieldValue, SAVED_QUERIES } from '@/components/QueryBuilder'
 import { flattenLeaves, newGroup } from '@/utils/queryTree'
@@ -71,10 +73,12 @@ function VolumeTooltip({ active, payload, label }) {
 // stopped covering the data the moment records of another shape arrived.
 // Agent boilerplate is left out - it is on every row of its kind and identical
 // every time, so it makes a column that says nothing.
-const EXTRA_FIELDS = [...new Set(logRows.flatMap(r => Object.keys(r.tags)))]
-  .filter(k => !isNoiseField(k))
-  .sort()
-  .map(key => ({ key, label: key }))
+function extraFieldsFor(rows) {
+  return [...new Set(rows.flatMap(r => Object.keys(r.tags)))]
+    .filter(k => !isNoiseField(k))
+    .sort()
+    .map(key => ({ key, label: key }))
+}
 
 const DEFAULT_FIELDS = new Set()
 
@@ -134,21 +138,6 @@ function PatternsDrawer({ onClose }) {
       </aside>
     </div>
   )
-}
-
-function presetToMinutes(tr) {
-  const map = {
-    'Last 5 minutes': 5, 'Last 15 minutes': 15, 'Last 30 minutes': 30,
-    'Last 1 hour': 60, 'Last 2 hours': 120, 'Last 3 hours': 180,
-    'Last 6 hours': 360, 'Last 12 hours': 720, 'Last 24 hours': 1440,
-    'Last 2 days': 2880, 'Last 3 days': 4320, 'Last 7 days': 10080,
-  }
-  if (tr === 'Today' || tr === 'Today so far') {
-    const now = BASE_TIME
-    const sod = new Date(now); sod.setHours(0, 0, 0, 0)
-    return Math.round((now - sod) / 60000)
-  }
-  return map[tr] ?? null
 }
 
 // Separates "a malformed query worth explaining" from "a plain value that
@@ -220,6 +209,18 @@ function downloadCSV(rows) {
 }
 
 export default function LogsView({ goHome, timeRange, setTimeRange, setToast, onOpenLink, incomingChip, onIncomingChipApplied }) {
+  // Everything on this page is a function of the selected range. The stream is
+  // re-read for the window rather than sliced out of a fixed hour, so widening
+  // the range reaches further back instead of re-showing the same records with
+  // a different label on the button.
+  const win = useMemo(() => resolveWindow(timeRange), [timeRange])
+  const rows = useMemo(() => logRowsForWindow(win), [win])
+  const volume = useMemo(() => logVolumeForWindow(win), [win])
+  // Facets are counted over the window's records, so the numbers beside each
+  // value are the numbers for what is on screen.
+  const logFacets = useMemo(() => buildLogFacets(rows), [rows])
+  const EXTRA_FIELDS = useMemo(() => extraFieldsFor(rows), [rows])
+
   const [filters, setFilters] = useState({})
   const [selectedId, setSelectedId] = useState(null)
   const [query, setQuery] = useState('')
@@ -574,7 +575,11 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
     setEditingMathId(null)
   }, [])
 
-  const [zoom, setZoom] = useState(null)
+  // A drag on the histogram IS a time range — it sets the app-wide range to an
+  // absolute window rather than keeping a private "zoom" beside it. One concept
+  // instead of two, and the range the rest of the product sees is the range you
+  // dragged. `zoomedFrom` is only what Reset goes back to.
+  const [zoomedFrom, setZoomedFrom] = useState(null)
   const [dragBrush, setDragBrush] = useState(null)
   // Text-selection context menu: { x, y, text, field, value } | null
   const [selMenu, setSelMenu] = useState(null)
@@ -582,7 +587,6 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
   const [distField, setDistField] = useState(null)
   const dragRef = useRef(null)
   const brushStartRef = useRef(null)
-  const prevTimeRangeRef = useRef(timeRange)
 
   // Detect a text selection inside the log table / detail panel and surface the menu.
   const handleLogSelection = useCallback(() => {
@@ -695,35 +699,38 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
   }, [selMenu, distField])
 
   const clearZoom = useCallback(() => {
-    if (zoom && prevTimeRangeRef.current) setTimeRange(prevTimeRangeRef.current)
-    setZoom(null)
-  }, [zoom, setTimeRange])
+    if (zoomedFrom) setTimeRange(zoomedFrom)
+    setZoomedFrom(null)
+  }, [zoomedFrom, setTimeRange])
 
+  // Picking a range from the time control replaces whatever was dragged, so
+  // there is no longer anything to reset back to.
   const wrappedSetTimeRange = useCallback((v) => {
-    if (!v?.startsWith?.('Custom')) prevTimeRangeRef.current = v
-    setZoom(null)
+    setZoomedFrom(null)
     setTimeRange(v)
   }, [setTimeRange])
 
-  useEffect(() => {
-    if (!zoom) return
-    const span = zoom.m1 - zoom.m2 + 1
-    const spanLabel = span === 1 ? '1 min' : `${span} min`
-    const fromLabel = zoom.m1 === 0 ? 'now' : `-${zoom.m1}m`
-    const toLabel = zoom.m2 === 0 ? 'now' : `-${zoom.m2}m`
-    setTimeRange(`Custom · ${fromLabel} → ${toLabel} (${spanLabel})`)
-  }, [zoom, setTimeRange])
-
+  // Releasing a drag turns the two bucket labels back into instants and applies
+  // them as the range. `zoomRange` rounds to whole minutes, so the window that
+  // comes back is one the step ladder can bucket cleanly.
   useEffect(() => {
     const onUp = () => {
       if (!brushStartRef.current) return
       brushStartRef.current = null
       setDragBrush(prev => {
         if (prev && prev.s1 !== prev.s2) {
-          const b1 = logVolume.find(d => d.label === prev.s1)
-          const b2 = logVolume.find(d => d.label === prev.s2)
+          const b1 = win.buckets.find(d => d.label === prev.s1)
+          const b2 = win.buckets.find(d => d.label === prev.s2)
           if (b1 && b2) {
-            setZoom({ m1: Math.max(b1.m, b2.m), m2: Math.min(b1.m, b2.m) })
+            // The later bucket contributes its whole span, or a one-bucket drag
+            // would select an instant.
+            const lo = Math.min(b1.ms, b2.ms)
+            const hi = Math.max(b1.ms, b2.ms) + win.step * 1000
+            const next = zoomRange(lo, hi)
+            if (next) {
+              setZoomedFrom(cur => cur ?? timeRange)
+              setTimeRange(next)
+            }
           }
         }
         return null
@@ -731,7 +738,7 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
     }
     document.addEventListener('mouseup', onUp)
     return () => document.removeEventListener('mouseup', onUp)
-  }, [])
+  }, [win, timeRange, setTimeRange])
 
   const onChartMouseDown = (e) => {
     if (!e?.activeLabel) return
@@ -785,15 +792,17 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
     const lead = FACET_LEAD.filter(k => keys.includes(k))
     const rest = keys.filter(k => !lead.includes(k)).sort()
     return [...lead, ...rest]
-  }, [])
+  }, [logFacets])
 
-  // Rows matching chips/query/facets but NOT the time window — used to build the volume histogram.
+  // Rows matching chips/query/facets. The time window is already applied — the
+  // stream was read for it — so this is the full result set, and the table and
+  // the histogram are built from the same list.
   const chipFilteredRows = useMemo(() => {
     // Every facet the panel shows filters, not just the two it once listed:
     // the field list is derived from the rows now, so naming fields here would
     // leave the rest of the panel decorative.
     const active = Object.entries(filters).filter(([, set]) => set?.size)
-    return logRows.filter(l => {
+    return rows.filter(l => {
       for (const [field, set] of active) {
         if (!set.has(String(facetValueOf(l, field) ?? ''))) return false
       }
@@ -801,7 +810,7 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
       if (appliedChips.length && !applyChipsToLog(l, appliedChips)) return false
       return true
     })
-  }, [filters, query, appliedChips])
+  }, [rows, filters, query, appliedChips])
 
   // Literal strings the user is searching the message body for — the free-text
   // chips plus the facet search box. Regex chips are left out: their value is a
@@ -925,68 +934,46 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
     pipes: effectivePipes,
     logs: chipFilteredRows,
     getFieldValue,
-    now: BASE_TIME.getTime(),
-    timeRange: 60 * 60 * 1000,
-    bucketCount: 30,
-  }), [effectivePipes, chipFilteredRows])
+    now: win.end * 1000,
+    timeRange: win.spanSec * 1000,
+    bucketCount: Math.min(30, win.buckets.length),
+  }), [effectivePipes, chipFilteredRows, win])
 
-  // Scale logVolume (production-shaped baseline) by per-level filtered ratios.
-  // When no filters are active the ratios are all 1 → original chart is preserved.
-  // When filters are active each level's bar shrinks proportionally to how many
-  // rows in that minute match the filter, keeping the production-like visual shape.
+  // Scale the window's volume (production-shaped baseline) by per-level
+  // filtered ratios. With nothing filtered every ratio is 1 and the chart is
+  // the window's own histogram; with a filter on, each level's bar shrinks by
+  // how many of that bucket's sampled rows still match, which keeps the
+  // production-like silhouette while agreeing with the table.
   const filteredVolume = useMemo(() => {
     // appliedChips, not chips — the chart must agree with the table, and in raw
     // mode `chips` is empty anyway (the active filter comes from parsed raw
     // text), which would short-circuit to the unfiltered baseline.
     const hasFilters = appliedChips.length > 0 || !!query || Object.values(filters).some(s => s?.size)
-    if (!hasFilters) return logVolume
+    if (!hasFilters) return volume
 
-    const now = BASE_TIME.getTime()
-    const allByMin = {}, filtByMin = {}
+    const all = [], filt = []
     const bucket = (acc, l) => {
-      const m = Math.floor((now - l.time.getTime()) / 60000)
-      if (m >= 0 && m < 60) {
-        if (!acc[m]) acc[m] = { error: 0, warn: 0, info: 0 }
-        acc[m][l.level]++
-      }
+      const i = bucketIndexOf(win, l.time.getTime())
+      if (i < 0) return
+      if (!acc[i]) acc[i] = { error: 0, warn: 0, info: 0 }
+      acc[i][l.level]++
     }
-    logRows.forEach(l => bucket(allByMin, l))
-    chipFilteredRows.forEach(l => bucket(filtByMin, l))
+    rows.forEach(l => bucket(all, l))
+    chipFilteredRows.forEach(l => bucket(filt, l))
 
-    return logVolume.map(d => {
-      const all = allByMin[d.m]
-      if (!all) return { ...d, info: 0, warn: 0, error: 0, total: 0 }
-      const filt = filtByMin[d.m] || { error: 0, warn: 0, info: 0 }
-      const info  = all.info  > 0 ? Math.round(d.info  * filt.info  / all.info)  : 0
-      const warn  = all.warn  > 0 ? Math.round(d.warn  * filt.warn  / all.warn)  : 0
-      const error = all.error > 0 ? Math.round(d.error * filt.error / all.error) : 0
+    return volume.map((d, i) => {
+      const a = all[i]
+      if (!a) return { ...d, info: 0, warn: 0, error: 0, total: 0 }
+      const f = filt[i] || { error: 0, warn: 0, info: 0 }
+      const scale = k => (a[k] > 0 ? Math.round(d[k] * f[k] / a[k]) : 0)
+      const info = scale('info'), warn = scale('warn'), error = scale('error')
       return { ...d, info, warn, error, total: info + warn + error }
     })
-  }, [chipFilteredRows, filters, query, appliedChips])
+  }, [chipFilteredRows, rows, volume, win, filters, query, appliedChips])
 
-  const filtered = useMemo(() => {
-    let rows = chipFilteredRows
-    if (zoom) {
-      const now = BASE_TIME.getTime()
-      const tMin = now - (zoom.m1 + 1) * 60000
-      const tMax = now - zoom.m2 * 60000
-      rows = rows.filter(l => l.time.getTime() >= tMin && l.time.getTime() <= tMax)
-    } else {
-      const mins = presetToMinutes(timeRange)
-      if (mins !== null) {
-        const cutoff = BASE_TIME.getTime() - mins * 60000
-        rows = rows.filter(l => l.time.getTime() >= cutoff)
-      }
-    }
-    return rows
-  }, [chipFilteredRows, zoom, timeRange])
-
-  const visibleVolume = useMemo(() => {
-    if (zoom) return filteredVolume.filter(d => d.m >= zoom.m2 && d.m <= zoom.m1)
-    const mins = presetToMinutes(timeRange)
-    if (mins !== null) return filteredVolume.filter(d => d.m <= mins)
-    return filteredVolume
-  }, [zoom, timeRange, filteredVolume])
+  // No time filter left to apply: the rows were read for this window.
+  const filtered = chipFilteredRows
+  const visibleVolume = filteredVolume
 
   // Tallest stacked bucket on screen - the axis gutter is sized from it.
   const volumeMax = useMemo(
@@ -1394,13 +1381,13 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
         {appliedStatsFunctions.length === 0 && appliedGroupBy.length === 0 ? (<>
         {graphVisible && <div className="logs-volume">
           <div className="logs-volume-chart">
-            {zoom && (
-              <button className="volume-reset-btn" onClick={clearZoom} title="Clear time selection">
+            {zoomedFrom && (
+              <button className="volume-reset-btn" onClick={clearZoom} title="Go back to the range this was zoomed from">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
                 Reset zoom
               </button>
             )}
-            {!zoom && (
+            {!zoomedFrom && (
               <div className="volume-brush-hint">Click & drag on chart to zoom in</div>
             )}
             <ResponsiveContainer width="100%" height="100%">
