@@ -1,7 +1,9 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceArea, ResponsiveContainer } from 'recharts'
-import { spanRows, spanVolume, spanFacets, spanFacetFields } from '@/data/tracesExplorer'
+import { spanRowsForWindow, spanVolumeForWindow, buildSpanFacets, spanFacetFieldsFor } from '@/data/tracesExplorer'
 import { BASE_TIME } from '@/data/observability'
+import { resolveWindow, bucketIndexOf } from '@/data/timeWindow'
+import { zoomRange } from '@/utils/timeRange'
 import PageBar from '@/components/layout/PageBar'
 import QueryBuilder, { applyChipsToLog, chipsToString } from '@/components/QueryBuilder'
 import FacetGroup from '@/components/explorer/FacetGroup'
@@ -100,21 +102,6 @@ function VolumeTooltip({ active, payload, label }) {
       </div>
     </div>
   )
-}
-
-function presetToMinutes(tr) {
-  const map = {
-    'Last 5 minutes': 5, 'Last 15 minutes': 15, 'Last 30 minutes': 30,
-    'Last 1 hour': 60, 'Last 2 hours': 120, 'Last 3 hours': 180,
-    'Last 6 hours': 360, 'Last 12 hours': 720, 'Last 24 hours': 1440,
-    'Last 2 days': 2880, 'Last 3 days': 4320, 'Last 7 days': 10080,
-  }
-  if (tr === 'Today' || tr === 'Today so far') {
-    const now = BASE_TIME
-    const sod = new Date(now); sod.setHours(0, 0, 0, 0)
-    return Math.round((now - sod) / 60000)
-  }
-  return map[tr] ?? null
 }
 
 function compactCount(n) {
@@ -218,6 +205,15 @@ function SpanCell({ col, row, onOpenTrace }) {
  * rather than a stream.
  */
 export default function TracesView({ goHome, timeRange, setTimeRange, setToast, onOpenLink, onOpenTrace, incomingChip, onIncomingChipApplied }) {
+  // The span stream is read for the selected range, the same way the log stream
+  // is — see LogsView. Facets count over the window's rows, so the number
+  // beside each value describes what is actually on screen.
+  const win = useMemo(() => resolveWindow(timeRange), [timeRange])
+  const spanRows = useMemo(() => spanRowsForWindow(win), [win])
+  const volume = useMemo(() => spanVolumeForWindow(win), [win])
+  const spanFacets = useMemo(() => buildSpanFacets(spanRows), [spanRows])
+  const spanFacetFields = useMemo(() => spanFacetFieldsFor(spanFacets), [spanFacets])
+
   const [filters, setFilters] = useState({})
   const [selectedId, setSelectedId] = useState(null)
   const [chips, setChips] = useState([])
@@ -432,11 +428,12 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
     setEditingMathId(null)
   }, [])
 
-  const [zoom, setZoom] = useState(null)
+  // A drag on the histogram sets the app-wide range rather than keeping a
+  // private zoom beside it; `zoomedFrom` is only what Reset goes back to.
+  const [zoomedFrom, setZoomedFrom] = useState(null)
   const [dragBrush, setDragBrush] = useState(null)
   const dragRef = useRef(null)
   const brushStartRef = useRef(null)
-  const prevTimeRangeRef = useRef(timeRange)
 
   const addChipToQuery = useCallback((chip) => {
     setChips(prev => prev.length === 0 ? [chip] : [...prev, { connector: 'AND', ...chip }])
@@ -470,24 +467,16 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
   }, [setToast])
 
   const clearZoom = useCallback(() => {
-    if (zoom && prevTimeRangeRef.current) setTimeRange(prevTimeRangeRef.current)
-    setZoom(null)
-  }, [zoom, setTimeRange])
+    if (zoomedFrom) setTimeRange(zoomedFrom)
+    setZoomedFrom(null)
+  }, [zoomedFrom, setTimeRange])
 
+  // Picking a range from the time control replaces whatever was dragged, so
+  // there is no longer anything to reset back to.
   const wrappedSetTimeRange = useCallback((v) => {
-    if (!v?.startsWith?.('Custom')) prevTimeRangeRef.current = v
-    setZoom(null)
+    setZoomedFrom(null)
     setTimeRange(v)
   }, [setTimeRange])
-
-  useEffect(() => {
-    if (!zoom) return
-    const span = zoom.m1 - zoom.m2 + 1
-    const spanLabel = span === 1 ? '1 min' : `${span} min`
-    const fromLabel = zoom.m1 === 0 ? 'now' : `-${zoom.m1}m`
-    const toLabel = zoom.m2 === 0 ? 'now' : `-${zoom.m2}m`
-    setTimeRange(`Custom · ${fromLabel} → ${toLabel} (${spanLabel})`)
-  }, [zoom, setTimeRange])
 
   useEffect(() => {
     const onUp = () => {
@@ -495,16 +484,27 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
       brushStartRef.current = null
       setDragBrush(prev => {
         if (prev && prev.s1 !== prev.s2) {
-          const b1 = spanVolume.find(d => d.label === prev.s1)
-          const b2 = spanVolume.find(d => d.label === prev.s2)
-          if (b1 && b2) setZoom({ m1: Math.max(b1.m, b2.m), m2: Math.min(b1.m, b2.m) })
+          const b1 = win.buckets.find(d => d.label === prev.s1)
+          const b2 = win.buckets.find(d => d.label === prev.s2)
+          if (b1 && b2) {
+            // The later bucket contributes its whole span, or a one-bucket drag
+            // would select an instant.
+            const next = zoomRange(
+              Math.min(b1.ms, b2.ms),
+              Math.max(b1.ms, b2.ms) + win.step * 1000,
+            )
+            if (next) {
+              setZoomedFrom(cur => cur ?? timeRange)
+              setTimeRange(next)
+            }
+          }
         }
         return null
       })
     }
     document.addEventListener('mouseup', onUp)
     return () => document.removeEventListener('mouseup', onUp)
-  }, [])
+  }, [win, timeRange, setTimeRange])
 
   const onChartMouseDown = (e) => {
     if (!e?.activeLabel) return
@@ -558,7 +558,7 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
       if (appliedChips.length && !applyChipsToLog(s, appliedChips, getSpanFieldValue)) return false
       return true
     })
-  }, [filters, appliedChips])
+  }, [spanRows, filters, appliedChips])
 
   const effectivePipes = useMemo(() => withImpliedCount(appliedPipes), [appliedPipes])
   const livePipes = useMemo(() => withImpliedCount(pipes), [pipes])
@@ -621,67 +621,45 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
     pipes: effectivePipes,
     logs: chipFilteredRows,
     getFieldValue: getSpanFieldValue,
-    now: BASE_TIME.getTime(),
-    timeRange: 60 * 60 * 1000,
-    bucketCount: 30,
-  }), [effectivePipes, chipFilteredRows])
+    now: win.end * 1000,
+    timeRange: win.spanSec * 1000,
+    bucketCount: Math.min(30, win.buckets.length),
+  }), [effectivePipes, chipFilteredRows, win])
 
   // Scale the production-shaped baseline by per-band filtered ratios, so the
   // chart keeps a realistic silhouette while still agreeing with the filter.
   // With nothing filtered every ratio is 1 and the baseline is untouched.
   const filteredVolume = useMemo(() => {
     const hasFilters = appliedChips.length > 0 || Object.values(filters).some(s => s?.size)
-    if (!hasFilters) return spanVolume
+    if (!hasFilters) return volume
 
     const bandOf = (r) => r.tags['event.domain'] === 'span_event'
       ? 'event'
       : r.statusCode === 'ERROR' ? 'error' : 'unset'
 
-    const now = BASE_TIME.getTime()
-    const allByMin = {}, filtByMin = {}
+    const all = [], filt = []
     const bucket = (acc, r) => {
-      const m = Math.floor((now - r.time.getTime()) / 60000)
-      if (m >= 0 && m < 60) {
-        if (!acc[m]) acc[m] = { unset: 0, event: 0, error: 0 }
-        acc[m][bandOf(r)]++
-      }
+      const i = bucketIndexOf(win, r.time.getTime())
+      if (i < 0) return
+      if (!acc[i]) acc[i] = { unset: 0, event: 0, error: 0 }
+      acc[i][bandOf(r)]++
     }
-    spanRows.forEach(r => bucket(allByMin, r))
-    chipFilteredRows.forEach(r => bucket(filtByMin, r))
+    spanRows.forEach(r => bucket(all, r))
+    chipFilteredRows.forEach(r => bucket(filt, r))
 
-    return spanVolume.map(d => {
-      const all = allByMin[d.m]
-      if (!all) return { ...d, unset: 0, event: 0, error: 0, total: 0 }
-      const filt = filtByMin[d.m] || { unset: 0, event: 0, error: 0 }
-      const scale = k => (all[k] > 0 ? Math.round(d[k] * filt[k] / all[k]) : 0)
+    return volume.map((d, i) => {
+      const a = all[i]
+      if (!a) return { ...d, unset: 0, event: 0, error: 0, total: 0 }
+      const f = filt[i] || { unset: 0, event: 0, error: 0 }
+      const scale = k => (a[k] > 0 ? Math.round(d[k] * f[k] / a[k]) : 0)
       const unset = scale('unset'), event = scale('event'), error = scale('error')
       return { ...d, unset, event, error, total: unset + event + error }
     })
-  }, [chipFilteredRows, filters, appliedChips])
+  }, [chipFilteredRows, spanRows, volume, win, filters, appliedChips])
 
-  const filtered = useMemo(() => {
-    let rows = chipFilteredRows
-    if (zoom) {
-      const now = BASE_TIME.getTime()
-      const tMin = now - (zoom.m1 + 1) * 60000
-      const tMax = now - zoom.m2 * 60000
-      rows = rows.filter(r => r.time.getTime() >= tMin && r.time.getTime() <= tMax)
-    } else {
-      const mins = presetToMinutes(timeRange)
-      if (mins !== null) {
-        const cutoff = BASE_TIME.getTime() - mins * 60000
-        rows = rows.filter(r => r.time.getTime() >= cutoff)
-      }
-    }
-    return rows
-  }, [chipFilteredRows, zoom, timeRange])
-
-  const visibleVolume = useMemo(() => {
-    if (zoom) return filteredVolume.filter(d => d.m >= zoom.m2 && d.m <= zoom.m1)
-    const mins = presetToMinutes(timeRange)
-    if (mins !== null) return filteredVolume.filter(d => d.m <= mins)
-    return filteredVolume
-  }, [zoom, timeRange, filteredVolume])
+  // No time filter left to apply: the spans were read for this window.
+  const filtered = chipFilteredRows
+  const visibleVolume = filteredVolume
 
   // Tallest stacked bucket on screen - the axis gutter is sized from it.
   const volumeMax = useMemo(
@@ -1090,13 +1068,13 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
               {appliedStatsFunctions.length === 0 && appliedGroupBy.length === 0 ? (<>
                 {graphVisible && <div className="logs-volume">
                   <div className="logs-volume-chart">
-                    {zoom && (
+                    {zoomedFrom && (
                       <button className="volume-reset-btn" onClick={clearZoom} title="Clear time selection">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
                         Reset zoom
                       </button>
                     )}
-                    {!zoom && <div className="volume-brush-hint">Click &amp; drag on chart to zoom in</div>}
+                    {!zoomedFrom && <div className="volume-brush-hint">Click &amp; drag on chart to zoom in</div>}
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart
                         data={visibleVolume}

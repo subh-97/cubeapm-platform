@@ -1,7 +1,15 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
-import { services, paymentServiceSeries, versionBands, latencyDrilldown, redEndpoints, infraCorrelation, slowRequests, errorRequests, externalEndpoints, externalEndpointCallers, dbEndpoints, slowQueries, errorGroups, tracesList, traceDetail, runtimeHosts, runtimeMetrics, FILTER_OPTS } from '@/data/services'
-import { statusForLatency, statusForErrorRate, statusColor } from '@/utils/status'
+import {
+  servicesForWindow, seriesForWindow, versionBandsForWindow, latencyDrilldownForWindow,
+  latencyDrilldownSeriesForWindow, redEndpointsForWindow, redEndpointSeriesForWindow,
+  infraCorrelationForWindow, slowRequestsForWindow, errorRequestsForWindow,
+  externalEndpointsForWindow, dbEndpointsForWindow, runtimeMetricsForWindow,
+  externalEndpointCallers, slowQueries, errorGroups, tracesList, traceDetail,
+  runtimeHosts, FILTER_OPTS,
+} from '@/data/services'
+import { resolveWindow } from '@/data/timeWindow'
+import { statusForLatency, statusForErrorRate } from '@/utils/status'
 import PageBar from '@/components/layout/PageBar'
 import ServicePicker from '@/components/ServicePicker'
 import CardMenu, { CardActionContext } from '@/components/CardMenu'
@@ -21,7 +29,6 @@ const SERVICE_VIEWS = [
   { id: 'runtime', label: 'Runtime', Icon: Cpu },
 ]
 
-const BASE_TIME = new Date()
 
 const RED_EP_COLORS = ['#3B82F6', '#34D399', '#F472B6', '#A78BFA']
 
@@ -129,9 +136,14 @@ const fmtRedMs = v => `${Math.round(v)} ms`
 const fmtRedRpm = v => v >= 1000 ? `${(v / 1000).toFixed(1)}K` : Math.round(v).toString()
 const fmtRedPct = v => `${v.toFixed(2)}%`
 
+// A series built for a window already carries the axis label and tooltip time
+// that window chose — which is the only way a seven-day chart gets dated labels
+// and a one-hour chart keeps "-14m". Only the ad-hoc hover series above still
+// arrives as bare {m, value}, and minutes-ago is right for those.
 function chartData(series) {
   return series.map(d => {
-    const t = new Date(BASE_TIME.getTime() - d.m * 60 * 1000)
+    if (d.label != null) return d
+    const t = new Date(Date.now() - d.m * 60 * 1000)
     const hh = t.getHours().toString().padStart(2, '0')
     const mm = t.getMinutes().toString().padStart(2, '0')
     return { label: d.m === 0 ? 'now' : `-${d.m}m`, exactTime: `${hh}:${mm}`, value: d.value }
@@ -260,17 +272,17 @@ function syntheticEndpoint(name) {
 // The endpoint view: the same four numbers as the service, narrowed to one
 // route. It exists because a log record knows its endpoint, and sending that
 // link to the service overview would drop the one thing the record told us.
-function EndpointTab({ endpoint, setEndpoint, onOpenUpstream, onOpenTrace, syncId }) {
+function EndpointTab({ data, endpoint, onOpenUpstream, onOpenTrace, syncId }) {
   // An endpoint arriving from a log record will often not be in the RED list -
   // that list is what the service page happens to chart, not everything the
   // service serves. Showing the picker's first row instead would quietly answer
   // a different question from the one the link asked, so an unknown endpoint is
   // added to the list and given figures of its own.
   const eps = useMemo(() => (
-    endpoint && !redEndpoints.some(e => e.endpoint === endpoint)
-      ? [...redEndpoints, syntheticEndpoint(endpoint)]
-      : redEndpoints
-  ), [endpoint])
+    endpoint && !data.red.some(e => e.endpoint === endpoint)
+      ? [...data.red, syntheticEndpoint(endpoint)]
+      : data.red
+  ), [data.red, endpoint])
   const ep = eps.find(e => e.endpoint === endpoint) ?? eps[0]
   const latS = statusForLatency(ep.p90)
   const errS = statusForErrorRate(ep.errPct)
@@ -284,7 +296,7 @@ function EndpointTab({ endpoint, setEndpoint, onOpenUpstream, onOpenTrace, syncI
 
   // What one request of this endpoint sets off downstream. The playground calls
   // this "hits per request", and it is the reason to open an endpoint at all.
-  const hits = dbEndpoints.slice(0, 3).map(d => ({ name: d.endpoint ?? d.query ?? 'call', count: 1 }))
+  const hits = data.db.slice(0, 3).map(d => ({ name: d.endpoint ?? d.query ?? 'call', count: 1 }))
 
   return (
     <>
@@ -301,8 +313,10 @@ function EndpointTab({ endpoint, setEndpoint, onOpenUpstream, onOpenTrace, syncI
       </div>
 
       <LatencyDrilldown
+        layers={data.drilldown}
+        layerSeries={data.drilldownSeries}
         onOpenUpstream={onOpenUpstream}
-        p90Series={paymentServiceSeries.latencyP90}
+        p90Series={data.series.latencyP90}
         p90EndpointLabel={ep.endpoint}
         syncId={syncId}
       />
@@ -316,23 +330,22 @@ function EndpointTab({ endpoint, setEndpoint, onOpenUpstream, onOpenTrace, syncI
             {hits.map(h => (
               <tr key={h.name}>
                 <td className="mono">{h.name}</td>
-                <td className="num mono">{h.count}</td>
+                <td className="num">{h.count}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
 
-      <TrendCharts syncId={syncId} />
-      <SlowRequests onOpenTrace={onOpenTrace} />
-      <SlowRequests onOpenTrace={onOpenTrace} data={errorRequests} title="Requests with Errors" initialSort="none" />
-      <InfraCorrelation />
+      <TrendCharts bands={data.bands} syncId={syncId} />
+      <SlowRequests onOpenTrace={onOpenTrace} data={data.slow} />
+      <SlowRequests onOpenTrace={onOpenTrace} data={data.errors} title="Requests with Errors" initialSort="none" />
+      <InfraCorrelation hosts={data.infra} />
     </>
   )
 }
 
-function LatencyDrilldown({ onOpenUpstream, p90Series, p90EndpointLabel, syncId }) {
-  const layers = latencyDrilldown
+function LatencyDrilldown({ layers, layerSeries, onOpenUpstream, p90Series, p90EndpointLabel, syncId }) {
   const total = layers.reduce((a, b) => a + b.ms, 0)
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState(null)
@@ -350,27 +363,17 @@ function LatencyDrilldown({ onOpenUpstream, p90Series, p90EndpointLabel, syncId 
     ? shown.filter(l => l.label === selected)
     : shown
 
-  const N = 30, INCIDENT_IDX = 18
-  const baselines = [40, 18, 12, 14], peaks = layers.map(d => d.ms)
-
-  const data = useMemo(() => Array.from({ length: N }, (_, i) => {
-    const minsAgo = (N - 1 - i) * 2
-    const t = new Date(BASE_TIME.getTime() - minsAgo * 60 * 1000)
-    const hh = t.getHours().toString().padStart(2, '0')
-    const mm = t.getMinutes().toString().padStart(2, '0')
-    const label = minsAgo === 0 ? 'now' : `-${minsAgo}m`
-    const ramp = i < INCIDENT_IDX ? 0 : Math.min(1, (i - INCIDENT_IDX) / 5)
-    const entry = { label, exactTime: `${hh}:${mm}` }
+  const data = useMemo(() => (layerSeries[0]?.series ?? []).map((pt, i) => {
+    const entry = { label: pt.label, exactTime: pt.exactTime }
     let sum = 0
-    layers.forEach((layer, li) => {
-      const j = Math.sin(i * 4.1 + li * 2.3) * 0.06 + Math.cos(i * 7.7 + li * 1.1) * 0.04
-      const v = (baselines[li] + (peaks[li] - baselines[li]) * ramp) * (1 + j)
+    layerSeries.forEach((layer) => {
+      const v = layer.series[i]?.value ?? 0
       entry[layer.label] = v
       sum += v
     })
     entry.Total = sum
     return entry
-  }), [])
+  }), [layerSeries])
 
   // Hover-dim: when the pointer is on one legend row, the other rows and the
   // areas they draw fade out, so the one in focus reads as the only series.
@@ -564,10 +567,7 @@ function VersionTooltip({ active, payload, label, unit, formatVal }) {
 
 function TrendChart({ title, members, stack = false, domain, unit = '', formatVal, syncId }) {
   const data = useMemo(() => members[0].series.map((d, i) => {
-    const t = new Date(BASE_TIME.getTime() - d.m * 60 * 1000)
-    const hh = t.getHours().toString().padStart(2, '0')
-    const mm = t.getMinutes().toString().padStart(2, '0')
-    const entry = { label: d.m === 0 ? 'now' : `-${d.m}m`, exactTime: `${hh}:${mm}` }
+    const entry = { label: d.label, exactTime: d.exactTime }
     members.forEach(mem => { entry[mem.label] = mem.series[i]?.value })
     return entry
   }), [members])
@@ -617,14 +617,14 @@ function TrendChart({ title, members, stack = false, domain, unit = '', formatVa
   )
 }
 
-function TrendCharts({ syncId }) {
+function TrendCharts({ bands, syncId }) {
   return (
     <div className="charts-row">
-      <TrendChart title="RPM" members={versionBands.rpm} stack unit=" rpm"
+      <TrendChart title="RPM" members={bands.rpm} stack unit=" rpm"
         formatVal={v => (v == null ? '' : Math.round(v))} syncId={syncId} />
-      <TrendChart title="Error %" members={versionBands.errorRatePct} unit="%"
+      <TrendChart title="Error %" members={bands.errorRatePct} unit="%"
         formatVal={v => (v == null ? '' : v.toFixed(2))} syncId={syncId} />
-      <TrendChart title="Apdex" members={versionBands.apdex} domain={[0, 1]}
+      <TrendChart title="Apdex" members={bands.apdex} domain={[0, 1]}
         formatVal={v => (v == null ? '' : v.toFixed(2))} syncId={syncId} />
     </div>
   )
@@ -636,7 +636,7 @@ const SLOWREQ_SORTS = [
   { id: 'none', label: 'None' },
 ]
 
-function SlowRequests({ onOpenTrace, data = slowRequests, title = 'Slow Requests', initialSort = 'latency' }) {
+function SlowRequests({ onOpenTrace, data, title = 'Slow Requests', initialSort = 'latency' }) {
   const [sortBy, setSortBy] = useState(initialSort)
   const [selected, setSelected] = useState(null)
   const [collapsed, setCollapsed] = useState(() => new Set())
@@ -747,10 +747,10 @@ const INFRA_METRICS = {
   memUsedPct:   { label: 'Memory Used %', color: '#34D399', unit: '%',    fmt: v => v.toFixed(1) },
 }
 
-function InfraCorrelation() {
+function InfraCorrelation({ hosts }) {
   const rowsWithAvg = useMemo(
-    () => infraCorrelation.map(h => ({ ...h, latencyAvg: h.latencyAvg ?? Math.round(h.latencyP90 * 0.55) })),
-    []
+    () => hosts.map(h => ({ ...h, latencyAvg: h.latencyAvg ?? Math.round(h.latencyP90 * 0.55) })),
+    [hosts]
   )
   const { rows, sort, toggle } = useSortedRows(rowsWithAvg, 'latencyP90', 'desc')
   const [hover, setHover] = useState(null)
@@ -867,7 +867,7 @@ function RedViewToggle({ view, setView }) {
   )
 }
 
-function RedDrilldownChart({ title, eps, dataKey, fmtFn, syncId }) {
+function RedDrilldownChart({ title, eps, epSeries, dataKey, fmtFn, syncId }) {
   const [selected, setSelected] = useState(null)
   const [hoverKey, setHoverKey] = useState(null)
   const dimOpacityFor = (key) => (hoverKey == null || hoverKey === key ? 1 : 0.22)
@@ -876,22 +876,13 @@ function RedDrilldownChart({ title, eps, dataKey, fmtFn, syncId }) {
   const chartIdxs = selected != null ? [selected] : shownIdxs
 
   const data = useMemo(() => {
-    const N = 30, INC = 18
-    return Array.from({ length: N }, (_, i) => {
-      const minsAgo = (N - 1 - i) * 2
-      const t = new Date(BASE_TIME.getTime() - minsAgo * 60 * 1000)
-      const hh = t.getHours().toString().padStart(2, '0')
-      const mm = t.getMinutes().toString().padStart(2, '0')
-      const entry = { label: minsAgo === 0 ? 'now' : `-${minsAgo}m`, exactTime: `${hh}:${mm}` }
-      eps.forEach((ep, ei) => {
-        const base = ep[dataKey]
-        const j = Math.sin(i * 3.7 + ei * 2.1) * 0.09 + Math.cos(i * 6.3 + ei * 1.4) * 0.05
-        const spike = i >= INC ? Math.min(1, (i - INC) / 6) * (ep.errPct > 3 ? 0.28 : 0.04) : 0
-        entry[`ep${ei}`] = base * (1 + j + spike)
-      })
+    const base = epSeries[0]?.series ?? []
+    return base.map((pt, i) => {
+      const entry = { label: pt.label, exactTime: pt.exactTime }
+      epSeries.forEach((ep, ei) => { entry[`ep${ei}`] = ep.series[i]?.value })
       return entry
     })
-  }, [eps, dataKey])
+  }, [epSeries])
 
   return (
     <div className="red-chart-section">
@@ -987,41 +978,51 @@ const RED_COLUMNS = ['Total Requests', 'Time Consumed %', 'RPM', 'Response Time 
 // Table and graph are two readings of one set of endpoints, so they share a
 // container and a search box: typing filters the table rows and every chart's
 // lines at once, and switching view keeps whatever was typed.
-function RedTab({ syncId }) {
+function RedTab({ win, endpoints, syncId }) {
   const [view, setView] = useState('table')
   const [search, setSearch] = useState('')
   const isGraph = view === 'graph'
-  const eps = redEndpoints.slice(0, 4)
+  const eps = endpoints.slice(0, 4)
+
+  // One sampled set per metric, cut to the four endpoints the graph draws.
+  const series = useMemo(() => ({
+    rpm: redEndpointSeriesForWindow(win, 'rpm').slice(0, 4),
+    p90: redEndpointSeriesForWindow(win, 'p90').slice(0, 4),
+    avg: redEndpointSeriesForWindow(win, 'avg').slice(0, 4),
+    errPct: redEndpointSeriesForWindow(win, 'errPct').slice(0, 4),
+  }), [win])
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return q ? redEndpoints.filter(e => e.endpoint.toLowerCase().includes(q)) : redEndpoints
-  }, [search])
+    return q ? endpoints.filter(e => e.endpoint.toLowerCase().includes(q)) : endpoints
+  }, [endpoints, search])
 
   return (
     <div className="panel">
       <div className="panel-head is-divided red-table-head">
         <div className="panel-head-left red-head-left">
           <RedViewToggle view={view} setView={setView} />
-          {!isGraph && (
-            <input
-              type="search"
-              className="red-table-search"
-              placeholder="Search"
-              aria-label="Search endpoints"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
-          )}
         </div>
         {!isGraph && <CardMenu kind="table" title="RED" columns={RED_COLUMNS} />}
       </div>
+      {!isGraph && (
+        <div className="red-table-search-row">
+          <input
+            type="search"
+            className="red-table-search"
+            placeholder="Search endpoints…"
+            aria-label="Search endpoints"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+        </div>
+      )}
       {isGraph ? (
         <>
-          <RedDrilldownChart title="RPM" eps={eps} dataKey="rpm" fmtFn={fmtRedRpm} syncId={syncId} />
-          <RedDrilldownChart title="Response Time (p90)" eps={eps} dataKey="p90" fmtFn={fmtRedMs} syncId={syncId} />
-          <RedDrilldownChart title="Response Time (avg)" eps={eps} dataKey="avg" fmtFn={fmtRedMs} syncId={syncId} />
-          <RedDrilldownChart title="Error %" eps={eps} dataKey="errPct" fmtFn={fmtRedPct} syncId={syncId} />
+          <RedDrilldownChart title="RPM" eps={eps} epSeries={series.rpm} dataKey="rpm" fmtFn={fmtRedRpm} syncId={syncId} />
+          <RedDrilldownChart title="Response Time (p90)" eps={eps} epSeries={series.p90} dataKey="p90" fmtFn={fmtRedMs} syncId={syncId} />
+          <RedDrilldownChart title="Response Time (avg)" eps={eps} epSeries={series.avg} dataKey="avg" fmtFn={fmtRedMs} syncId={syncId} />
+          <RedDrilldownChart title="Error %" eps={eps} epSeries={series.errPct} dataKey="errPct" fmtFn={fmtRedPct} syncId={syncId} />
         </>
       ) : (
         <RedEndpointsTable rows={filtered} />
@@ -1047,7 +1048,6 @@ function RedEndpointsTable({ rows: input }) {
         </thead>
         <tbody>
           {rows.map(e => {
-            const errS = statusForErrorRate(e.errPct)
             return (
               <tr key={e.endpoint}>
                 <td className="mono" style={{ textAlign: 'left' }}>{e.endpoint}</td>
@@ -1063,8 +1063,8 @@ function RedEndpointsTable({ rows: input }) {
                 <td>{e.avg} ms</td>
                 <td>
                   <span className="cell-bar">
-                    <span className="track"><span className="fill" style={{ width: `${Math.min(100, e.errPct * 12)}%`, background: statusColor(errS) }} /></span>
-                    <span className={errS === 'critical' ? 'val-critical' : errS === 'warning' ? 'val-warning' : ''}>{e.errPct}%</span>
+                    <span className="track"><span className="fill" style={{ width: `${Math.min(100, e.errPct * 12)}%`, background: 'var(--brand)' }} /></span>
+                    <span>{e.errPct}%</span>
                   </span>
                 </td>
               </tr>
@@ -1108,10 +1108,7 @@ function MultiLineChart({ seriesList, unit = '', formatVal, height = 130, syncId
   const data = useMemo(() => {
     const base = seriesList[0]?.data || []
     return base.map((p, i) => {
-      const t = new Date(BASE_TIME.getTime() - p.m * 60 * 1000)
-      const hh = t.getHours().toString().padStart(2, '0')
-      const mm = t.getMinutes().toString().padStart(2, '0')
-      const row = { label: p.m === 0 ? 'now' : `-${p.m}m`, exactTime: `${hh}:${mm}` }
+      const row = { label: p.label, exactTime: p.exactTime }
       seriesList.forEach(s => { row[s.key] = s.data[i]?.value })
       return row
     })
@@ -1244,27 +1241,31 @@ function externalShortLabel(endpoint) {
   return `HTTP ${host}`
 }
 
-function ExternalTab({ svc, syncId }) {
+function ExternalTab({ svc, data, syncId }) {
   const [sel, setSel] = useState(null)
   const [hoverKey, setHoverKey] = useState(null)
-  const ep = sel != null ? externalEndpoints[sel] : null
+  const endpoints = data.external
+  const base = data.series
+  const ep = sel != null ? endpoints[sel] : null
 
-  const scale = (baseSeries, factor) => baseSeries.map(d => ({ m: d.m, value: d.value * factor }))
+  // `...d` keeps the label and tooltip time the window put on each point; only
+  // the value is rescaled to this endpoint's share.
+  const scale = (baseSeries, factor) => baseSeries.map(d => ({ ...d, value: d.value == null ? null : d.value * factor }))
   const seriesFor = (e, i) => ({
     key: `ep${i}`,
     label: externalShortLabel(e.endpoint),
     color: RED_EP_COLORS[i % RED_EP_COLORS.length],
-    lat: scale(paymentServiceSeries.latencyAvg, e.avg / 78),
-    rpm: scale(paymentServiceSeries.rpm, e.rpm / 452),
-    err: scale(paymentServiceSeries.errorRatePct, Math.max(e.errPct / 0.05, 0.5)),
+    lat: scale(base.latencyAvg, e.avg / 78),
+    rpm: scale(base.rpm, e.rpm / 452),
+    err: scale(base.errorRatePct, Math.max(e.errPct / 0.05, 0.5)),
   })
-  const perEp = useMemo(() => externalEndpoints.map(seriesFor), [])
+  const perEp = useMemo(() => endpoints.map(seriesFor), [endpoints, base])
 
   // Single-endpoint mode re-uses MiniChart's single area; multi mode shows a
   // line per endpoint with a shared legend under the three charts.
-  const latSeries = ep ? scale(paymentServiceSeries.latencyAvg, ep.avg / 78) : null
-  const rpmSeries = ep ? scale(paymentServiceSeries.rpm, ep.rpm / 452) : null
-  const errSeries = ep ? scale(paymentServiceSeries.errorRatePct, Math.max(ep.errPct / 0.05, 0.5)) : null
+  const latSeries = ep ? scale(base.latencyAvg, ep.avg / 78) : null
+  const rpmSeries = ep ? scale(base.rpm, ep.rpm / 452) : null
+  const errSeries = ep ? scale(base.errorRatePct, Math.max(ep.errPct / 0.05, 0.5)) : null
 
   const latMulti = useMemo(() => perEp.map(s => ({ key: s.key, label: s.label, color: s.color, data: s.lat })), [perEp])
   const rpmMulti = useMemo(() => perEp.map(s => ({ key: s.key, label: s.label, color: s.color, data: s.rpm })), [perEp])
@@ -1278,7 +1279,7 @@ function ExternalTab({ svc, syncId }) {
       <div className="svc-split">
         <SplitEndpointList
           title="All External HTTP Calls"
-          endpoints={externalEndpoints}
+          endpoints={endpoints}
           selectedIdx={sel}
           onSelect={setSel}
           onClear={() => setSel(null)}
@@ -1389,20 +1390,21 @@ function EndpointBreakdownRows({ rows }) {
   )
 }
 
-function DbTab({ svc, syncId }) {
+function DbTab({ svc, data, syncId }) {
   const [sel, setSel] = useState(2)
-  const ep = dbEndpoints[sel] || dbEndpoints[0]
+  const endpoints = data.db
+  const ep = endpoints[sel] || endpoints[0]
 
-  const scale = (baseSeries, factor) => baseSeries.map(d => ({ m: d.m, value: d.value * factor }))
-  const rpmSeries = scale(paymentServiceSeries.rpm, ep.rpm / 452)
-  const latSeries = scale(paymentServiceSeries.latencyAvg, ep.avg / 78)
-  const errSeries = scale(paymentServiceSeries.errorRatePct, Math.max(ep.errPct / 0.05, 0.5))
+  const scale = (baseSeries, factor) => baseSeries.map(d => ({ ...d, value: d.value == null ? null : d.value * factor }))
+  const rpmSeries = scale(data.series.rpm, ep.rpm / 452)
+  const latSeries = scale(data.series.latencyAvg, ep.avg / 78)
+  const errSeries = scale(data.series.errorRatePct, Math.max(ep.errPct / 0.05, 0.5))
 
   return (
     <>
       <KpiCards svc={svc} />
       <div className="svc-split">
-        <SplitEndpointList title="All Database Calls" endpoints={dbEndpoints} selectedIdx={sel} onSelect={setSel} />
+        <SplitEndpointList title="All Database Calls" endpoints={endpoints} selectedIdx={sel} onSelect={setSel} />
         <div className="split-charts">
           <div className="split-chart-card">
             <div className="clbl">
@@ -1602,7 +1604,7 @@ function TracesTab() {
   )
 }
 
-function RuntimeTab({ syncId }) {
+function RuntimeTab({ runtimeMetrics, syncId }) {
   const [host, setHost] = useState(runtimeHosts[0].id)
   const [heapHover, setHeapHover] = useState(null)
   const [gcHover, setGcHover] = useState(null)
@@ -1612,12 +1614,12 @@ function RuntimeTab({ syncId }) {
     const used = chartData(runtimeMetrics.heapUsedMB)
     const limit = chartData(runtimeMetrics.heapLimitMB)
     return used.map((d, i) => ({ ...d, used: d.value, limit: limit[i]?.value }))
-  }, [])
+  }, [runtimeMetrics])
   const gcStackData = useMemo(() => {
     const minor = chartData(runtimeMetrics.gcMinorMs)
     const major = chartData(runtimeMetrics.gcMajorMs)
     return minor.map((d, i) => ({ ...d, minor: d.value, major: major[i]?.value }))
-  }, [])
+  }, [runtimeMetrics])
 
   return (
     <div className="runtime-layout">
@@ -1805,13 +1807,32 @@ function FilterSelect({ label, value, options, onSelect }) {
 }
 
 export default function ServiceOverview({ serviceId, onSelectService, onOpenTrace, goHome, serviceSubTab, setServiceSubTab, serviceEndpoint, setServiceEndpoint, timeRange, setTimeRange, settingsOpen, setSettingsOpen, setToast }) {
+  // Everything this page draws comes out of one window, built once. The tables
+  // and the charts are the same profiles reduced and sampled, so a headline
+  // figure and the chart under it cannot disagree about the range.
+  const win = useMemo(() => resolveWindow(timeRange), [timeRange])
+  const services = useMemo(() => servicesForWindow(win), [win])
+  const data = useMemo(() => ({
+    series: seriesForWindow(win),
+    bands: versionBandsForWindow(win),
+    red: redEndpointsForWindow(win),
+    external: externalEndpointsForWindow(win),
+    db: dbEndpointsForWindow(win),
+    infra: infraCorrelationForWindow(win),
+    drilldown: latencyDrilldownForWindow(win),
+    drilldownSeries: latencyDrilldownSeriesForWindow(win),
+    slow: slowRequestsForWindow(win),
+    errors: errorRequestsForWindow(win),
+    runtime: runtimeMetricsForWindow(win),
+  }), [win])
+
   const svc = services.find(s => s.id === serviceId) || services[0]
 
   const [filterCategory, setFilterCategory] = useState('ALL')
   const [filterHost, setFilterHost] = useState('ALL')
   const [filterVersion, setFilterVersion] = useState('ALL')
 
-  const endpoint = serviceEndpoint || redEndpoints[0].endpoint
+  const endpoint = serviceEndpoint || data.red[0].endpoint
   const setEndpoint = setServiceEndpoint
 
   // The card menus offer the actions production offers; none of the screens
@@ -1834,24 +1855,24 @@ export default function ServiceOverview({ serviceId, onSelectService, onOpenTrac
     body = (
       <>
         <KpiCards svc={svc} />
-        <LatencyDrilldown onOpenUpstream={openExternal} syncId={syncId} />
-        <TrendCharts syncId={syncId} />
-        <SlowRequests onOpenTrace={onOpenTrace} />
-        <InfraCorrelation />
+        <LatencyDrilldown layers={data.drilldown} layerSeries={data.drilldownSeries} onOpenUpstream={openExternal} syncId={syncId} />
+        <TrendCharts bands={data.bands} syncId={syncId} />
+        <SlowRequests onOpenTrace={onOpenTrace} data={data.slow} />
+        <InfraCorrelation hosts={data.infra} />
       </>
     )
   } else if (serviceSubTab === 'detail') {
-    body = <EndpointTab endpoint={endpoint} setEndpoint={setEndpoint} onOpenUpstream={openExternal} onOpenTrace={onOpenTrace} syncId={syncId} />
+    body = <EndpointTab data={data} endpoint={endpoint} onOpenUpstream={openExternal} onOpenTrace={onOpenTrace} syncId={syncId} />
   } else if (serviceSubTab === 'red') {
-    body = <RedTab syncId={syncId} />
+    body = <RedTab win={win} endpoints={data.red} syncId={syncId} />
   } else if (serviceSubTab === 'external') {
-    body = <ExternalTab svc={svc} syncId={syncId} />
+    body = <ExternalTab svc={svc} data={data} syncId={syncId} />
   } else if (serviceSubTab === 'db') {
-    body = <DbTab svc={svc} syncId={syncId} />
+    body = <DbTab svc={svc} data={data} syncId={syncId} />
   } else if (serviceSubTab === 'errors') {
     body = <ErrorsTab />
   } else if (serviceSubTab === 'runtime') {
-    body = <RuntimeTab syncId={syncId} />
+    body = <RuntimeTab runtimeMetrics={data.runtime} syncId={syncId} />
   } else {
     body = (
       <div className="panel">
@@ -1891,7 +1912,7 @@ export default function ServiceOverview({ serviceId, onSelectService, onOpenTrac
                   value={endpoint}
                   onChange={e => setEndpoint(e.target.value)}
                 >
-                  {(redEndpoints.some(e => e.endpoint === endpoint) ? redEndpoints : [...redEndpoints, syntheticEndpoint(endpoint)])
+                  {(data.red.some(e => e.endpoint === endpoint) ? data.red : [...data.red, syntheticEndpoint(endpoint)])
                     .map(e => <option key={e.endpoint} value={e.endpoint}>{e.endpoint}</option>)}
                 </select>
               </div>

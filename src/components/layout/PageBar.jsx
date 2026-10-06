@@ -1,10 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
-
-const TIME_PRESETS = [
-  'Last 5 minutes','Last 15 minutes','Last 30 minutes','Last 1 hour','Last 2 hours',
-  'Last 3 hours','Last 6 hours','Last 12 hours','Last 24 hours','Last 2 days',
-  'Last 3 days','Last 7 days','Today','Today so far',
-]
+import {
+  TIME_PRESETS, rangeLabel, resolveRange, formatDateTimeInput,
+  validateCustomRange, autoFillTo,
+} from '@/utils/timeRange'
 
 function SvgIcon({ name }) {
   const paths = {
@@ -30,6 +28,10 @@ function SvgIcon({ name }) {
  *
  * `actions` is the same idea for the right-hand side: a page can put its own
  * controls ahead of the shared ones without this file learning what they are.
+ *
+ * `timeRange` is the app-wide range object, not a label — `{ kind: 'preset' }`
+ * or `{ kind: 'absolute' }`. Only this component and the data layer care which;
+ * a page hands it straight through.
  */
 export default function PageBar({
   children,
@@ -63,11 +65,11 @@ export default function PageBar({
         <div style={{ position: 'relative' }} ref={timeBtnRef}>
           <button
             className={`hbtn time-btn${timeOpen ? ' active' : ''}`}
-            title="Time range"
+            title={`Time range: ${rangeLabel(timeRange)}`}
             aria-label="Change time range"
             onClick={(e) => { e.stopPropagation(); setTimeOpen(o => !o) }}
           >
-            <SvgIcon name="clock" /> {timeRange} <SvgIcon name="chevronDown" />
+            <SvgIcon name="clock" /> {rangeLabel(timeRange)} <SvgIcon name="chevronDown" />
           </button>
           {timeOpen && (
             <TimePanel
@@ -92,7 +94,40 @@ export default function PageBar({
   )
 }
 
+const ClockIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" width="13" height="13">
+    <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
+  </svg>
+)
+
 function TimePanel({ timeRange, setTimeRange, anchorRef }) {
+  // The custom fields open on the range that is already showing, whatever form
+  // it took — so narrowing "Last 6 hours" by an hour is an edit rather than a
+  // date lookup, and a range arrived at by dragging on a chart can be nudged.
+  const [from, setFrom] = useState(() => {
+    if (timeRange?.kind === 'absolute') return formatDateTimeInput(timeRange.from)
+    return formatDateTimeInput(resolveRange(timeRange).start * 1000)
+  })
+  const [to, setTo] = useState(() => {
+    if (timeRange?.kind === 'absolute') return formatDateTimeInput(timeRange.to)
+    return formatDateTimeInput(resolveRange(timeRange).end * 1000)
+  })
+
+  const { from: fromMs, to: toMs, canApply, reason } = validateCustomRange(from, to)
+
+  const apply = () => {
+    if (!canApply) return
+    setTimeRange({ kind: 'absolute', from: fromMs, to: toMs })
+  }
+
+  // Filling in From with To still empty proposes a day-long window rather than
+  // leaving Apply disabled on a half-finished answer.
+  const onFromBlur = () => {
+    if (to.trim()) return
+    const parsed = validateCustomRange(from, '').from
+    if (parsed != null) setTo(formatDateTimeInput(autoFillTo(parsed)))
+  }
+
   const r = anchorRef.current?.getBoundingClientRect()
   if (!r) return null
   const panelW = 460
@@ -103,30 +138,73 @@ function TimePanel({ timeRange, setTimeRange, anchorRef }) {
     left: Math.max(8, left),
     zIndex: 500,
   }
+
+  const activePreset = timeRange?.kind === 'absolute' ? null : (timeRange?.value ?? '1h')
+
   return (
     <div className="dd-panel time-portal" style={style} onClick={e => e.stopPropagation()}>
       <div className="time-panel">
         <div className="time-panel-custom">
           <div className="time-panel-title">Select time range</div>
           <div className="time-field">
-            <label>From</label>
+            <label htmlFor="time-from">From</label>
             <div className="time-field-input">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" width="13" height="13"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-              <input type="text" placeholder="Select date" />
+              <ClockIcon />
+              <input
+                id="time-from"
+                type="text"
+                placeholder="YYYY-MM-DD HH:mm:ss"
+                value={from}
+                onChange={e => setFrom(e.target.value)}
+                onBlur={onFromBlur}
+                onKeyDown={e => e.key === 'Enter' && apply()}
+              />
             </div>
           </div>
           <div className="time-field">
-            <label>To</label>
+            <label htmlFor="time-to">To</label>
             <div className="time-field-input">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" width="13" height="13"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-              <input type="text" placeholder="Select date" />
+              <ClockIcon />
+              <input
+                id="time-to"
+                type="text"
+                placeholder="YYYY-MM-DD HH:mm:ss"
+                value={to}
+                onChange={e => setTo(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && apply()}
+              />
             </div>
           </div>
-          <button className="time-apply">Apply</button>
+          {/* The reason a disabled Apply is disabled, said out loud. A button
+              that simply greys out leaves the reader checking both fields for
+              a typo they cannot see. */}
+          <div
+            style={{
+              minHeight: 15, fontSize: 10.5, lineHeight: '15px',
+              color: reason ? 'var(--status-critical, #EF4444)' : 'var(--text-muted)',
+            }}
+          >
+            {reason || 'Local time'}
+          </div>
+          <button
+            className="time-apply"
+            onClick={apply}
+            disabled={!canApply}
+            title={canApply ? 'Apply this range' : reason}
+            style={canApply ? undefined : { opacity: 0.42, cursor: 'not-allowed' }}
+          >
+            Apply
+          </button>
         </div>
         <div className="time-panel-presets">
           {TIME_PRESETS.map(p => (
-            <div key={p} className={`time-preset${p === timeRange ? ' active' : ''}`} onClick={() => setTimeRange(p)}>{p}</div>
+            <div
+              key={p.value}
+              className={`time-preset${p.value === activePreset ? ' active' : ''}`}
+              onClick={() => setTimeRange({ kind: 'preset', value: p.value })}
+            >
+              {p.label}
+            </div>
           ))}
         </div>
       </div>

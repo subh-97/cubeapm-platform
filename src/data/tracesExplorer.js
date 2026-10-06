@@ -1,5 +1,6 @@
 import { isNoiseField } from '@/utils/logFields'
-import { isIdentityValue, isNumericValue, BASE_TIME } from './observability'
+import { isIdentityValue, isNumericValue } from './observability'
+import { REFERENCE_WINDOW, sampleAt, sampleCount, spreadTimes, windowCount } from './timeWindow'
 
 /* ============ TRACES / SPANS ============ */
 
@@ -655,22 +656,34 @@ function buildWideTrace(rnd, startTime) {
   return rows
 }
 
-function generateSpans(traceCount = 34) {
+/**
+ * The span sample for a window.
+ *
+ * Like the log table, this is a sample rather than the stream — the histogram
+ * above it counts millions over a week — and like the log table it is spread
+ * across the window rather than taken from its newest end, so widening the
+ * range actually reaches back.
+ *
+ * A trace every ~95 seconds is what the reference hour has always carried; the
+ * count follows the span from there, capped so a week does not build a quarter
+ * of a million spans to show forty of them.
+ */
+export function spanRowsForWindow(win) {
   const rnd = seededRnd(61)
-  const now = BASE_TIME.getTime()
+  const traceCount = sampleCount(win, 60 / 95, { min: 10, max: 48 })
+  const times = spreadTimes(win, traceCount)
   const out = []
   for (let i = 0; i < traceCount; i++) {
-    const start = new Date(now - (i * 95 + rnd() * 40) * 1000)
     // Cycled, not sampled: with eight services and a random draw, the seeded
     // set can easily miss one entirely, and a missing service is a missing
     // facet value and a missing column of business attributes.
-    out.push(...buildTrace(rnd, start, TRACE_SERVICES[i % TRACE_SERVICES.length], i))
+    out.push(...buildTrace(rnd, new Date(times[i]), TRACE_SERVICES[i % TRACE_SERVICES.length], i))
   }
-  out.push(...buildWideTrace(rnd, new Date(now - 47 * 1000)))
+  out.push(...buildWideTrace(rnd, new Date(win.end * 1000 - 47 * 1000)))
   return out.sort((a, b) => b.time - a.time)
 }
 
-export const spanRows = generateSpans()
+export const spanRows = spanRowsForWindow(REFERENCE_WINDOW)
 
 /* ---- volume ---- */
 
@@ -679,26 +692,36 @@ export const spanRows = generateSpans()
 // everywhere else in the product. Span events stack as their own band because
 // they are rows in this table too, and leaving them out would make the bars
 // disagree with the row count underneath them.
-function generateSpanVolume(points = 60) {
-  const rnd = seededRnd(77)
-  const out = []
-  for (let i = points - 1; i >= 0; i--) {
-    const unset = Math.round(1500 + rnd() * 1400)
-    const event = Math.round(320 + rnd() * 460)
-    const error = Math.round(45 + rnd() * 175)
-    out.push({ m: i, unset, event, error, total: unset + event + error, label: i === 0 ? 'now' : `-${i}m` })
-  }
-  return out
+// Spans per minute by band. The failing band is the incident — calibrated so
+// the reference hour still averages the 132 errors a minute this chart has
+// always drawn, which puts the live incident an order of magnitude above it and
+// a week's average well below.
+const SPAN_RATE = {
+  unset: { baseline: 2200, noise: 0.6, seed: 77, diurnal: true },
+  event: { baseline: 550, noise: 0.7, seed: 79, diurnal: true },
+  error: { baseline: 36, target: 132, noise: 0.6, seed: 83 },
 }
 
-export const spanVolume = generateSpanVolume(60)
-
-export const spanTotals = {
-  total: spanVolume.reduce((a, b) => a + b.total, 0),
-  unset: spanVolume.reduce((a, b) => a + b.unset, 0),
-  event: spanVolume.reduce((a, b) => a + b.event, 0),
-  error: spanVolume.reduce((a, b) => a + b.error, 0),
+export function spanVolumeForWindow(win) {
+  return win.buckets.map(b => {
+    const unset = b.future ? 0 : Math.round(sampleAt(SPAN_RATE.unset, b) * b.durMin)
+    const event = b.future ? 0 : Math.round(sampleAt(SPAN_RATE.event, b) * b.durMin)
+    const error = b.future ? 0 : Math.round(sampleAt(SPAN_RATE.error, b) * b.durMin)
+    return {
+      m: b.m, t: b.t, label: b.label, exactTime: b.exactTime,
+      unset, event, error, total: unset + event + error,
+    }
+  })
 }
+
+export function spanTotalsForWindow(win) {
+  const band = k => Math.round(windowCount(win, SPAN_RATE[k]))
+  const unset = band('unset'), event = band('event'), error = band('error')
+  return { unset, event, error, total: unset + event + error }
+}
+
+export const spanVolume = spanVolumeForWindow(REFERENCE_WINDOW)
+export const spanTotals = spanTotalsForWindow(REFERENCE_WINDOW)
 
 /* ---- facets ---- */
 
@@ -718,7 +741,7 @@ const FACET_VALUE_ORDER = {
 // values can be listed at all. The tests are on the SHAPE of the values, not on
 // how many there are — a span id and a span kind can carry the same number of
 // distinct values across the rows that have them.
-function buildSpanFacets(rows) {
+export function buildSpanFacets(rows) {
   const out = {}
   const keys = new Set()
   for (const row of rows) for (const k of Object.keys(row.tags ?? {})) {
@@ -758,7 +781,12 @@ export const spanFacets = buildSpanFacets(spanRows)
 // whose it is, where in the call it sits, and whether it failed.
 export const PRIMARY_FACETS = ['event.domain', 'service', 'span_kind', 'status_code']
 
-export const spanFacetFields = [
-  ...PRIMARY_FACETS.filter(f => spanFacets[f]),
-  ...Object.keys(spanFacets).filter(f => !PRIMARY_FACETS.includes(f)).sort(),
-]
+/** The rail's field order for a given facet set — leaders first, rest sorted. */
+export function spanFacetFieldsFor(facets) {
+  return [
+    ...PRIMARY_FACETS.filter(f => facets[f]),
+    ...Object.keys(facets).filter(f => !PRIMARY_FACETS.includes(f)).sort(),
+  ]
+}
+
+export const spanFacetFields = spanFacetFieldsFor(spanFacets)

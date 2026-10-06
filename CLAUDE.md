@@ -34,7 +34,7 @@ All routes are children of `<AppShell />` via `<Outlet />`:
 Disabled nav items (Service Graph, SLOs, Synthetic Monitors, Infrastructure) are stubbed in the sidebar with `opacity-.42` and no click handler.
 
 ### Data layer
-Static mock data in `src/data/`. Every service has RED metrics (Rate, Error, Duration) computed through status resolution functions. Replace with real API calls when integrating with the CubeAPM backend.
+Mock data in `src/data/`, generated as a function of the selected time range rather than stored flat. `src/utils/timeRange.js` models the range (`{kind:'preset'}` or `{kind:'absolute'}`, owned by `App`); `src/data/timeWindow.js` turns it into a window and samples one shared incident profile for every series, aggregate and level mix. Last 1 hour reproduces the published figures exactly; wider ranges dilute the incident, and p90 falls off a cliff where a mean would fade. See `docs/decisions/time-range-windowing.md`. Every service has RED metrics (Rate, Error, Duration) computed through status resolution functions. Replace with real API calls when integrating with the CubeAPM backend.
 
 ## Design system — non-negotiable rules
 
@@ -123,7 +123,8 @@ Note: canvas is MID-TONE, card is DARKER — intentionally inverted for floating
 ## Files NOT to edit without understanding context
 - `src/utils/status.js` — status resolution logic, load-bearing for the entire UI
 - `tailwind.config.js` — all design tokens live here, matched to the style guide
-- `src/data/` — mock data, intentionally includes one critical service (order-service) to demonstrate severity-driven sorting and incident banners
+- `src/data/` — mock data, intentionally includes one critical service (payment-service) to demonstrate severity-driven sorting and incident banners
+- `src/data/timeWindow.js` — the incident profile and window aggregation every other data module is calibrated against
 
 ## Reference docs (in `docs/reference/`)
 - `docs/reference/CubeAPM_Style_Guide.md` — full token reference
@@ -135,6 +136,7 @@ Note: canvas is MID-TONE, card is DARKER — intentionally inverted for floating
 Decisions worth not re-deriving. Read the relevant one before reworking that area.
 - `docs/decisions/facet-interaction-datadog.md` — split-row facet control; facet admission tests value shape, not a cardinality ratio
 - `docs/decisions/query-builder-phase8.md` — what has shipped on the Logs query builder, and the one piece that hasn't (URL state sync)
+- `docs/decisions/time-range-windowing.md` — how the time range drives the data: one incident profile, the one-hour calibration, and why a percentile behaves differently from a mean as the window widens
 
 `docs/HANDOFF.md` describes where the project stands overall.
 

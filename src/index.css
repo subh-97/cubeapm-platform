@@ -62,6 +62,10 @@
   --border-subtle: var(--slate-800);
   --border-panel: var(--slate-750);
   --border-strong: var(--slate-700);
+  /* Header-to-body separator inside a container. Weaker than the container's
+   * own border so the head reads as part of the body it introduces, and the
+   * outer bounding box stays the strongest line. */
+  --border-head: color-mix(in srgb, var(--border-subtle) 45%, transparent);
   /* Text */
   --text-primary: var(--slate-100);
   --text-secondary: var(--slate-400);
@@ -174,6 +178,7 @@
   --border-subtle: #EAEEF4;
   --border-panel: #DBE1EC;
   --border-strong: #C4CCDA;
+  --border-head: color-mix(in srgb, var(--border-subtle) 45%, transparent);
   /* Text */
   --text-primary: #10182B;
   --text-secondary: #4A5468;
@@ -489,7 +494,7 @@ a { color: inherit; }
 .svc-sidebar-item.disabled { opacity: .45; cursor: default; }
 .svc-sidebar-item.disabled:hover { background: none; color: var(--text-secondary); }
 .svc-sidebar-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.svc-sidebar-count { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-muted); background: var(--panel); padding: 1px 6px; border-radius: 99px; flex-shrink: 0; }
+.svc-sidebar-count { font-size: 10px; color: var(--text-muted); background: var(--panel); padding: 1px 6px; border-radius: 99px; flex-shrink: 0; }
 .svc-sidebar-item.active .svc-sidebar-count { background: rgba(207,224,255,.15); color: var(--brand-on-muted); }
 .svc-sidebar-icon { flex-shrink: 0; color: var(--text-muted); }
 .svc-sidebar-item:hover .svc-sidebar-icon, .svc-sidebar-item.active .svc-sidebar-icon { color: inherit; }
@@ -558,7 +563,7 @@ a { color: inherit; }
 /* A panel's own header rule reads as part of the container, so it matches the
    container's border rather than sitting a shade lighter than it. Rules nested
    deeper inside a panel stay on the subtler token. */
-.panel-head.is-divided { border-bottom: 1px solid var(--card-border); }
+.panel-head.is-divided { border-bottom: 1px solid var(--border-head); }
 .view-toggle { display: inline-flex; background: var(--panel); border-radius: var(--radius-sm); padding: 2px; gap: 1px; }
 .view-toggle-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 26px; padding: 0 10px;
   background: none; border: none; border-radius: 4px; cursor: pointer; color: var(--text-muted); font-size: 11.5px; font-weight: 500;
@@ -727,11 +732,14 @@ tbody tr:hover { background: var(--panel-2); }
  * badges / card borders. */
 .val-critical { color: var(--text-primary); font-weight: 400; }
 .val-warning { color: var(--text-primary); font-weight: 400; }
-.cell-bar { display: inline-flex; align-items: center; gap: 9px; justify-content: flex-end; width: 100%; }
+/* Percentage cell: value on top, progress bar beneath. Column-reverse keeps
+ * the existing JSX order (bar first, number second) without touching three
+ * call sites. */
+.cell-bar { display: flex; flex-direction: column-reverse; align-items: flex-end; gap: 4px; width: 100%; }
 /* Track and fill are spans, so both need an explicit block display: an inline
    box ignores width and height, which left every fill a 0x0 element and the
    bar reading as an empty track whatever the value was. */
-.cell-bar .track { display: block; width: 54px; height: 4px; border-radius: 2px; background: var(--border-panel); overflow: hidden; flex-shrink: 0; }
+.cell-bar .track { display: block; width: 100%; max-width: 110px; height: 4px; border-radius: 2px; background: var(--border-panel); overflow: hidden; flex-shrink: 0; }
 .cell-bar .fill { display: block; height: 100%; border-radius: 2px; min-width: 1px; }
 
 /* RED table header: a single row where the search input stretches and the
@@ -739,11 +747,17 @@ tbody tr:hover { background: var(--panel-2); }
 .red-table-head { padding: 10px 12px; }
 .red-head-left { flex: 1; min-width: 0; gap: 10px; }
 .red-head-left .red-table-search { flex: 1; min-width: 0; width: auto; }
+.red-table-search-row { padding: 10px 16px; border-bottom: 1px solid var(--border-head); }
+.red-table-search-row .red-table-search { width: 100%; }
 /* The four RED charts read as one set, so they sit in a single panel under the
    shared header and are separated from each other by a rule rather than a gap. */
-.red-chart-section + .red-chart-section { border-top: 1px solid var(--border-subtle); }
+/* Section-separator rule matches the panel's own border weight so a stacked
+ * chart section reads as a sibling of the panel, not an inner subdivision.
+ * The head's bottom rule is pulled back to a very faint line — it's a title/
+ * body separator, not another section boundary. */
+.red-chart-section + .red-chart-section { border-top: 1px solid var(--card-border); }
 .red-chart-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px 10px; font-size: 13px; font-weight: 600;
-  border-bottom: 1px solid var(--border-subtle); }
+  border-bottom: 1px solid var(--border-head); }
 .red-table-search { width: 100%; background: transparent; border: 1px solid var(--border-subtle); color: var(--text-primary); font-family: inherit; font-size: 11.5px; border-radius: var(--radius-sm); padding: 7px 11px; outline: none; }
 .red-table-search::placeholder { color: var(--text-muted); }
 .red-table-search:focus { border-color: var(--brand); }
@@ -785,7 +799,7 @@ tbody tr:hover { background: var(--panel-2); }
 .kpi-chip.critical { background: rgba(239,68,68,.15); color: var(--critical-fg); }
 .kpi-chip.warning { background: rgba(245,158,11,.15); color: var(--warning-fg); }
 .kpi-chip.healthy { background: rgba(34,197,94,.13); color: var(--healthy-fg); }
-.kpi-card .val { font-size: 30px; font-weight: 600; line-height: 1; font-family: 'JetBrains Mono', monospace; }
+.kpi-card .val { font-size: 30px; font-weight: 600; line-height: 1; }
 .kpi-card .val .unit { font-size: 13px; font-weight: 400; color: var(--text-secondary); margin-left: 3px; font-family: 'Rubik', sans-serif; }
 /* All KPI card numerics render in primary text; the border accent (.kpi-card.critical / .warning) and the kpi-chip
  * carry the severity signal instead. The mock data would otherwise paint most cards red. */
@@ -848,15 +862,15 @@ tbody tr:hover { background: var(--panel-2); }
 .drill2-row { display: flex; align-items: center; gap: 7px; }
 .drill2-swatch { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; margin-top: 1px; }
 .drill2-label { flex: 1; font-size: 11.5px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.drill2-val { font-size: 12px; font-weight: 600; color: var(--text-primary); white-space: nowrap; font-family: 'JetBrains Mono', monospace; }
+.drill2-val { font-size: 12px; font-weight: 600; color: var(--text-primary); white-space: nowrap; }
 .drill2-unit { font-size: 10px; font-weight: 400; color: var(--text-muted); margin-left: 1px; font-family: inherit; }
-.drill2-pct { font-size: 10px; color: var(--text-muted); white-space: nowrap; font-family: 'JetBrains Mono', monospace; }
+.drill2-pct { font-size: 10px; color: var(--text-muted); white-space: nowrap; }
 .drill2-bartrack { height: 3px; background: var(--panel); border-radius: 99px; overflow: hidden; }
 .drill2-barfill { height: 100%; border-radius: 99px; }
 .drill2-total { display: flex; align-items: center; gap: 8px; padding-top: 10px; border-top: 1px solid var(--border-subtle); margin-top: 2px; cursor: default; }
 .drill2-total-swatch { display: inline-block; width: 20px; height: 0; border-top: 1.6px dashed var(--text-secondary); flex-shrink: 0; }
 .drill2-total-lbl { font-size: 11.5px; font-weight: 600; color: var(--text-secondary); flex: 1; }
-.drill2-total-val { font-size: 13px; font-weight: 700; font-family: 'JetBrains Mono', monospace; color: var(--text-primary); }
+.drill2-total-val { font-size: 13px; font-weight: 700; color: var(--text-primary); }
 .drill2-insight {
   display: flex; align-items: flex-start; gap: 8px; margin: 0 16px 14px; padding: 8px 12px;
   border-radius: var(--radius-sm); background: rgba(239,68,68,0.06); border-left: 2px solid var(--critical);
@@ -926,8 +940,8 @@ tbody tr:hover { background: var(--panel-2); }
   background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); overflow: hidden; }
 .svc-split > .split-endpoints { border-right: 1px solid var(--border-subtle); }
 .split-endpoints { background: transparent; border: none; border-radius: 0; }
-.split-endpoints .panel-head { border-bottom: 1px solid var(--border-subtle); }
-.split-endpoints-search { padding: 8px 12px; border-bottom: 1px solid var(--border-subtle); background: transparent; }
+.split-endpoints .panel-head { border-bottom: 1px solid var(--border-head); }
+.split-endpoints-search { padding: 8px 12px; border-bottom: 1px solid var(--border-head); background: transparent; }
 .split-endpoints-search input { width: 100%; background: transparent; border: 1px solid var(--border-subtle); color: var(--text-primary); font-family: inherit; font-size: 11.5px; border-radius: var(--radius-sm); padding: 6px 10px; outline: none; }
 .split-endpoints-search input::placeholder { color: var(--text-muted); }
 .split-endpoints-search input:focus { border-color: var(--brand); }
@@ -942,7 +956,7 @@ tbody tr:hover { background: var(--panel-2); }
 .split-ep-head.is-sortable .split-ep-head-cell:hover { color: var(--text-primary); }
 .split-ep-ep { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: 6px; }
 .split-ep-kind { font-size: 9px; font-family: 'Rubik', sans-serif; font-weight: 600; color: var(--text-muted); border: 1px solid var(--border-panel); padding: 1px 5px; border-radius: 3px; letter-spacing: .3px; text-transform: uppercase; flex-shrink: 0; }
-.split-ep-cell { text-align: right; font-family: 'JetBrains Mono', monospace; color: var(--text-primary); }
+.split-ep-cell { text-align: right; color: var(--text-primary); }
 .split-ep-cell.dim { color: var(--text-secondary); }
 .split-ep-bar { display: flex; align-items: center; gap: 6px; justify-content: flex-end; }
 .split-ep-bar .track { display: block; width: 40px; height: 3px; border-radius: 2px; background: var(--border-panel); overflow: hidden; flex-shrink: 0; }
@@ -966,7 +980,7 @@ tbody tr:hover { background: var(--panel-2); }
 .slowq-row { display: grid; grid-template-columns: 130px 1fr 84px; gap: 12px; padding: 10px 16px; border-top: 1px solid var(--border-subtle); align-items: center; font-size: 12px; }
 .slowq-row .t { color: var(--text-muted); font-size: 10.5px; }
 .slowq-row .q { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.slowq-row .d { text-align: right; font-family: 'JetBrains Mono', monospace; font-weight: 400; color: var(--text-primary); }
+.slowq-row .d { text-align: right; font-weight: 400; color: var(--text-primary); }
 
 /* ============ Errors tab ============ */
 .err-row { display: grid; grid-template-columns: 1fr 1.4fr 60px 320px; gap: 14px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--border-subtle); font-size: 12px; cursor: pointer; transition: background .1s; }
@@ -975,7 +989,7 @@ tbody tr:hover { background: var(--panel-2); }
 .err-exc { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .err-exc-cls { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--critical-fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .err-exc-msg { font-size: 10.5px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.err-count { text-align: right; font-family: 'JetBrains Mono', monospace; font-weight: 400; font-size: 15px; color: var(--text-primary); }
+.err-count { text-align: right; font-weight: 400; font-size: 15px; color: var(--text-primary); }
 .err-spark { height: 72px; }
 .err-head { display: grid; grid-template-columns: 1fr 1.4fr 60px 320px; gap: 14px; padding: 8px 16px; font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
 .err-head span:nth-child(3) { text-align: right; }
@@ -1013,10 +1027,10 @@ tbody tr:hover { background: var(--panel-2); }
 .trace-list-ep { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-primary); display: flex; align-items: center; gap: 8px; }
 .trace-list-ep .status-dot { width: 7px; height: 7px; }
 .trace-list-meta { font-size: 10.5px; color: var(--text-muted); margin-top: 2px; padding-left: 15px; }
-.trace-list-dur { font-family: 'JetBrains Mono', monospace; font-weight: 400; font-size: 12.5px; text-align: right; }
+.trace-list-dur { font-weight: 400; font-size: 12.5px; text-align: right; }
 .trace-list-dur .t { display: block; font-size: 10px; color: var(--text-muted); font-weight: 400; }
 .trace-detail-panel { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); overflow: hidden; }
-.trace-detail-head { padding: 12px 16px; display: flex; flex-direction: column; gap: 4px; border-bottom: 1px solid var(--border-subtle); }
+.trace-detail-head { padding: 12px 16px; display: flex; flex-direction: column; gap: 4px; border-bottom: 1px solid var(--border-head); }
 .trace-detail-svc { font-size: 12.5px; font-weight: 600; color: var(--text-primary); }
 .trace-detail-ep { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-secondary); }
 .trace-detail-id { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-muted); margin-top: 2px; }
@@ -1190,7 +1204,7 @@ tbody tr:hover { background: var(--panel-2); }
 .sk-tabs { display: flex; gap: 8px; padding: 2px 0 0; }
 .sk-tabs .sk-block { height: 26px; width: 84px; }
 .sk-table { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); overflow: hidden; }
-.sk-table-head { padding: 14px 16px; border-bottom: 1px solid var(--border-subtle); }
+.sk-table-head { padding: 14px 16px; border-bottom: 1px solid var(--border-head); }
 .sk-table-head .sk-lbl { height: 11px; width: 110px; background: var(--panel); border-radius: 3px; position: relative; overflow: hidden; }
 .sk-row { display: grid; grid-template-columns: 1.4fr 1fr 1fr 1fr 1fr; gap: 20px; padding: 14px 16px; border-top: 1px solid var(--border-subtle); align-items: center; }
 .sk-row .sk-cell { height: 12px; background: var(--panel); border-radius: 3px; position: relative; overflow: hidden; }
@@ -3438,7 +3452,7 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 .runtime-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .runtime-chart-card { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); padding: 12px 14px 8px; }
 .runtime-chart-card .clbl { font-size: 11.5px; font-weight: 600; margin-bottom: 8px; color: var(--text-primary); display: flex; align-items: center; justify-content: space-between; }
-.runtime-chart-card .cval { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-secondary); font-weight: 500; }
+.runtime-chart-card .cval { font-size: 12px; color: var(--text-secondary); font-weight: 500; }
 .runtime-chart-card .chart-host { height: 140px; }
 .runtime-legend { display: flex; gap: 12px; margin-top: 4px; }
 .runtime-legend-item { display: flex; align-items: center; gap: 5px; font-size: 10.5px; color: var(--text-secondary); }
