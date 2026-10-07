@@ -672,13 +672,11 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
     [visibleVolume],
   )
 
-  // Measured first: the value axis decides whether to mirror from this width,
-  // and the tick ladder is then budgeted against whatever plot is left.
   const [volumeWrapRef, volumeWrapWidth] = useMeasuredWidth()
 
   const volumeYAxis = useMemo(
-    () => valueAxisProps({ chartWidth: volumeWrapWidth, format: fmtCount, allowDecimals: false, maxValue: volumeMax }),
-    [volumeMax, volumeWrapWidth],
+    () => valueAxisProps({ format: fmtCount, allowDecimals: false, maxValue: volumeMax }),
+    [volumeMax],
   )
 
   // The ladder is budgeted against the PLOT rather than the card, so the value

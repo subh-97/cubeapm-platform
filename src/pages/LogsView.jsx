@@ -1432,7 +1432,7 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
               >
                 <CartesianGrid {...GRID_PROPS} />
                 <XAxis {...volumeAxis.props} />
-                <YAxis {...valueAxisProps({ chartWidth: volumeAxis.width, format: fmtCount, allowDecimals: false, maxValue: volumeMax })} />
+                <YAxis {...valueAxisProps({ format: fmtCount, allowDecimals: false, maxValue: volumeMax })} />
                 <Tooltip
                   content={p => <VolumeTooltip {...p} nowMs={win.end * 1000} hoverKey={volumeHover} suppressed={!volumeFocus.hovered} />}
                   cursor={{ fill: 'rgba(255,255,255,0.02)' }}

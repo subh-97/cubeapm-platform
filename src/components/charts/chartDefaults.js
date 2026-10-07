@@ -85,36 +85,13 @@ export function timeAxisProps(length, { minTickGap = 44 } = {}) {
 // and a flat-zero series needs a scale to be flat against. A percentage is not
 // one of them: CPU on a multi-core host passes 100%, and an axis pinned there
 // would draw the busiest host as merely full.
-/**
- * Below this chart width the value axis moves INSIDE the plot.
- *
- * Recharts only activates a tooltip when the pointer is inside the plot
- * rectangle, and the gutter the axis reserves is outside it — measured at
- * 32-56px depending on how wide the labels are. On a 490px chart that dead band
- * is a tenth of the card and barely noticed; on a 285px one it is a fifth, and
- * hovering the left of the chart appears to do nothing at all. Mirroring hands
- * that width back to the plot, so the whole card responds.
- *
- * Only the narrow cards pay the cost (labels drawn over the data's left edge),
- * and the threshold is on MEASURED width rather than on a card class, so a card
- * that reflows from a third to a half stops mirroring on its own.
- */
-const MIRROR_BELOW_PX = 420
-
-export function valueAxisProps({ format = fmtCompact, domain, allowDecimals = true, maxValue, chartWidth } = {}) {
+export function valueAxisProps({ format = fmtCompact, domain, allowDecimals = true, maxValue } = {}) {
   const widest = maxValue == null ? 4 : Math.max(String(format(maxValue)).length, 1)
-  const gutter = Math.min(56, Math.max(26, widest * 7 + 8))
-  const mirror = chartWidth > 0 && chartWidth < MIRROR_BELOW_PX
   return {
     tick: AXIS_TICK,
     tickLine: false,
     axisLine: false,
-    // A mirrored axis reserves almost nothing — the labels sit over the plot,
-    // inset from its left edge by the tick's own dx. It cannot be 0: Recharts
-    // renders no ticks at all for a zero-width axis, which silently costs the
-    // value scale.
-    width: mirror ? 1 : gutter,
-    ...(mirror ? { mirror: true, tick: { ...AXIS_TICK, dx: 4, textAnchor: 'start' } } : null),
+    width: Math.min(56, Math.max(26, widest * 7 + 8)),
     tickFormatter: format,
     allowDecimals,
     ...(domain ? { domain } : null),

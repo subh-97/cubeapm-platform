@@ -218,7 +218,6 @@ export function buildTimeAxis(win, { width = 0, kind = 'time' } = {}) {
     return {
       interval,
       labelKind,
-      width,
       ticks,
       props: {
         dataKey: 'label',
@@ -240,10 +239,6 @@ export function buildTimeAxis(win, { width = 0, kind = 'time' } = {}) {
   return {
     interval,
     labelKind,
-    // The width this ladder was sized for. Handed back so a chart that has the
-    // axis in scope also has the one number the value axis needs to decide
-    // whether to mirror, without threading a second prop through.
-    width,
     ticks: instants,
     props: {
       dataKey: 'x',

@@ -83,7 +83,7 @@ function MultiHostChart({ metric, unit, formatVal, height = 130, palette, hosts,
         <LineChart data={data} margin={{ top: 6, right: 6, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
           <CartesianGrid {...GRID_PROPS} />
           <XAxis {...axis.props} />
-          <YAxis {...valueAxisProps({ chartWidth: axis.width, format: formatVal, maxValue: maxOf(data, hosts.map((_, hi) => `h${hi}`)) })} />
+          <YAxis {...valueAxisProps({ format: formatVal, maxValue: maxOf(data, hosts.map((_, hi) => `h${hi}`)) })} />
           <Tooltip content={p => <MultiTooltip {...p} unit={unit} formatVal={formatVal} palette={palette} hosts={hosts} nameKey={nameKey} hoverKey={hoverKey} suppressed={!focus.hovered} />} {...NO_ANIM} />
           {hosts.map((h, hi) => (
             <Line {...LINE_PROPS} key={h[nameKey]} dataKey={`h${hi}`} stroke={palette[hi % palette.length]} strokeWidth={1.4} dot={false} activeDot={{ r: 3, strokeWidth: 0 }} {...hoverProps(`h${hi}`)} />
@@ -212,7 +212,7 @@ function HostChart({ title, series, color, unit, formatVal, value, height = 130 
           <AreaChart data={data} margin={{ top: 6, right: 6, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
             <CartesianGrid {...GRID_PROPS} />
             <XAxis {...axis.props} />
-            <YAxis {...valueAxisProps({ chartWidth: axis.width, format: formatVal, maxValue: maxOf(data, 'value') })} />
+            <YAxis {...valueAxisProps({ format: formatVal, maxValue: maxOf(data, 'value') })} />
             <Tooltip content={p => <SingleAreaTooltip {...p} color={color} unit={unit} formatVal={formatVal} suppressed={!focus.hovered} />} {...NO_ANIM} />
             <Area {...AREA_PROPS} dataKey="value" stroke={color} strokeWidth={1.6} fill={color} dot={false} activeDot={{ r: 3 }} />
             {focus.overlay}
@@ -260,7 +260,7 @@ function OneMetricChart({ title, series, color, height = 160, unit = '', formatV
               <AreaChart data={data} margin={{ top: 6, right: 6, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
                 <CartesianGrid {...GRID_PROPS} />
                 <XAxis {...axis.props} />
-                <YAxis {...valueAxisProps({ chartWidth: axis.width, format: formatVal, maxValue: maxOf(data, 'value') })} />
+                <YAxis {...valueAxisProps({ format: formatVal, maxValue: maxOf(data, 'value') })} />
                 <Tooltip content={p => <SingleAreaTooltip {...p} color={color} unit={unit} formatVal={formatVal} suppressed={!focus.hovered} />} {...NO_ANIM} />
                 <Area {...AREA_PROPS} dataKey="value" stroke={color} strokeWidth={1.6} fill={color} dot={false} activeDot={{ r: 3 }} />
                 {focus.overlay}
@@ -298,7 +298,7 @@ function HostProcessChart({ title, series, color, metric, tabs }) {
               <AreaChart data={data} margin={{ top: 6, right: 6, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
                 <CartesianGrid {...GRID_PROPS} />
                 <XAxis {...axis.props} />
-                <YAxis {...valueAxisProps({ chartWidth: axis.width, maxValue: 100 })} />
+                <YAxis {...valueAxisProps({ maxValue: 100 })} />
                 <Tooltip content={p => <SingleAreaTooltip {...p} color={color} unit="%" formatVal={v => v.toFixed(1)} suppressed={!focus.hovered} />} {...NO_ANIM} />
                 <Area {...AREA_PROPS} dataKey="value" stroke={color} strokeWidth={1.6} fill={color} dot={false} activeDot={{ r: 3 }} />
                 {focus.overlay}
@@ -388,7 +388,7 @@ function AllocationChart({ title, alloc, lines, legend, axisFormat, tooltipUnit,
           <LineChart data={data} margin={{ top: 6, right: 6, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
             <CartesianGrid {...GRID_PROPS} />
             <XAxis {...axis.props} />
-            <YAxis {...valueAxisProps({ chartWidth: axis.width, ...(axisFormat ? { format: axisFormat } : null), maxValue: maxOf(data, ALLOC_KEYS) })} />
+            <YAxis {...valueAxisProps({ ...(axisFormat ? { format: axisFormat } : null), maxValue: maxOf(data, ALLOC_KEYS) })} />
             <Tooltip
               content={p => (
                 <SingleAreaTooltip
@@ -448,7 +448,7 @@ function ContainersChart({ series }) {
           <AreaChart data={data} margin={{ top: 6, right: 6, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
             <CartesianGrid {...GRID_PROPS} />
             <XAxis {...axis.props} />
-            <YAxis {...valueAxisProps({ chartWidth: axis.width, format: fmtCount, allowDecimals: false, maxValue: 99 })} />
+            <YAxis {...valueAxisProps({ format: fmtCount, allowDecimals: false, maxValue: 99 })} />
             <Tooltip
               content={p => (
                 <SingleAreaTooltip
@@ -642,7 +642,7 @@ function K8sDeploymentView() {
             <LineChart data={data} margin={{ top: 6, right: 6, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
               <CartesianGrid {...GRID_PROPS} />
               <XAxis {...axis.props} />
-              <YAxis {...valueAxisProps({ chartWidth: axis.width, format: fmtCount, allowDecimals: false, maxValue: 99 })} />
+              <YAxis {...valueAxisProps({ format: fmtCount, allowDecimals: false, maxValue: 99 })} />
               <Tooltip content={p => <SingleAreaTooltip {...p} color="#EF4444" unit="" formatVal={v => Math.round(v)} suppressed={!focus.hovered} />} {...NO_ANIM} />
               <Line {...LINE_PROPS} dataKey="value" stroke="#EF4444" strokeWidth={1.6} dot={false} />
               {focus.overlay}
@@ -728,7 +728,7 @@ function NodeNetworkChart({ node }) {
           <AreaChart data={data} margin={{ top: 6, right: 6, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
             <CartesianGrid {...GRID_PROPS} />
             <XAxis {...axis.props} />
-            <YAxis {...valueAxisProps({ chartWidth: axis.width, format: fmtBytes, maxValue: 1e9 })} />
+            <YAxis {...valueAxisProps({ format: fmtBytes, maxValue: 1e9 })} />
             <Tooltip
               content={p => (
                 <SingleAreaTooltip {...p} formatVal={fmtBytes} hoverKey={hoverKey} suppressed={!focus.hovered} series={NET_BANDS} />
@@ -977,7 +977,7 @@ function NoDataChart({ title }) {
           <LineChart data={data} margin={{ top: 6, right: 6, left: 0, bottom: 0 }}>
             <CartesianGrid {...GRID_PROPS} />
             <XAxis {...axis.props} />
-            <YAxis {...valueAxisProps({ chartWidth: axis.width, domain: [0, 1], maxValue: 1 })} />
+            <YAxis {...valueAxisProps({ domain: [0, 1], maxValue: 1 })} />
             <Line {...LINE_PROPS} dataKey="value" stroke="var(--text-muted)" strokeWidth={1} dot={false} />
           </LineChart>
         </ResponsiveContainer>

@@ -497,7 +497,7 @@ function LatencyDrilldown({ layers, layerSeries, onOpenUpstream, p90Series, p90E
                 <LineChart data={p90Data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
                   <CartesianGrid {...GRID_PROPS} />
                   <XAxis {...axis.props} />
-                  <YAxis {...valueAxisProps({ chartWidth: axis.width, format: v => `${Math.round(v)} ms`, maxValue: maxOf(p90Data, 'value') })} />
+                  <YAxis {...valueAxisProps({ format: v => `${Math.round(v)} ms`, maxValue: maxOf(p90Data, 'value') })} />
                   <Tooltip content={p => <SvcTooltip {...p} color="#F472B6" unit=" ms" formatVal={v => Math.round(v)} nowMs={win.end * 1000} suppressed={!focus.hovered} />} {...NO_ANIM} />
                   <Line {...LINE_PROPS} dataKey="value" stroke="#F472B6" strokeWidth={1.6} dot={false} activeDot={{ r: 3, strokeWidth: 0 }} />
                   {focus.overlay}
@@ -520,7 +520,7 @@ function LatencyDrilldown({ layers, layerSeries, onOpenUpstream, p90Series, p90E
               <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
                 <CartesianGrid {...GRID_PROPS} />
                 <XAxis {...axis.props} />
-                <YAxis {...valueAxisProps({ chartWidth: axis.width, maxValue: selected ? maxOf(data, [selected]) : total })} />
+                <YAxis {...valueAxisProps({ maxValue: selected ? maxOf(data, [selected]) : total })} />
                 <Tooltip content={p => <DrilldownTooltip {...p} nowMs={win.end * 1000} hoverKey={hoverKey} colors={drillColors} suppressed={!focus.hovered} />} {...NO_ANIM} />
                 {chartLayers.map(layer => (
                   <Area key={layer.label} {...AREA_PROPS} dataKey={layer.label} stackId="stack"
@@ -1005,7 +1005,7 @@ function RedDrilldownChart({ title, eps, epSeries, dataKey, fmtFn, syncId, win, 
               <LineChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
                 <CartesianGrid {...GRID_PROPS} />
                 <XAxis {...axis.props} />
-                <YAxis {...valueAxisProps({ chartWidth: axis.width, format: fmtFn, maxValue: maxOf(data, chartIdxs.map(i => `ep${i}`)) })} />
+                <YAxis {...valueAxisProps({ format: fmtFn, maxValue: maxOf(data, chartIdxs.map(i => `ep${i}`)) })} />
                 <Tooltip content={p => <RedChartTooltip {...p} eps={eps} colors={RED_EP_COLORS} fmtFn={fmtFn} nowMs={win.end * 1000} hoverKey={hoverKey} suppressed={!focus.hovered} />} {...NO_ANIM} />
                 {chartIdxs.map(ei => (
                   <Line key={ei} {...LINE_PROPS} dataKey={`ep${ei}`} stroke={RED_EP_COLORS[ei]}
@@ -1212,8 +1212,6 @@ function MiniChart({ series, color, unit = '', formatVal, height = 182, syncId, 
         <AreaChart data={data} margin={{ top: 4, right: 4, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
           <CartesianGrid {...GRID_PROPS} />
           <XAxis {...axis.props} />
-          {/* No chartWidth, like the Runtime cards: the scale keeps a gutter
-              instead of being laid over the plot. */}
           <YAxis {...valueAxisProps({ maxValue: maxOf(data, 'value') })} />
           <Tooltip content={p => <SvcTooltip {...p} color={color} unit={unit} formatVal={formatVal} nowMs={win.end * 1000} suppressed={!focus.hovered} />} {...NO_ANIM} />
           <Area {...AREA_PROPS} dataKey="value" stroke={color} strokeWidth={1.6} fill={color} dot={false} activeDot={{ r: 3 }} />
@@ -1246,7 +1244,6 @@ function MultiLineChart({ seriesList, unit = '', formatVal, height = 182, syncId
         <LineChart data={data} margin={{ top: 4, right: 4, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
           <CartesianGrid {...GRID_PROPS} />
           <XAxis {...axis.props} />
-          {/* No chartWidth: the scale keeps a gutter instead of being laid over the plot. */}
           <YAxis {...valueAxisProps({ maxValue: maxOf(data, keys), format: formatVal })} />
           <Tooltip content={p => <MultiSeriesTooltip {...p} seriesList={seriesList} unit={unit} formatVal={formatVal} hoverKey={hoverKey} nowMs={win.end * 1000} suppressed={!focus.hovered} />} {...NO_ANIM} />
           {seriesList.map(s => (
@@ -1699,7 +1696,7 @@ function ErrorSpark({ series, color, win, onFocus, syncId }) {
         <AreaChart data={data} margin={{ top: 6, right: 4, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
           <CartesianGrid {...GRID_PROPS} />
           <XAxis {...axis.props} />
-          <YAxis {...valueAxisProps({ chartWidth: axis.width, maxValue: maxOf(data, 'value'), format: fmtCompact })} />
+          <YAxis {...valueAxisProps({ maxValue: maxOf(data, 'value'), format: fmtCompact })} />
           {/* One spark per error row, all on the tab's syncId — so hovering one
               made every other row's spark open a panel too. Same rule as the
               full-size charts: the hovered spark reads, the rest just line up. */}
@@ -1998,9 +1995,6 @@ function RuntimeChart({ title, series, fmt, tipFmt, area = false, span = 'half',
           <Chart data={data} margin={{ top: 6, right: 4, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
             <CartesianGrid {...GRID_PROPS} />
             <XAxis {...axis.props} />
-            {/* No chartWidth: these cards sit under the mirroring threshold, and
-                byte labels (1.2G, 900M) laid over the plot read as data. A
-                gutter keeps the scale outside the lines. */}
             <YAxis {...valueAxisProps({ maxValue: maxOf(data, keys), format: fmt })} />
             {/* Not decoration: Recharts delivers no move events to the wrapper
                 without a Tooltip, so the drag-to-focus gesture depends on it. */}
