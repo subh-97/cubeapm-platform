@@ -506,7 +506,7 @@ a { color: inherit; }
  * the body's usual gap above the first panel. The sticky offset is negative
  * for the same reason: sticky `top` is measured from the scroll container's
  * content edge, so `top: 0` would leave the padding as a gap above it. */
-.endpoint-strip { display: flex; align-items: center; gap: 10px; padding: 8px 16px;
+.endpoint-strip { display: flex; align-items: center; gap: 10px; padding: 10px 16px;
   margin: calc(-1 * var(--svc-pad-top)) -16px var(--svc-pad-top);
   background: var(--canvas); border-bottom: 1px solid var(--border-head); }
 .endpoint-strip.is-sticky { position: sticky; top: calc(-1 * var(--svc-pad-top)); z-index: 5;
@@ -528,6 +528,15 @@ a { color: inherit; }
 .endpoint-strip .filter-select.is-endpoint:hover,
 .endpoint-strip .filter-select.is-endpoint.dd-open { background: none; border-color: var(--border-strong); }
 .filter-select.is-endpoint .filter-value > span { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; font-weight: 400; color: var(--text-primary); }
+/* The Endpoint and Service pickers each name what the whole page is scoped to,
+ * so their labels read a step up from the muted one Host and Version use — at
+ * that weight it sank beside the value. One rule, so the two stay identical.
+ * The colon is drawn here rather than written into the label, which also
+ * feeds the Endpoint picker's title. */
+.filter-select.is-endpoint .filter-label,
+.svc-picker-label { font-size: 11.5px; font-weight: 600; color: var(--text-secondary); }
+.filter-select.is-endpoint .filter-label::after,
+.svc-picker-label::after { content: ':'; }
 /* Spans the full card width (the 16px inset lives in its padding instead of
  * .card-scroll's) because overflow-y: auto clips anything that tries to bleed
  * past its box — full-width strips inside the scroll area need room to reach
@@ -821,6 +830,12 @@ tbody tr:hover { background: var(--panel-2); }
 /* 3-up trend row (RPM / Error % / Apdex) breathes more vertically so the shape
  * of each series reads instead of flattening against the baseline. */
 .charts-row .chart-host { height: 241px; }
+/* With a fourth tile the row becomes a 2×2 grid. A panel placed in it drops its
+ * own bottom margin so it lines up with the chart card beside it, and stretches
+ * to that card's height. Same specificity as `.charts-row`, so the responsive
+ * rule below still collapses it to one column on a narrow screen. */
+.charts-row-2x2 { grid-template-columns: repeat(2, 1fr); }
+.charts-row > .panel { margin-bottom: 0; }
 .flag { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 99px; }
 .flag.crit { background: rgba(239,68,68,.15); color: var(--critical-fg); }
 .flag.ok { background: rgba(34,197,94,.14); color: var(--healthy-fg); }
@@ -904,7 +919,7 @@ tbody tr:hover { background: var(--panel-2); }
 .drill2-bartrack { height: 3px; background: var(--panel); border-radius: 99px; overflow: hidden; }
 .drill2-barfill { height: 100%; border-radius: 99px; }
 .drill2-total { display: flex; align-items: center; gap: 8px; padding-top: 10px; border-top: 1px solid var(--border-subtle); margin-top: 2px; cursor: default; }
-.drill2-total-swatch { display: inline-block; width: 20px; height: 0; border-top: 1.6px dashed var(--text-secondary); flex-shrink: 0; }
+.drill2-total-swatch { display: inline-block; width: 20px; height: 0; border-top: 2px dashed var(--text-primary); flex-shrink: 0; }
 .drill2-total-lbl { font-size: 11.5px; font-weight: 600; color: var(--text-secondary); flex: 1; }
 .drill2-total-val { font-size: 13px; font-weight: 700; color: var(--text-primary); }
 .drill2-insight {
@@ -975,7 +990,7 @@ tbody tr:hover { background: var(--panel-2); }
 .svc-split { display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin-bottom: 20px; align-items: stretch;
   background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); overflow: hidden; }
 .svc-split > .split-endpoints { border-right: 1px solid var(--border-subtle); }
-.split-endpoints { background: transparent; border: none; border-radius: 0; }
+.split-endpoints { background: transparent; border: none; border-radius: 0; margin-bottom: 0; }
 .split-endpoints .panel-head { border-bottom: 1px solid var(--border-head); }
 .split-endpoints-search { padding: 8px 12px; border-bottom: 1px solid var(--border-head); background: transparent; }
 .split-endpoints-search input { width: 100%; background: transparent; border: 1px solid var(--border-subtle); color: var(--text-primary); font-family: inherit; font-size: 11.5px; border-radius: var(--radius-sm); padding: 6px 10px; outline: none; }
@@ -3634,7 +3649,9 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
    A combobox after the production selector: the field becomes the search box
    when opened, and the list hangs directly under it at the same width. */
 .svc-picker { display: flex; align-items: center; min-width: 0; }
-.svc-picker-field { position: relative; flex: none; width: 338px; }
+/* As wide as the Detail tab's Endpoint picker, so the two labelled fields line
+ * up; capped so a narrow page wraps it instead of overflowing. */
+.svc-picker-field { position: relative; flex: none; width: 548px; max-width: 100%; }
 /* Outlined, not filled - the field sits on the card like the production one */
 .svc-picker-control {
   display: flex; align-items: center; gap: 8px; width: 100%; height: 100%; min-height: 30px; box-sizing: border-box;
@@ -3645,6 +3662,9 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 .svc-picker-control:hover { border-color: var(--border-strong); }
 .svc-picker-control:focus-visible { outline: none; border-color: var(--brand); box-shadow: var(--focus-ring); }
 .svc-picker-field.open .svc-picker-control { border-color: var(--brand); box-shadow: var(--focus-ring); cursor: text; }
+/* Labelled like the Endpoint picker (the shared rule sits with that one). The
+ * button's aria-label already names it, so the visible label is aria-hidden. */
+.svc-picker-label { flex-shrink: 0; white-space: nowrap; margin-right: 2px; }
 .svc-picker-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .svc-picker-input { flex: 1; min-width: 0; background: none; border: none; outline: none; padding: 0; color: var(--text-primary); font-size: 12px; }
 .svc-picker-input::placeholder { color: var(--text-muted); }

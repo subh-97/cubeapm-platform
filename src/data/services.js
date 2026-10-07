@@ -314,7 +314,7 @@ export const fleetSeries = fleetSeriesForWindow(REFERENCE_WINDOW)
 
 export const latencyDrilldown = [
   { label: 'DB redis', ms: 210, color: '#EF4444' },
-  { label: 'HTTP External (twilio)', ms: 55, color: '#3B82F6' },
+  { label: 'HTTP External (twilio)', ms: 120, color: '#3B82F6' },
   { label: 'DB mysql', ms: 35, color: '#A78BFA' },
   { label: 'App / internal', ms: 40, color: '#34D399' },
 ]
@@ -488,11 +488,42 @@ export function infraCorrelationForWindow(win) {
   }))
 }
 
-// The drilldown's layers add up to the service's average latency, so they are
-// calibrated individually: only the Redis layer carries the incident, which is
-// why over a week the bar collapses to the 78 ms the service is quiet at and
-// Redis stops being the thing you look at first.
-const DRILLDOWN_QUIET = { 'DB redis': 8, 'HTTP External (twilio)': 30, 'DB mysql': 22, 'App / internal': 18 }
+// The table publishes no average latency per host; it reads one off the p90 at
+// this ratio, and the chart behind that cell is drawn the same way.
+export const INFRA_AVG_OF_P90 = 0.55
+
+/**
+ * One host's metric sampled across the window, for the chart a cell of the
+ * Infrastructure Correlation table opens on hover.
+ *
+ * That chart used to invent thirty points around the cell's value, so it drew
+ * the last half hour whatever range the figure beside it was taken over.
+ * Sampling the profile the figure is reduced from puts the two on one range.
+ */
+export function infraSeriesForWindow(win, host, key) {
+  const entry = derivedTable(infraCorrelation, INFRA_SPEC).find(({ row }) => row.host === host)
+  if (!entry) return []
+  if (key === 'latencyAvg') {
+    return windowSeries(win, entry.profiles.latencyP90).map(d => ({
+      ...d,
+      value: d.value == null ? null : Math.round(d.value * INFRA_AVG_OF_P90 * 100) / 100,
+    }))
+  }
+  return entry.profiles[key] ? windowSeries(win, entry.profiles[key]) : []
+}
+
+// The drilldown's layers are time CONSUMED per request, and they add up to more
+// than the latency the caller sees. The Twilio send is dispatched alongside the
+// database work and only awaited at the end, so of its 120 ms just 55 ms is on
+// the request's critical path; the other 65 ms overlaps redis and mysql. That is
+// the gap the chart's info tip describes, and the reason its Total line runs
+// below the top of the stack instead of along it.
+//
+// They are calibrated individually: only the Redis layer carries the incident,
+// which is why over a week the stack collapses to the ~113 ms it consumes when
+// quiet (78 ms of it on the critical path) and Redis stops being the thing you
+// look at first.
+const DRILLDOWN_QUIET = { 'DB redis': 8, 'HTTP External (twilio)': 65, 'DB mysql': 22, 'App / internal': 18 }
 
 const DRILLDOWN_PROFILES = latencyDrilldown.map((l, i) => {
   const quiet = DRILLDOWN_QUIET[l.label] ?? l.ms
@@ -520,6 +551,17 @@ export function latencyDrilldownSeriesForWindow(win) {
     color: l.color,
     series: windowSeries(win, DRILLDOWN_PROFILES[i]),
   }))
+}
+
+/**
+ * The drilldown's Total: payment-service's own average latency, as the caller
+ * sees it — the same profile the Avg Latency KPI is reduced from, so the two
+ * read the same figure. Measured on its own rather than summed from the layers,
+ * because the layers overlap and their sum overstates what the caller waited.
+ */
+export function latencyDrilldownTotalForWindow(win) {
+  const avg = PROFILES['payment-service'].avg
+  return { ms: Math.round(windowMean(win, avg)), series: windowSeries(win, avg) }
 }
 
 /** One endpoint's metric sampled across the window, for the RED graph view. */

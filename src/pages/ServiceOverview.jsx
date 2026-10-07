@@ -3,8 +3,8 @@ import { createPortal } from 'react-dom'
 import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import {
   servicesForWindow, seriesForWindow, versionBandsForWindow, latencyDrilldownForWindow,
-  latencyDrilldownSeriesForWindow, redEndpointsForWindow, redEndpointSeriesForWindow,
-  infraCorrelationForWindow, slowRequestsForWindow, errorRequestsForWindow,
+  latencyDrilldownSeriesForWindow, latencyDrilldownTotalForWindow, redEndpointsForWindow, redEndpointSeriesForWindow,
+  infraCorrelationForWindow, infraSeriesForWindow, INFRA_AVG_OF_P90, slowRequestsForWindow, errorRequestsForWindow,
   externalEndpointsForWindow, dbEndpointsForWindow, runtimeMetricsForWindow,
   externalEndpointCallers, dbEndpointCallers, slowQueries, errorGroupsForWindow, tracesList, traceDetail,
   FILTER_OPTS,
@@ -21,7 +21,7 @@ import InfoTip from '@/components/shared/InfoTip'
 import Waterfall from '@/components/trace/Waterfall'
 import { buildTrace } from '@/data/traceDetail'
 import { Gauge, Crosshair, ChartLine, Globe, Database, TriangleAlert, Cpu } from 'lucide-react'
-import { GRID_PROPS, NO_ANIM, AREA_PROPS, LINE_PROPS, timeAxisProps, valueAxisProps, maxOf, fmtCompact, fmtBytes, fmtCount } from '@/components/charts/chartDefaults'
+import { GRID_PROPS, NO_ANIM, AREA_PROPS, LINE_PROPS, valueAxisProps, maxOf, fmtCompact, fmtBytes, fmtCount } from '@/components/charts/chartDefaults'
 import { buildTimeAxis, withX } from '@/components/charts/timeAxis'
 import { useTimeFocus, useMeasuredWidth, useSeriesHover } from '@/components/charts/useTimeFocus'
 import ChartTooltip from '@/components/charts/ChartTooltip'
@@ -93,27 +93,22 @@ function SortableTh({ sortKey, sort, onToggle, children, align = 'right', style 
   )
 }
 
-// Build a believable mini time-series around a steady-state value. The spread
-// is proportional to the value, and the seed keeps renders stable.
-function buildHoverSeries(baseValue, seed, points = 30) {
-  let s = seed
-  const rnd = () => { s = (s * 9301 + 49297) % 233280; return s / 233280 }
-  const spread = Math.max(0.08, Math.min(0.35, 0.15))
-  return Array.from({ length: points }, (_, i) => {
-    const m = points - 1 - i
-    return { m, value: baseValue * (1 + (rnd() - 0.5) * spread * 2) }
-  })
-}
-
 // Floating mini-chart that renders beside a hovered cell. The parent attaches
-// `onMouseEnter`/`onMouseLeave` on the cells and keeps `anchor`+`title`+`series`
-// in state; this component places itself relative to the anchor rect.
-function HoverChartPopover({ anchor, title, series, color = '#3B82F6', formatVal = v => Math.round(v), unit = '', onEnter, onLeave }) {
+// `onMouseEnter`/`onMouseLeave` on the cells and keeps the hovered cell in
+// state; this component places itself relative to the anchor rect.
+//
+// `series` is sampled over the page's window and drawn on that window's time
+// axis, so the chart covers the same range as the figure it was opened from.
+// It does not take part in drag-to-focus: it closes as soon as the pointer
+// leaves it, which is no place to start a drag.
+function HoverChartPopover({ anchor, title, series, win, color = '#3B82F6', formatVal = v => Math.round(v), unit = '', onEnter, onLeave }) {
   // Before the early return, not after it: a hook that runs on only some
   // renders shifts every later hook in this component by one the next time
   // round. The parent only mounts this when a cell is hovered, so `anchor` is
   // in practice always set — but the ordering has to hold regardless.
-  const data = useMemo(() => chartData(series ?? []), [series])
+  const [wrapRef, width] = useMeasuredWidth()
+  const data = useMemo(() => withX(series ?? [], win), [series, win])
+  const axis = useMemo(() => buildTimeAxis(win, { width }), [win, width])
   if (!anchor) return null
   const rect = anchor.getBoundingClientRect()
   const W = 320, H = 180
@@ -128,13 +123,13 @@ function HoverChartPopover({ anchor, title, series, color = '#3B82F6', formatVal
       onMouseLeave={onLeave}
     >
       <div className="hover-chart-pop-title">{title}</div>
-      <div style={{ width: '100%', height: H - 32 }}>
+      <div ref={wrapRef} style={{ width: '100%', height: H - 32 }}>
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={data} margin={{ top: 6, right: 6, left: 0, bottom: 0 }}>
             <CartesianGrid {...GRID_PROPS} />
-            <XAxis {...timeAxisProps(data.length)} />
+            <XAxis {...axis.props} />
             <YAxis {...valueAxisProps({ maxValue: maxOf(data, 'value'), format: v => `${formatVal(v)}${unit}` })} />
-            <Tooltip content={<SvcTooltip color={color} unit={unit} formatVal={formatVal} />} {...NO_ANIM} />
+            <Tooltip content={<SvcTooltip color={color} unit={unit} formatVal={formatVal} nowMs={win.end * 1000} />} {...NO_ANIM} />
             <Area {...AREA_PROPS} dataKey="value" stroke={color} fill={color} strokeWidth={1.4}
               dot={false} activeDot={{ r: 3 }} />
           </AreaChart>
@@ -146,25 +141,6 @@ function HoverChartPopover({ anchor, title, series, color = '#3B82F6', formatVal
 const fmtRedMs = v => `${Math.round(v)} ms`
 const fmtRedRpm = v => v >= 1000 ? `${(v / 1000).toFixed(1)}K` : Math.round(v).toString()
 const fmtRedPct = v => `${v.toFixed(2)}%`
-
-// A series built for a window already carries the axis label and tooltip time
-// that window chose — which is the only way a seven-day chart gets dated labels
-// and a one-hour chart keeps "-14m". Only the ad-hoc hover series above still
-// arrives as bare {m, value}, and minutes-ago is right for those.
-function chartData(series) {
-  // The ad-hoc branch gets a real instant too, floored to the minute it already
-  // printed, so its tooltip can date itself the same way every window-derived
-  // chart does instead of falling back to a headless list of rows.
-  const nowMin = Math.floor(Date.now() / 60000) * 60000
-  return series.map(d => {
-    if (d.label != null) return d
-    const ms = nowMin - d.m * 60 * 1000
-    const t = new Date(ms)
-    const hh = t.getHours().toString().padStart(2, '0')
-    const mm = t.getMinutes().toString().padStart(2, '0')
-    return { t: ms / 1000, label: d.m === 0 ? 'now' : `-${d.m}m`, exactTime: `${hh}:${mm}`, value: d.value }
-  })
-}
 
 // The instant a hovered row was read at, in ms.
 //
@@ -206,10 +182,8 @@ function SvcTooltip({ active, payload, color, unit, formatVal, nowMs, suppressed
 
 function DrilldownTooltip({ active, payload, nowMs, hoverKey, colors, suppressed }) {
   if (!active || !payload?.length) return null
-  // Summed across everything the chart drew, which on the latency stack includes
-  // the dashed Total series — two numbers that are different on purpose, and the
-  // footer has always reported this one.
-  const total = payload.reduce((s, p) => s + (p.value || 0), 0)
+  // No footer: the Total series is already a row here, and a footer summing the
+  // payload counted it a second time on top of the layers it is the sum of.
   const items = [...payload].reverse().map(p => ({
     key: p.dataKey,
     label: p.dataKey,
@@ -223,7 +197,6 @@ function DrilldownTooltip({ active, payload, nowMs, hoverKey, colors, suppressed
       items={items}
       hoverKey={hoverKey}
       suppressed={suppressed}
-      footer={{ label: 'Total', value: `${Math.round(total)} ms` }}
     />
   )
 }
@@ -366,6 +339,7 @@ function EndpointTab({ data, endpoint, onOpenUpstream, onOpenTrace, syncId, win,
       <LatencyDrilldown
         layers={data.drilldown}
         layerSeries={data.drilldownSeries}
+        callerTotal={data.drilldownTotal}
         onOpenUpstream={onOpenUpstream}
         p90Series={data.series.latencyP90}
         p90EndpointLabel={ep.endpoint}
@@ -373,33 +347,39 @@ function EndpointTab({ data, endpoint, onOpenUpstream, onOpenTrace, syncId, win,
         win={win}
         onFocus={onFocus}
       />
-      <div className="panel">
-        <div className="panel-head">
-          <div className="panel-head-left">Hits per request</div>
-          <CardMenu kind="list" title="Hits per request" />
-        </div>
-        <table className="ep-hits">
-          <tbody>
-            {hits.map(h => (
-              <tr key={h.name}>
-                <td className="mono">{h.name}</td>
-                <td className="num">{h.count}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
 
-      <TrendCharts bands={data.bands} syncId={syncId} win={win} onFocus={onFocus} />
+      <TrendCharts bands={data.bands} syncId={syncId} win={win} onFocus={onFocus} aside={(
+        <div className="panel">
+          <div className="panel-head">
+            <div className="panel-head-left">Hits per request</div>
+            <CardMenu kind="list" title="Hits per request" />
+          </div>
+          <table className="ep-hits">
+            <tbody>
+              {hits.map(h => (
+                <tr key={h.name}>
+                  <td className="mono">{h.name}</td>
+                  <td className="num">{h.count}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )} />
       <SlowRequests onOpenTrace={onOpenTrace} data={data.slow} />
       <SlowRequests onOpenTrace={onOpenTrace} data={data.errors} title="Requests with Errors" initialSort="none" />
-      <InfraCorrelation hosts={data.infra} />
+      <InfraCorrelation hosts={data.infra} win={win} />
     </>
   )
 }
 
-function LatencyDrilldown({ layers, layerSeries, onOpenUpstream, p90Series, p90EndpointLabel, syncId, win, onFocus }) {
-  const total = layers.reduce((a, b) => a + b.ms, 0)
+function LatencyDrilldown({ layers, layerSeries, callerTotal, onOpenUpstream, p90Series, p90EndpointLabel, syncId, win, onFocus }) {
+  // Two different totals, on purpose. `consumed` is what the layers add up to —
+  // the time spent across every call, which the shares below are taken of.
+  // `callerTotal` is the latency the caller actually waited, measured on its own:
+  // calls that overlap count once there and twice in `consumed`, which is why
+  // the Total line runs below the top of the stack.
+  const consumed = layers.reduce((a, b) => a + b.ms, 0)
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState(null)
   // The Detail tab wants the same chart to also render a single p90 line for the
@@ -421,29 +401,26 @@ function LatencyDrilldown({ layers, layerSeries, onOpenUpstream, p90Series, p90E
   // and nothing to hang on it.
   const data = useMemo(() => withX((layerSeries[0]?.series ?? []).map((pt, i) => {
     const entry = { t: pt.t, label: pt.label, exactTime: pt.exactTime }
-    let sum = 0
     layerSeries.forEach((layer) => {
-      const v = layer.series[i]?.value ?? 0
-      entry[layer.label] = v
-      sum += v
+      entry[layer.label] = layer.series[i]?.value ?? 0
     })
-    entry.Total = sum
+    entry.Total = callerTotal?.series[i]?.value ?? null
     return entry
-  }), win), [layerSeries, win])
+  }), win), [layerSeries, callerTotal, win])
 
   // Hover-dim: when the pointer is on one legend row, the other rows and the
   // areas they draw fade out, so the one in focus reads as the only series.
   const [hoverKey, setHoverKey] = useState(null)
   const dimOpacityFor = (key) => (hoverKey == null || hoverKey === key ? 1 : 0.22)
 
-  // The swatch colour per stacked key. The dashed Total line draws with no fill,
-  // so its tag has to come from here rather than off the payload.
+  // The swatch colour per stacked key. The Total line draws with no fill, so its
+  // tag has to come from here rather than off the payload.
   const drillColors = useMemo(() => ({
     ...Object.fromEntries(chartLayers.map(l => [l.label, l.color])),
-    Total: 'var(--text-secondary)',
+    Total: 'var(--text-primary)',
   }), [chartLayers])
 
-  const p90Data = useMemo(() => p90Series ? withX(chartData(p90Series), win) : null, [p90Series, win])
+  const p90Data = useMemo(() => p90Series ? withX(p90Series, win) : null, [p90Series, win])
 
   const info = (
     <InfoTip label="About Latency Drilldown">
@@ -520,7 +497,7 @@ function LatencyDrilldown({ layers, layerSeries, onOpenUpstream, p90Series, p90E
               <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
                 <CartesianGrid {...GRID_PROPS} />
                 <XAxis {...axis.props} />
-                <YAxis {...valueAxisProps({ maxValue: selected ? maxOf(data, [selected]) : total })} />
+                <YAxis {...valueAxisProps({ maxValue: selected ? maxOf(data, [selected]) : consumed })} />
                 <Tooltip content={p => <DrilldownTooltip {...p} nowMs={win.end * 1000} hoverKey={hoverKey} colors={drillColors} suppressed={!focus.hovered} />} {...NO_ANIM} />
                 {chartLayers.map(layer => (
                   <Area key={layer.label} {...AREA_PROPS} dataKey={layer.label} stackId="stack"
@@ -532,10 +509,14 @@ function LatencyDrilldown({ layers, layerSeries, onOpenUpstream, p90Series, p90E
                     onMouseEnter={() => setHoverKey(layer.label)}
                     onMouseLeave={() => setHoverKey(null)} />
                 ))}
+                {/* Not stacked: Total plots at the caller's own latency, inside
+                    the stack rather than on its top edge. Dashed and in the text
+                    colour so it reads as a measure laid over the layers, not as
+                    one more of them. Drawn last so it sits over every layer. */}
                 {!selected && (
-                  <Area {...AREA_PROPS} dataKey="Total" stroke="var(--text-secondary)" fill="none"
+                  <Area {...AREA_PROPS} dataKey="Total" stroke="var(--text-primary)" fill="none"
                     strokeOpacity={dimOpacityFor('Total')}
-                    strokeWidth={1.4} strokeDasharray="4 3" dot={false} activeDot={{ r: 3, strokeWidth: 0 }}
+                    strokeWidth={2} strokeDasharray="6 4" dot={false} activeDot={{ r: 3.5, strokeWidth: 0 }}
                     onMouseEnter={() => setHoverKey('Total')}
                     onMouseLeave={() => setHoverKey(null)} />
                 )}
@@ -556,7 +537,7 @@ function LatencyDrilldown({ layers, layerSeries, onOpenUpstream, p90Series, p90E
             />
           </div>
           {shown.map(d => {
-            const pct = ((d.ms / total) * 100).toFixed(1)
+            const pct = ((d.ms / consumed) * 100).toFixed(1)
             const dimmed = selected && selected !== d.label
             return (
               <div
@@ -596,7 +577,7 @@ function LatencyDrilldown({ layers, layerSeries, onOpenUpstream, p90Series, p90E
           >
             <span className="drill2-total-swatch" aria-hidden="true" />
             <span className="drill2-total-lbl">Total</span>
-            <span className="drill2-total-val">{total} ms</span>
+            <span className="drill2-total-val">{callerTotal?.ms ?? consumed} ms</span>
           </div>
         </div>
       </div>
@@ -707,15 +688,19 @@ function TrendChart({ title, members, stack = false, domain, unit = '', formatVa
   )
 }
 
-function TrendCharts({ bands, syncId, win, onFocus }) {
+// Three across by default. An `aside` makes it a fourth tile and the row a 2×2
+// grid — the Detail tab puts its Hits per request table there, beside Apdex,
+// rather than on a full-width row of its own above the charts.
+function TrendCharts({ bands, syncId, win, onFocus, aside }) {
   return (
-    <div className="charts-row">
+    <div className={`charts-row${aside ? ' charts-row-2x2' : ''}`}>
       <TrendChart title="RPM" members={bands.rpm} stack unit=" rpm"
         formatVal={v => (v == null ? '' : Math.round(v))} syncId={syncId} win={win} onFocus={onFocus} />
       <TrendChart title="Error %" members={bands.errorRatePct} unit="%"
         formatVal={v => (v == null ? '' : v.toFixed(2))} syncId={syncId} win={win} onFocus={onFocus} />
       <TrendChart title="Apdex" members={bands.apdex} domain={[0, 1]}
         formatVal={v => (v == null ? '' : v.toFixed(2))} syncId={syncId} win={win} onFocus={onFocus} />
+      {aside}
     </div>
   )
 }
@@ -837,9 +822,36 @@ const INFRA_METRICS = {
   memUsedPct:   { label: 'Memory Used %', color: '#34D399', unit: '%',    fmt: v => v.toFixed(1) },
 }
 
-function InfraCorrelation({ hosts }) {
+const PCT_METRICS = { errorRatePct: true, cpuUsedPct: true, memUsedPct: true }
+
+// Declared out here, not inside InfraCorrelation: a component defined in its
+// parent's body is a new type on every render, so each hover would remount
+// every cell and leave the popover anchored to a <td> no longer in the page —
+// which measures as a zero rect and pins the chart to the top-left corner.
+function InfraCell({ host, metric, value, onEnter, onLeave }) {
+  const m = INFRA_METRICS[metric]
+  const isPct = PCT_METRICS[metric]
+  const barColor = 'var(--brand)'
+  return (
+    <td className="hoverable-cell"
+      onMouseEnter={e => onEnter(e, host, metric)}
+      onMouseLeave={onLeave}
+    >
+      {isPct ? (
+        <span className="cell-bar">
+          <span className="track"><span className="fill" style={{ width: `${Math.min(100, value)}%`, background: barColor }} /></span>
+          <span>{m.fmt(value)}{m.unit}</span>
+        </span>
+      ) : (
+        <>{m.fmt(value)}{m.unit}</>
+      )}
+    </td>
+  )
+}
+
+function InfraCorrelation({ hosts, win }) {
   const rowsWithAvg = useMemo(
-    () => hosts.map(h => ({ ...h, latencyAvg: h.latencyAvg ?? Math.round(h.latencyP90 * 0.55) })),
+    () => hosts.map(h => ({ ...h, latencyAvg: h.latencyAvg ?? Math.round(h.latencyP90 * INFRA_AVG_OF_P90) })),
     [hosts]
   )
   const { rows, sort, toggle } = useSortedRows(rowsWithAvg, 'latencyP90', 'desc')
@@ -857,39 +869,16 @@ function InfraCorrelation({ hosts }) {
   }, [cancelClose])
   useEffect(() => () => cancelClose(), [cancelClose])
 
-  const onEnter = useCallback((e, host, metric, value) => {
+  const onEnter = useCallback((e, host, metric) => {
     cancelClose()
-    setHover({
-      anchor: e.currentTarget,
-      title: `${INFRA_METRICS[metric].label} · ${host}`,
-      series: buildHoverSeries(value, host.length * 13 + metric.length * 7),
-      color: INFRA_METRICS[metric].color,
-      unit: INFRA_METRICS[metric].unit,
-      fmt: INFRA_METRICS[metric].fmt,
-    })
+    setHover({ anchor: e.currentTarget, host, metric })
   }, [cancelClose])
-
-  const PCT_METRICS = { errorRatePct: true, cpuUsedPct: true, memUsedPct: true }
-  const Cell = ({ host, metric, value }) => {
-    const m = INFRA_METRICS[metric]
-    const isPct = PCT_METRICS[metric]
-    const barColor = 'var(--brand)'
-    return (
-      <td className="hoverable-cell"
-        onMouseEnter={e => onEnter(e, host, metric, value)}
-        onMouseLeave={scheduleClose}
-      >
-        {isPct ? (
-          <span className="cell-bar">
-            <span className="track"><span className="fill" style={{ width: `${Math.min(100, value)}%`, background: barColor }} /></span>
-            <span>{m.fmt(value)}{m.unit}</span>
-          </span>
-        ) : (
-          <>{m.fmt(value)}{m.unit}</>
-        )}
-      </td>
-    )
-  }
+  // Sampled here rather than when the cell is entered, so the open chart
+  // follows the range if it changes underneath it.
+  const hoverSeries = useMemo(
+    () => (hover ? infraSeriesForWindow(win, hover.host, hover.metric) : null),
+    [hover, win]
+  )
 
   return (
     <div className="panel">
@@ -913,12 +902,12 @@ function InfraCorrelation({ hosts }) {
           {rows.map(h => (
             <tr key={h.host}>
               <td className="mono" style={{ textAlign: 'left' }}>{h.host}</td>
-              <Cell host={h.host} metric="rpm" value={h.rpm} />
-              <Cell host={h.host} metric="latencyP90" value={h.latencyP90} />
-              <Cell host={h.host} metric="latencyAvg" value={h.latencyAvg} />
-              <Cell host={h.host} metric="errorRatePct" value={h.errorRatePct} />
-              <Cell host={h.host} metric="cpuUsedPct" value={h.cpuUsedPct} />
-              <Cell host={h.host} metric="memUsedPct" value={h.memUsedPct} />
+              <InfraCell host={h.host} metric="rpm" value={h.rpm} onEnter={onEnter} onLeave={scheduleClose} />
+              <InfraCell host={h.host} metric="latencyP90" value={h.latencyP90} onEnter={onEnter} onLeave={scheduleClose} />
+              <InfraCell host={h.host} metric="latencyAvg" value={h.latencyAvg} onEnter={onEnter} onLeave={scheduleClose} />
+              <InfraCell host={h.host} metric="errorRatePct" value={h.errorRatePct} onEnter={onEnter} onLeave={scheduleClose} />
+              <InfraCell host={h.host} metric="cpuUsedPct" value={h.cpuUsedPct} onEnter={onEnter} onLeave={scheduleClose} />
+              <InfraCell host={h.host} metric="memUsedPct" value={h.memUsedPct} onEnter={onEnter} onLeave={scheduleClose} />
             </tr>
           ))}
         </tbody>
@@ -926,11 +915,12 @@ function InfraCorrelation({ hosts }) {
       {hover && (
         <HoverChartPopover
           anchor={hover.anchor}
-          title={hover.title}
-          series={hover.series}
-          color={hover.color}
-          unit={hover.unit}
-          formatVal={hover.fmt}
+          title={`${INFRA_METRICS[hover.metric].label} · ${hover.host}`}
+          series={hoverSeries}
+          win={win}
+          color={INFRA_METRICS[hover.metric].color}
+          unit={INFRA_METRICS[hover.metric].unit}
+          formatVal={INFRA_METRICS[hover.metric].fmt}
           onEnter={cancelClose}
           onLeave={scheduleClose}
         />
@@ -1205,7 +1195,7 @@ function RedEndpointsTable({ rows: input }) {
 }
 
 function MiniChart({ series, color, unit = '', formatVal, height = 182, syncId, win, onFocus }) {
-  const data = useMemo(() => withX(chartData(series), win), [series, win])
+  const data = useMemo(() => withX(series, win), [series, win])
   return (
     <TimeChart win={win} onFocus={onFocus} height={height}>
       {(axis, focus) => (
@@ -1689,7 +1679,7 @@ function dbShortLabel(ep) {
 }
 
 function ErrorSpark({ series, color, win, onFocus, syncId }) {
-  const data = useMemo(() => withX(chartData(series), win), [series, win])
+  const data = useMemo(() => withX(series, win), [series, win])
   return (
     <TimeChart win={win} onFocus={onFocus} height={132}>
       {(axis, focus) => (
@@ -1727,9 +1717,6 @@ function ErrorsTab({ win, onFocus, syncId, onOpenLink }) {
             <div className={`seg${side === 'server' ? ' active' : ''}`} onClick={() => setSide('server')}>Server</div>
             <div className={`seg${side === 'client' ? ' active' : ''}`} onClick={() => setSide('client')}>Client</div>
           </div>
-        </div>
-        <div className="panel-head-right">
-          <CardMenu kind="table" title="Errors" columns={['Count']} />
         </div>
       </div>
       <div className="split-endpoints-search" style={{ borderTop: '1px solid var(--border-subtle)' }}>
@@ -2297,6 +2284,7 @@ export default function ServiceOverview({ serviceId, onSelectService, onOpenTrac
     infra: infraCorrelationForWindow(win),
     drilldown: latencyDrilldownForWindow(win),
     drilldownSeries: latencyDrilldownSeriesForWindow(win),
+    drilldownTotal: latencyDrilldownTotalForWindow(win),
     slow: slowRequestsForWindow(win),
     errors: errorRequestsForWindow(win),
     // Runtime is not here: it is sampled per selected host inside RuntimeTab.
@@ -2367,10 +2355,10 @@ export default function ServiceOverview({ serviceId, onSelectService, onOpenTrac
     body = (
       <>
         <KpiCards svc={svc} />
-        <LatencyDrilldown layers={data.drilldown} layerSeries={data.drilldownSeries} onOpenUpstream={openExternal} syncId={syncId} win={win} onFocus={setTimeRange} />
+        <LatencyDrilldown layers={data.drilldown} layerSeries={data.drilldownSeries} callerTotal={data.drilldownTotal} onOpenUpstream={openExternal} syncId={syncId} win={win} onFocus={setTimeRange} />
         <TrendCharts bands={data.bands} syncId={syncId} win={win} onFocus={setTimeRange} />
         <SlowRequests onOpenTrace={onOpenTrace} data={data.slow} />
-        <InfraCorrelation hosts={data.infra} />
+        <InfraCorrelation hosts={data.infra} win={win} />
       </>
     )
   } else if (serviceSubTab === 'detail') {
