@@ -1065,7 +1065,7 @@ function SlowQueriesTable() {
   }
   return (
     <div className="panel">
-      <div className="panel-head">
+      <div className="panel-head is-divided">
         <div className="panel-head-left">Slow Queries</div>
         <CardMenu kind="list" title="Slow Queries" />
       </div>
