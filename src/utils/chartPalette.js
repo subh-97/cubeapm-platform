@@ -15,6 +15,22 @@ export function paletteColor(i) {
   return CHART_PALETTE[i % CHART_PALETTE.length]
 }
 
+// Opacity per pass through a palette, as two-digit hex alpha.
+const CYCLE_ALPHA = ['', 'BB', '88', '66']
+
+/**
+ * Identity colour for slot `i` of a short palette of 6-digit hex colours.
+ *
+ * Past one full pass the hues come round again at lower opacity, the way
+ * Explore's palette does, so a chart drawing more series than it has colours —
+ * a fleet of hosts, a long list of endpoints — never gives two of them the
+ * identical colour within the first few passes.
+ */
+export function cycledColor(palette, i) {
+  const n = palette.length
+  return palette[i % n] + CYCLE_ALPHA[Math.floor(i / n) % CYCLE_ALPHA.length]
+}
+
 /**
  * A stable colour per name within one list.
  *

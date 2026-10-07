@@ -58,9 +58,10 @@ export function timeAgo(ms, nowMs) {
  * @param {Array}   props.items    [{ key, label, value, color }] — value is already formatted
  * @param {string}  [props.hoverKey]  the series being pointed at, emphasised
  * @param {object}  [props.footer] { label, value } under a rule
+ * @param {number}  [props.limit]  most rows to list; the rest are counted, not listed
  * @param {number}  [props.minWidth]
  */
-export default function ChartTooltip({ tMs, nowMs, items, hoverKey, footer, minWidth = 200, suppressed }) {
+export default function ChartTooltip({ tMs, nowMs, items, hoverKey, footer, limit, minWidth = 200, suppressed }) {
   // Charts that share a syncId all go active at once, so without this every
   // chart on the page opens a panel when any one of them is hovered — six
   // overlays for one question. The cursor line still draws on all of them
@@ -68,6 +69,17 @@ export default function ChartTooltip({ tMs, nowMs, items, hoverKey, footer, minW
   // that actually carries the link.
   if (suppressed) return null
   const dimmed = hoverKey != null && items.some(i => i.key === hoverKey)
+  // A chart drawing sixty series would otherwise open a panel taller than the
+  // page. Past `limit` the list keeps its order but always keeps the row the
+  // pointer is on — it is the one the reader is asking about — and says how
+  // many it left out rather than dropping them silently.
+  let rows = items
+  if (limit > 0 && items.length > limit) {
+    rows = items.slice(0, limit)
+    const hovered = hoverKey != null ? items.find(i => i.key === hoverKey) : null
+    if (hovered && !rows.includes(hovered)) rows = [...rows.slice(0, limit - 1), hovered]
+  }
+  const leftOut = items.length - rows.length
   return (
     <div
       style={{
@@ -95,7 +107,7 @@ export default function ChartTooltip({ tMs, nowMs, items, hoverKey, footer, minW
           </div>
         </>
       )}
-      {items.map(it => {
+      {rows.map(it => {
         const isHovered = hoverKey != null && it.key === hoverKey
         return (
           <div
@@ -119,6 +131,9 @@ export default function ChartTooltip({ tMs, nowMs, items, hoverKey, footer, minW
           </div>
         )
       })}
+      {leftOut > 0 && (
+        <div style={{ color: 'var(--text-muted)', fontSize: 10, marginTop: 3 }}>+{leftOut} more</div>
+      )}
       {footer && (
         <div
           style={{

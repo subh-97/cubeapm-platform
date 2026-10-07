@@ -5,7 +5,7 @@ import {
   servicesForWindow, seriesForWindow, versionBandsForWindow, latencyDrilldownForWindow,
   latencyDrilldownSeriesForWindow, latencyDrilldownTotalForWindow, redEndpointsForWindow, redEndpointSeriesForWindow,
   infraCorrelationForWindow, infraSeriesForWindow, INFRA_AVG_OF_P90, slowRequestsForWindow, errorRequestsForWindow,
-  externalEndpointsForWindow, dbEndpointsForWindow, runtimeMetricsForWindow,
+  externalEndpointsForWindow, dbEndpointsForWindow, externalEndpointSeriesForWindow, dbEndpointSeriesForWindow, runtimeMetricsForWindow,
   externalEndpointCallers, dbEndpointCallers, slowQueries, errorGroupsForWindow, tracesList, traceDetail,
   FILTER_OPTS,
 } from '@/data/services'
@@ -21,10 +21,14 @@ import InfoTip from '@/components/shared/InfoTip'
 import Waterfall from '@/components/trace/Waterfall'
 import { buildTrace } from '@/data/traceDetail'
 import { Gauge, Crosshair, ChartLine, Globe, Database, TriangleAlert, Cpu } from 'lucide-react'
-import { GRID_PROPS, NO_ANIM, AREA_PROPS, LINE_PROPS, valueAxisProps, maxOf, fmtCompact, fmtBytes, fmtCount } from '@/components/charts/chartDefaults'
+import { GRID_PROPS, NO_ANIM, AREA_PROPS, LINE_PROPS, valueAxisProps, maxOf, niceAxis, formatDecimals, fmtCompact, fmtBytes, fmtCount } from '@/components/charts/chartDefaults'
 import { buildTimeAxis, withX } from '@/components/charts/timeAxis'
 import { useTimeFocus, useMeasuredWidth, useSeriesHover } from '@/components/charts/useTimeFocus'
 import ChartTooltip from '@/components/charts/ChartTooltip'
+import { useSeriesBudget } from '@/components/charts/useSeriesBudget'
+import SeriesBudgetFooter from '@/components/charts/SeriesBudgetFooter'
+import { fixesAxis, TOOLTIP_ROWS } from '@/components/charts/seriesBudget'
+import { cycledColor } from '@/utils/chartPalette'
 
 const SERVICE_VIEWS = [
   { id: 'overview', label: 'Overview', Icon: Gauge },
@@ -38,6 +42,11 @@ const SERVICE_VIEWS = [
 
 
 const RED_EP_COLORS = ['#3B82F6', '#34D399', '#F472B6', '#A78BFA', '#06B6D4', '#6366F1']
+
+// An endpoint's line colour: the seventh endpoint is visibly not the first
+// (see cycledColor), and it is never `undefined`, which is what indexing the
+// six colours directly gave the RED charts once more than six could draw.
+const epColor = i => cycledColor(RED_EP_COLORS, i)
 
 // Column sort state for a table. Clicking the header toggles asc → desc →
 // unsorted. `rows` are returned already ordered. A `defaultKey` is used when
@@ -90,6 +99,16 @@ function SortableTh({ sortKey, sort, onToggle, children, align = 'right', style 
         </svg>
       </span>
     </th>
+  )
+}
+
+// The magnifier every search box on this page carries. Its size comes from the
+// box it sits in (13px in all of them), so one glyph serves every variant.
+function SearchGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" />
+    </svg>
   )
 }
 
@@ -201,13 +220,13 @@ function DrilldownTooltip({ active, payload, nowMs, hoverKey, colors, suppressed
   )
 }
 
-function RedChartTooltip({ active, payload, eps, colors, fmtFn, nowMs, hoverKey, suppressed }) {
+function RedChartTooltip({ active, payload, eps, fmtFn, nowMs, hoverKey, suppressed }) {
   if (!active || !payload?.length) return null
   const items = payload.map(p => {
     const ei = parseInt(p.dataKey.replace('ep', ''), 10)
     const ep = eps[ei]?.endpoint || ''
     const short = ep.length > 28 ? ep.slice(0, 26) + '…' : ep
-    return { key: p.dataKey, label: short, value: fmtFn(p.value), color: colors[ei] }
+    return { key: p.dataKey, label: short, value: fmtFn(p.value), color: epColor(ei) }
   })
   return (
     <ChartTooltip
@@ -216,6 +235,7 @@ function RedChartTooltip({ active, payload, eps, colors, fmtFn, nowMs, hoverKey,
       items={items}
       hoverKey={hoverKey}
       suppressed={suppressed}
+      limit={TOOLTIP_ROWS}
       minWidth={180}
     />
   )
@@ -235,8 +255,12 @@ function RedChartTooltip({ active, payload, eps, colors, fmtFn, nowMs, hoverKey,
  * on measuring whichever one left, and the ladder would be sized for a chart
  * that is no longer on screen.
  */
-function TimeChart({ win, onFocus, height, className, children }) {
+function TimeChart({ win, onFocus, height, className, onWidth, children }) {
   const [wrapRef, width] = useMeasuredWidth()
+  // A series budget sizes its cap from the plot it draws into, and only the
+  // frame has measured that. Charts that share one budget all report the same
+  // width, so the owner settles on one value.
+  useEffect(() => { if (width > 0) onWidth?.(width) }, [width, onWidth])
   const axis = useMemo(() => buildTimeAxis(win, { width }), [win, width])
   const focus = useTimeFocus(win, { onFocus })
   return (
@@ -527,7 +551,7 @@ function LatencyDrilldown({ layers, layerSeries, callerTotal, onOpenUpstream, p9
         </div>
         <div className="drill2-legend">
           <div className="drill2-search">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></svg>
+            <SearchGlyph />
             <input
               type="search"
               aria-label="Search upstreams"
@@ -960,10 +984,16 @@ function RedViewToggle({ view, setView }) {
   )
 }
 
+// One line per endpoint, under a series budget of its own: the chart draws the
+// first endpoints its width can make legible and its footer says how many it is
+// holding back. Each chart has its own search and legend, so each keeps its own
+// budget — and the search runs over EVERY endpoint, so a held-back one is a
+// few keystrokes away without pressing Show all.
 function RedDrilldownChart({ title, eps, epSeries, dataKey, fmtFn, syncId, win, onFocus }) {
   const [selected, setSelected] = useState(null)
   const [hoverKey, setHoverKey] = useState(null)
   const [search, setSearch] = useState('')
+  const [plotWidth, setPlotWidth] = useState(0)
   const dimOpacityFor = (key) => (hoverKey == null || hoverKey === key ? 1 : 0.22)
 
   const q = search.trim().toLowerCase()
@@ -971,7 +1001,13 @@ function RedDrilldownChart({ title, eps, epSeries, dataKey, fmtFn, syncId, win, 
     const all = eps.map((_, i) => i)
     return q ? all.filter(i => eps[i].endpoint.toLowerCase().includes(q)) : all
   }, [eps, q])
-  const chartIdxs = selected != null && shownIdxs.includes(selected) ? [selected] : shownIdxs
+  const budget = useSeriesBudget(shownIdxs.length, plotWidth)
+  const drawnIdxs = shownIdxs.slice(0, budget.count)
+  // A selection only counts while its endpoint is drawn. "Show fewer" or a new
+  // search can take it off the chart, and a stale one would dim every legend
+  // row against a line that is not there.
+  const sel = selected != null && drawnIdxs.includes(selected) ? selected : null
+  const chartIdxs = sel != null ? [sel] : drawnIdxs
 
   const data = useMemo(() => {
     const base = epSeries[0]?.series ?? []
@@ -982,6 +1018,15 @@ function RedDrilldownChart({ title, eps, epSeries, dataKey, fmtFn, syncId, win, 
     }), win)
   }, [epSeries, win])
 
+  // An isolated endpoint gets the axis fitted to it, as it always has. Otherwise,
+  // while the budget is holding endpoints back, the axis spans every matching
+  // endpoint so Show all adds lines without rescaling the ones already drawn.
+  const y = useMemo(() => (
+    sel == null && fixesAxis(budget.status)
+      ? niceAxis(maxOf(data, shownIdxs.map(i => `ep${i}`)), 4, { decimals: formatDecimals(fmtFn) })
+      : null
+  ), [sel, budget.status, data, shownIdxs, fmtFn])
+
   return (
     <div className="red-chart-section">
       <div className="red-chart-head">
@@ -990,15 +1035,15 @@ function RedDrilldownChart({ title, eps, epSeries, dataKey, fmtFn, syncId, win, 
       </div>
       <div className="drill2">
         <div className="drill2-chart">
-          <TimeChart win={win} onFocus={onFocus} height={260}>
+          <TimeChart win={win} onFocus={onFocus} height={260} onWidth={setPlotWidth}>
             {(axis, focus) => (
               <LineChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
                 <CartesianGrid {...GRID_PROPS} />
                 <XAxis {...axis.props} />
-                <YAxis {...valueAxisProps({ format: fmtFn, maxValue: maxOf(data, chartIdxs.map(i => `ep${i}`)) })} />
-                <Tooltip content={p => <RedChartTooltip {...p} eps={eps} colors={RED_EP_COLORS} fmtFn={fmtFn} nowMs={win.end * 1000} hoverKey={hoverKey} suppressed={!focus.hovered} />} {...NO_ANIM} />
+                <YAxis {...valueAxisProps({ format: fmtFn, maxValue: y?.top ?? maxOf(data, chartIdxs.map(i => `ep${i}`)), domain: y ? [0, y.top] : undefined })} ticks={y?.ticks} />
+                <Tooltip content={p => <RedChartTooltip {...p} eps={eps} fmtFn={fmtFn} nowMs={win.end * 1000} hoverKey={hoverKey} suppressed={!focus.hovered} />} {...NO_ANIM} />
                 {chartIdxs.map(ei => (
-                  <Line key={ei} {...LINE_PROPS} dataKey={`ep${ei}`} stroke={RED_EP_COLORS[ei]}
+                  <Line key={ei} {...LINE_PROPS} dataKey={`ep${ei}`} stroke={epColor(ei)}
                     strokeOpacity={dimOpacityFor(`ep${ei}`)}
                     strokeWidth={1.5} dot={false} activeDot={{ r: 3, strokeWidth: 0 }}
                     onMouseEnter={() => setHoverKey(`ep${ei}`)}
@@ -1011,7 +1056,7 @@ function RedDrilldownChart({ title, eps, epSeries, dataKey, fmtFn, syncId, win, 
         </div>
         <div className="drill2-legend">
           <div className="drill2-search">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></svg>
+            <SearchGlyph />
             <input
               type="search"
               aria-label="Search endpoints"
@@ -1020,18 +1065,18 @@ function RedDrilldownChart({ title, eps, epSeries, dataKey, fmtFn, syncId, win, 
               onChange={e => setSearch(e.target.value)}
             />
           </div>
-          {shownIdxs.map(ei => {
-            const dimmed = selected != null && selected !== ei
+          {drawnIdxs.map(ei => {
+            const dimmed = sel != null && sel !== ei
             return (
               <div
                 className={`drill2-item${dimmed ? ' dimmed' : ''}`}
                 key={ei}
-                onClick={() => setSelected(s => s === ei ? null : ei)}
+                onClick={() => setSelected(sel === ei ? null : ei)}
                 onMouseEnter={() => setHoverKey(`ep${ei}`)}
                 onMouseLeave={() => setHoverKey(null)}
               >
                 <div className="drill2-row">
-                  <span className="drill2-swatch" style={{ background: RED_EP_COLORS[ei] }} />
+                  <span className="drill2-swatch" style={{ background: epColor(ei) }} />
                   <span className="drill2-label">{eps[ei].endpoint}</span>
                   <span className="drill2-val">{fmtFn(eps[ei][dataKey])}</span>
                 </div>
@@ -1043,6 +1088,7 @@ function RedDrilldownChart({ title, eps, epSeries, dataKey, fmtFn, syncId, win, 
           )}
         </div>
       </div>
+      <SeriesBudgetFooter budget={budget} noun="endpoints" />
     </div>
   )
 }
@@ -1088,20 +1134,25 @@ function SlowQueriesTable() {
 const RED_COLUMNS = ['Total Requests', 'Time Consumed %', 'RPM', 'Response Time (p90)', 'Response Time (avg)', 'Error %']
 
 // Table and graph are two readings of one set of endpoints, so they share a
-// container and a search box: typing filters the table rows and every chart's
-// lines at once, and switching view keeps whatever was typed.
+// container. The table has its own search box; in graph view each chart carries
+// its own search and legend instead.
+//
+// The graph used to draw only the first four endpoints, silently. Every chart
+// now gets every endpoint and decides for itself how many to draw, and says so
+// in its footer when it holds any back (components/charts/seriesBudget.js).
 function RedTab({ win, endpoints, syncId, onFocus }) {
   const [view, setView] = useState('table')
   const [search, setSearch] = useState('')
   const isGraph = view === 'graph'
-  const eps = endpoints.slice(0, 4)
+  const eps = endpoints
 
-  // One sampled set per metric, cut to the four endpoints the graph draws.
+  // One sampled set per metric, in the same order as `endpoints`: both come out
+  // of the same derived table, so index i is the same endpoint in each.
   const series = useMemo(() => ({
-    rpm: redEndpointSeriesForWindow(win, 'rpm').slice(0, 4),
-    p90: redEndpointSeriesForWindow(win, 'p90').slice(0, 4),
-    avg: redEndpointSeriesForWindow(win, 'avg').slice(0, 4),
-    errPct: redEndpointSeriesForWindow(win, 'errPct').slice(0, 4),
+    rpm: redEndpointSeriesForWindow(win, 'rpm'),
+    p90: redEndpointSeriesForWindow(win, 'p90'),
+    avg: redEndpointSeriesForWindow(win, 'avg'),
+    errPct: redEndpointSeriesForWindow(win, 'errPct'),
   }), [win])
 
   const filtered = useMemo(() => {
@@ -1119,14 +1170,17 @@ function RedTab({ win, endpoints, syncId, onFocus }) {
       </div>
       {!isGraph && (
         <div className="red-table-search-row">
-          <input
-            type="search"
-            className="red-table-search"
-            placeholder="Search endpoints…"
-            aria-label="Search endpoints"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
+          <div className="search-with-icon">
+            <SearchGlyph />
+            <input
+              type="search"
+              className="red-table-search"
+              placeholder="Search endpoints…"
+              aria-label="Search endpoints"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </div>
         </div>
       )}
       {isGraph ? (
@@ -1145,11 +1199,18 @@ function RedTab({ win, endpoints, syncId, onFocus }) {
 
 function RedEndpointsTable({ rows: input }) {
   const { rows, sort, toggle } = useSortedRows(input, 'timeConsumedPct', 'desc')
+  // The route is what a reader scans this table by, so it gets a set 360px
+  // rather than only as much as its longest route needs. A fixed width holds at
+  // every panel size; a percentage resolves against a panel that is already
+  // narrower than the table and changes nothing. When the panel is narrower
+  // than the table, the table scrolls sideways instead of the panel clipping
+  // its last columns off.
   return (
+    <div className="red-table-scroll">
       <table>
         <thead>
           <tr>
-            <SortableTh sortKey="endpoint" sort={sort} onToggle={toggle} align="left">Endpoint</SortableTh>
+            <SortableTh sortKey="endpoint" sort={sort} onToggle={toggle} align="left" style={{ width: 360 }}>Endpoint</SortableTh>
             <SortableTh sortKey="totalReq" sort={sort} onToggle={toggle}>Total Requests</SortableTh>
             <SortableTh sortKey="timeConsumedPct" sort={sort} onToggle={toggle}>Time Consumed %</SortableTh>
             <SortableTh sortKey="rpm" sort={sort} onToggle={toggle}>RPM</SortableTh>
@@ -1191,6 +1252,7 @@ function RedEndpointsTable({ rows: input }) {
           )}
         </tbody>
       </table>
+    </div>
   )
 }
 
@@ -1212,12 +1274,17 @@ function MiniChart({ series, color, unit = '', formatVal, height = 182, syncId, 
   )
 }
 
-// Multi-line chart used by the External and (potentially) DB tabs when nothing
-// is selected: one line per endpoint, series identity carried by colour. Shares
-// the time cursor with the rest of the page via syncId. hoverKey is lifted so
-// that hovering a line here or a swatch in the shared legend dims the same
-// series across every chart in the group.
-function MultiLineChart({ seriesList, unit = '', formatVal, height = 182, syncId, hoverKey, setHoverKey, win, onFocus }) {
+// Multi-line chart used by the External and DB tabs when nothing is selected:
+// one line per endpoint, series identity carried by colour. Shares the time
+// cursor with the rest of the page via syncId. hoverKey is lifted so that
+// hovering a line here or a swatch in the shared legend dims the same series
+// across every chart in the group.
+//
+// The tab owns the series budget, because its three charts and one legend have
+// to agree on what is drawn: it passes the full list plus `drawCount`, and
+// `onWidth` to hear how wide the plot is. With every series in hand, the axis
+// can span all of them while the budget is holding some back (`fixAxis`).
+function MultiLineChart({ seriesList, drawCount = seriesList.length, fixAxis = false, onWidth, unit = '', formatVal, height = 182, syncId, hoverKey, setHoverKey, win, onFocus }) {
   const data = useMemo(() => {
     const base = seriesList[0]?.data || []
     return withX(base.map((p, i) => {
@@ -1226,17 +1293,21 @@ function MultiLineChart({ seriesList, unit = '', formatVal, height = 182, syncId
       return row
     }), win)
   }, [seriesList, win])
-  const keys = seriesList.map(s => s.key)
+  const drawn = seriesList.slice(0, drawCount)
+  const allMax = useMemo(() => maxOf(data, seriesList.map(s => s.key)), [data, seriesList])
+  const y = useMemo(() => (
+    fixAxis ? niceAxis(allMax, 4, { decimals: formatVal ? formatDecimals(formatVal) : Infinity }) : null
+  ), [fixAxis, allMax, formatVal])
   const opacityFor = key => (hoverKey == null || hoverKey === key ? 1 : 0.18)
   return (
-    <TimeChart win={win} onFocus={onFocus} height={height}>
+    <TimeChart win={win} onFocus={onFocus} height={height} onWidth={onWidth}>
       {(axis, focus) => (
         <LineChart data={data} margin={{ top: 4, right: 4, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
           <CartesianGrid {...GRID_PROPS} />
           <XAxis {...axis.props} />
-          <YAxis {...valueAxisProps({ maxValue: maxOf(data, keys), format: formatVal })} />
+          <YAxis {...valueAxisProps({ maxValue: y?.top ?? maxOf(data, drawn.map(s => s.key)), format: formatVal, domain: y ? [0, y.top] : undefined })} ticks={y?.ticks} />
           <Tooltip content={p => <MultiSeriesTooltip {...p} seriesList={seriesList} unit={unit} formatVal={formatVal} hoverKey={hoverKey} nowMs={win.end * 1000} suppressed={!focus.hovered} />} {...NO_ANIM} />
-          {seriesList.map(s => (
+          {drawn.map(s => (
             <Line key={s.key} {...LINE_PROPS} dataKey={s.key} stroke={s.color}
               strokeWidth={1.5} strokeOpacity={opacityFor(s.key)}
               dot={false} activeDot={{ r: 3, strokeWidth: 0 }}
@@ -1271,6 +1342,7 @@ function MultiSeriesTooltip({ active, payload, seriesList, unit, formatVal, hove
       items={items}
       hoverKey={hoverKey}
       suppressed={suppressed}
+      limit={TOOLTIP_ROWS}
     />
   )
 }
@@ -1311,7 +1383,10 @@ function SplitEndpointList({ title, endpoints, selectedIdx, onSelect, onClear })
         </div>
       </div>
       <div className="split-endpoints-search">
-        <input placeholder="Search endpoints…" value={search} onChange={e => setSearch(e.target.value)} />
+        <div className="search-with-icon">
+          <SearchGlyph />
+          <input placeholder="Search endpoints…" aria-label="Search endpoints" value={search} onChange={e => setSearch(e.target.value)} />
+        </div>
       </div>
       <div className="split-ep-head is-sortable">
         <SortLbl sortKey="endpoint">Endpoint</SortLbl>
@@ -1358,31 +1433,48 @@ function externalShortLabel(endpoint) {
   return `HTTP ${host}`
 }
 
+// Every row's own sampled series for one window, by endpoint name: { avg, rpm,
+// errPct }. `sampleFor` is a data-layer sampler (externalEndpointSeriesForWindow
+// or dbEndpointSeriesForWindow) — module functions, so their identity is stable.
+function useRowSeries(win, sampleFor) {
+  return useMemo(() => {
+    const byEndpoint = new Map()
+    for (const key of ['avg', 'rpm', 'errPct']) {
+      for (const { endpoint, series } of sampleFor(win, key)) {
+        if (!byEndpoint.has(endpoint)) byEndpoint.set(endpoint, {})
+        byEndpoint.get(endpoint)[key] = series
+      }
+    }
+    return byEndpoint
+  }, [win, sampleFor])
+}
+
 function ExternalTab({ svc, data, syncId, win, onFocus }) {
   const [sel, setSel] = useState(null)
   const [hoverKey, setHoverKey] = useState(null)
   const endpoints = data.external
-  const base = data.series
   const ep = sel != null ? endpoints[sel] : null
 
-  // `...d` keeps the label and tooltip time the window put on each point; only
-  // the value is rescaled to this endpoint's share.
-  const scale = (baseSeries, factor) => baseSeries.map(d => ({ ...d, value: d.value == null ? null : d.value * factor }))
-  const seriesFor = (e, i) => ({
-    key: `ep${i}`,
-    label: externalShortLabel(e.endpoint),
-    color: RED_EP_COLORS[i % RED_EP_COLORS.length],
-    lat: scale(base.latencyAvg, e.avg / 78),
-    rpm: scale(base.rpm, e.rpm / 452),
-    err: scale(base.errorRatePct, Math.max(e.errPct / 0.05, 0.5)),
-  })
-  const perEp = useMemo(() => endpoints.map(seriesFor), [endpoints, base])
+  // Each call's own series, sampled from the profile its table row is reduced
+  // from (see externalEndpointSeriesForWindow), so a line and its row agree.
+  const rowSeries = useRowSeries(win, externalEndpointSeriesForWindow)
+  const perEp = useMemo(() => endpoints.map((e, i) => {
+    const r = rowSeries.get(e.endpoint) ?? {}
+    return { key: `ep${i}`, label: externalShortLabel(e.endpoint), color: epColor(i), lat: r.avg ?? [], rpm: r.rpm ?? [], err: r.errPct ?? [] }
+  }), [endpoints, rowSeries])
+
+  // One budget for the three charts and the legend under them, so they always
+  // agree on which endpoints are drawn. The charts report their (shared) width.
+  const [plotWidth, setPlotWidth] = useState(0)
+  const budget = useSeriesBudget(perEp.length, plotWidth)
+  const multiProps = { drawCount: budget.count, fixAxis: fixesAxis(budget.status), onWidth: setPlotWidth }
 
   // Single-endpoint mode re-uses MiniChart's single area; multi mode shows a
   // line per endpoint with a shared legend under the three charts.
-  const latSeries = ep ? scale(base.latencyAvg, ep.avg / 78) : null
-  const rpmSeries = ep ? scale(base.rpm, ep.rpm / 452) : null
-  const errSeries = ep ? scale(base.errorRatePct, Math.max(ep.errPct / 0.05, 0.5)) : null
+  const epRow = ep ? rowSeries.get(ep.endpoint) ?? {} : null
+  const latSeries = epRow ? epRow.avg ?? [] : null
+  const rpmSeries = epRow ? epRow.rpm ?? [] : null
+  const errSeries = epRow ? epRow.errPct ?? [] : null
 
   const latMulti = useMemo(() => perEp.map(s => ({ key: s.key, label: s.label, color: s.color, data: s.lat })), [perEp])
   const rpmMulti = useMemo(() => perEp.map(s => ({ key: s.key, label: s.label, color: s.color, data: s.rpm })), [perEp])
@@ -1410,7 +1502,7 @@ function ExternalTab({ svc, data, syncId, win, onFocus }) {
             <div className="chart-host">
               {ep
                 ? <MiniChart syncId={syncId} win={win} onFocus={onFocus} series={latSeries} color="#3B82F6" unit=" ms" formatVal={v => Math.round(v)} />
-                : <MultiLineChart syncId={syncId} win={win} onFocus={onFocus} seriesList={latMulti} unit=" ms" formatVal={v => Math.round(v)} hoverKey={hoverKey} setHoverKey={setHoverKey} />}
+                : <MultiLineChart {...multiProps} syncId={syncId} win={win} onFocus={onFocus} seriesList={latMulti} unit=" ms" formatVal={v => Math.round(v)} hoverKey={hoverKey} setHoverKey={setHoverKey} />}
             </div>
           </div>
           <div className="split-chart-card">
@@ -1418,7 +1510,7 @@ function ExternalTab({ svc, data, syncId, win, onFocus }) {
             <div className="chart-host">
               {ep
                 ? <MiniChart syncId={syncId} win={win} onFocus={onFocus} series={rpmSeries} color="#A78BFA" unit=" rpm" formatVal={v => Math.round(v)} />
-                : <MultiLineChart syncId={syncId} win={win} onFocus={onFocus} seriesList={rpmMulti} unit=" rpm" formatVal={v => Math.round(v)} hoverKey={hoverKey} setHoverKey={setHoverKey} />}
+                : <MultiLineChart {...multiProps} syncId={syncId} win={win} onFocus={onFocus} seriesList={rpmMulti} unit=" rpm" formatVal={v => Math.round(v)} hoverKey={hoverKey} setHoverKey={setHoverKey} />}
             </div>
           </div>
           <div className="split-chart-card">
@@ -1426,12 +1518,12 @@ function ExternalTab({ svc, data, syncId, win, onFocus }) {
             <div className="chart-host">
               {ep
                 ? <MiniChart syncId={syncId} win={win} onFocus={onFocus} series={errSeries} color="#F472B6" unit="%" formatVal={v => v.toFixed(2)} />
-                : <MultiLineChart syncId={syncId} win={win} onFocus={onFocus} seriesList={errMulti} unit="%" formatVal={v => v.toFixed(2)} hoverKey={hoverKey} setHoverKey={setHoverKey} />}
+                : <MultiLineChart {...multiProps} syncId={syncId} win={win} onFocus={onFocus} seriesList={errMulti} unit="%" formatVal={v => v.toFixed(2)} hoverKey={hoverKey} setHoverKey={setHoverKey} />}
             </div>
           </div>
           {!ep && (
             <div className="split-chart-legend">
-              {perEp.map(s => {
+              {perEp.slice(0, budget.count).map(s => {
                 const dim = hoverKey != null && hoverKey !== s.key
                 return (
                   <span
@@ -1447,6 +1539,7 @@ function ExternalTab({ svc, data, syncId, win, onFocus }) {
               })}
             </div>
           )}
+          {!ep && <SeriesBudgetFooter budget={budget} noun="endpoints" />}
           {ep && <EndpointBreakdownRows rows={callers} />}
         </div>
       </div>
@@ -1576,22 +1669,27 @@ function DbTab({ svc, data, syncId, win, onFocus }) {
     return kind ? allEndpoints.filter(e => e.kind === kind) : allEndpoints
   }, [allEndpoints, filter])
   const ep = sel != null ? endpoints[sel] : null
-  const base = data.series
 
-  const scale = (baseSeries, factor) => baseSeries.map(d => ({ ...d, value: d.value == null ? null : d.value * factor }))
-  const seriesFor = (e, i) => ({
-    key: `ep${i}`,
-    label: dbShortLabel(e),
-    color: RED_EP_COLORS[i % RED_EP_COLORS.length],
-    lat: scale(base.latencyAvg, e.avg / 78),
-    rpm: scale(base.rpm, e.rpm / 452),
-    err: scale(base.errorRatePct, Math.max(e.errPct / 0.05, 0.5)),
-  })
-  const perEp = useMemo(() => endpoints.map(seriesFor), [endpoints, base])
+  // Each operation's own series, sampled from the profile its row is reduced
+  // from (see dbEndpointSeriesForWindow). A MySQL statement with no errors draws
+  // a flat zero, and a Redis call's error rate stays a percentage.
+  const rowSeries = useRowSeries(win, dbEndpointSeriesForWindow)
+  const perEp = useMemo(() => endpoints.map((e, i) => {
+    const r = rowSeries.get(e.endpoint) ?? {}
+    return { key: `ep${i}`, label: dbShortLabel(e), color: epColor(i), lat: r.avg ?? [], rpm: r.rpm ?? [], err: r.errPct ?? [] }
+  }), [endpoints, rowSeries])
 
-  const latSeries = ep ? scale(base.latencyAvg, ep.avg / 78) : null
-  const rpmSeries = ep ? scale(base.rpm, ep.rpm / 452) : null
-  const errSeries = ep ? scale(base.errorRatePct, Math.max(ep.errPct / 0.05, 0.5)) : null
+  // One budget for the three charts and the legend, as on the External tab. It
+  // counts the operations the kind filter leaves, so narrowing to MySQL or
+  // Redis is itself a way to see everything.
+  const [plotWidth, setPlotWidth] = useState(0)
+  const budget = useSeriesBudget(perEp.length, plotWidth)
+  const multiProps = { drawCount: budget.count, fixAxis: fixesAxis(budget.status), onWidth: setPlotWidth }
+
+  const epRow = ep ? rowSeries.get(ep.endpoint) ?? {} : null
+  const latSeries = epRow ? epRow.avg ?? [] : null
+  const rpmSeries = epRow ? epRow.rpm ?? [] : null
+  const errSeries = epRow ? epRow.errPct ?? [] : null
 
   const latMulti = useMemo(() => perEp.map(s => ({ key: s.key, label: s.label, color: s.color, data: s.lat })), [perEp])
   const rpmMulti = useMemo(() => perEp.map(s => ({ key: s.key, label: s.label, color: s.color, data: s.rpm })), [perEp])
@@ -1603,7 +1701,7 @@ function DbTab({ svc, data, syncId, win, onFocus }) {
     <TitleDropdown
       value={filter}
       options={DB_FILTER_OPTIONS}
-      onChange={v => { setFilter(v); setSel(null); setHoverKey(null) }}
+      onChange={v => { setFilter(v); setSel(null); setHoverKey(null); budget.showFewer() }}
     />
   )
 
@@ -1627,7 +1725,7 @@ function DbTab({ svc, data, syncId, win, onFocus }) {
             <div className="chart-host">
               {ep
                 ? <MiniChart syncId={syncId} win={win} onFocus={onFocus} series={latSeries} color="#3B82F6" unit=" ms" formatVal={v => Math.round(v)} />
-                : <MultiLineChart syncId={syncId} win={win} onFocus={onFocus} seriesList={latMulti} unit=" ms" formatVal={v => Math.round(v)} hoverKey={hoverKey} setHoverKey={setHoverKey} />}
+                : <MultiLineChart {...multiProps} syncId={syncId} win={win} onFocus={onFocus} seriesList={latMulti} unit=" ms" formatVal={v => Math.round(v)} hoverKey={hoverKey} setHoverKey={setHoverKey} />}
             </div>
           </div>
           <div className="split-chart-card">
@@ -1635,7 +1733,7 @@ function DbTab({ svc, data, syncId, win, onFocus }) {
             <div className="chart-host">
               {ep
                 ? <MiniChart syncId={syncId} win={win} onFocus={onFocus} series={rpmSeries} color="#A78BFA" unit=" rpm" formatVal={v => Math.round(v)} />
-                : <MultiLineChart syncId={syncId} win={win} onFocus={onFocus} seriesList={rpmMulti} unit=" rpm" formatVal={v => Math.round(v)} hoverKey={hoverKey} setHoverKey={setHoverKey} />}
+                : <MultiLineChart {...multiProps} syncId={syncId} win={win} onFocus={onFocus} seriesList={rpmMulti} unit=" rpm" formatVal={v => Math.round(v)} hoverKey={hoverKey} setHoverKey={setHoverKey} />}
             </div>
           </div>
           <div className="split-chart-card">
@@ -1643,12 +1741,12 @@ function DbTab({ svc, data, syncId, win, onFocus }) {
             <div className="chart-host">
               {ep
                 ? <MiniChart syncId={syncId} win={win} onFocus={onFocus} series={errSeries} color="#F472B6" unit="%" formatVal={v => v.toFixed(2)} />
-                : <MultiLineChart syncId={syncId} win={win} onFocus={onFocus} seriesList={errMulti} unit="%" formatVal={v => v.toFixed(2)} hoverKey={hoverKey} setHoverKey={setHoverKey} />}
+                : <MultiLineChart {...multiProps} syncId={syncId} win={win} onFocus={onFocus} seriesList={errMulti} unit="%" formatVal={v => v.toFixed(2)} hoverKey={hoverKey} setHoverKey={setHoverKey} />}
             </div>
           </div>
           {!ep && (
             <div className="split-chart-legend">
-              {perEp.map(s => {
+              {perEp.slice(0, budget.count).map(s => {
                 const dim = hoverKey != null && hoverKey !== s.key
                 return (
                   <span
@@ -1664,6 +1762,7 @@ function DbTab({ svc, data, syncId, win, onFocus }) {
               })}
             </div>
           )}
+          {!ep && <SeriesBudgetFooter budget={budget} noun="operations" />}
           {ep && <EndpointBreakdownRows rows={callers} />}
         </div>
       </div>
@@ -1720,7 +1819,10 @@ function ErrorsTab({ win, onFocus, syncId, onOpenLink }) {
         </div>
       </div>
       <div className="split-endpoints-search" style={{ borderTop: '1px solid var(--border-subtle)' }}>
-        <input placeholder="Search endpoints or exceptions…" value={q} onChange={e => setQ(e.target.value)} />
+        <div className="search-with-icon">
+          <SearchGlyph />
+          <input placeholder="Search endpoints or exceptions…" aria-label="Search endpoints or exceptions" value={q} onChange={e => setQ(e.target.value)} />
+        </div>
       </div>
       <div className="err-head">
         <span>Endpoint</span><span>Error</span><span>Count</span><span />
@@ -2251,7 +2353,7 @@ function FilterSelect({ label, value, options, onSelect, className }) {
           onClick={e => e.stopPropagation()}
         >
           <div className="dd-search">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></svg>
+            <SearchGlyph />
             <input placeholder="Search…" value={search} onChange={e => setSearch(e.target.value)} autoFocus />
           </div>
           <div className="dd-list">

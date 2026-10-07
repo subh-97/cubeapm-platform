@@ -1,4 +1,4 @@
-import { useRef, Fragment } from 'react'
+import { useRef, useState, Fragment } from 'react'
 import { fmtDur } from '@/data/runtimeHosts'
 
 // The Runtime tab's host control: a rail flush on the card's left edge, one
@@ -94,6 +94,9 @@ function srSummary(h, win) {
  */
 export default function RuntimeRail({ win, roster, selectedId, onSelect, onClear }) {
   const railRef = useRef(null)
+  const [search, setSearch] = useState('')
+  const q = search.trim().toLowerCase()
+  const shown = q ? roster.hosts.filter(h => h.name.toLowerCase().includes(q)) : roster.hosts
 
   // Clear unmounts itself, so focus goes to the row that was selected rather
   // than falling to the document — or to the first row, when the selected one
@@ -133,9 +136,31 @@ export default function RuntimeRail({ win, roster, selectedId, onSelect, onClear
           </button>
         )}
       </div>
+      {/* The same search box as the Latency Drilldown's upstream list, so the
+          two side rails read alike. No rule above or below it: it belongs to
+          the title, and a line on either side would split it off. Escape
+          empties it first, and only clears the selection once it is empty. */}
+      <div className="rt-search">
+        <div className="drill2-search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></svg>
+          <input
+            type="search"
+            aria-label="Search hosts"
+            placeholder="Search hosts…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Escape' && search) { e.preventDefault(); e.stopPropagation(); setSearch('') }
+            }}
+          />
+        </div>
+      </div>
       <div className="rt-list" role="group" aria-labelledby="rt-hosts-title">
         {roster.hosts.length === 0 && <div className="rt-empty">No hosts reported in this range.</div>}
-        {roster.hosts.map(h => (
+        {roster.hosts.length > 0 && shown.length === 0 && (
+          <div className="rt-empty">No host matches "{search.trim()}"</div>
+        )}
+        {shown.map(h => (
           <Fragment key={h.id}>
             {h.ghost && <div className="rt-ghost-divider" role="presentation" />}
             <button

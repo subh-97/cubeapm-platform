@@ -18,7 +18,7 @@ import {
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts'
 import {
-  AREA_PROPS, GRID_PROPS, LINE_PROPS, NO_ANIM, timeAxisProps, valueAxisProps,
+  AREA_PROPS, GRID_PROPS, LINE_PROPS, NO_ANIM, timeAxisProps, valueAxisProps, niceAxis,
 } from '@/components/charts/chartDefaults'
 import { buildChartRows, nearestAt, tooltipAt, xAxisFor, GHOST_KEY } from '@/utils/explore/series'
 import { formatValue } from '@/utils/explore/format'
@@ -36,21 +36,6 @@ function valueAtPixel(chartY, viewBox, yTop) {
   const height = viewBox?.height
   if (!Number.isFinite(chartY) || !(height > 0)) return NaN
   return (yTop * (viewBox.y + height - chartY)) / height
-}
-
-// Tick steps that read as round numbers at every magnitude.
-const NICE_STEPS = [1, 2, 2.5, 5, 10]
-
-/** A y domain of [0, top] with about `count` ticks, both ending on a round number. */
-function niceAxis(max, count = 4) {
-  if (!(max > 0)) return { top: 1, ticks: [0, 0.25, 0.5, 0.75, 1] }
-  const raw = max / count
-  const mag = 10 ** Math.floor(Math.log10(raw))
-  const step = (NICE_STEPS.find(s => s * mag >= raw) ?? 10) * mag
-  const top = Math.ceil(max / step) * step
-  const ticks = []
-  for (let t = 0; t <= top + step / 2; t += step) ticks.push(Number(t.toPrecision(12)))
-  return { top, ticks }
 }
 
 /** The largest value the plot has to fit: per series, or per x once stacked. */

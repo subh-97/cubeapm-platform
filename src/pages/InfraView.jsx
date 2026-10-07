@@ -14,7 +14,11 @@ import { highlightTerms } from '@/utils/highlight'
 import { buildTimeAxis, withX } from '@/components/charts/timeAxis'
 import ChartTooltip from '@/components/charts/ChartTooltip'
 import { useTimeFocus, useMeasuredWidth, useSeriesHover } from '@/components/charts/useTimeFocus'
-import { GRID_PROPS, NO_ANIM, AREA_PROPS, LINE_PROPS, valueAxisProps, maxOf, fmtBytes, fmtCount } from '@/components/charts/chartDefaults'
+import { GRID_PROPS, NO_ANIM, AREA_PROPS, LINE_PROPS, valueAxisProps, maxOf, niceAxis, formatDecimals, fmtBytes, fmtCount } from '@/components/charts/chartDefaults'
+import { useSeriesBudget } from '@/components/charts/useSeriesBudget'
+import SeriesBudgetFooter from '@/components/charts/SeriesBudgetFooter'
+import { fixesAxis, TOOLTIP_ROWS } from '@/components/charts/seriesBudget'
+import { cycledColor } from '@/utils/chartPalette'
 
 // The window every chart on this page draws, the setter a drag commits to, and
 // the syncId that lines the charts of one view up on the same instant.
@@ -39,7 +43,7 @@ function useChartTime({ kind = 'time', focusable = true } = {}) {
   const [wrapRef, width] = useMeasuredWidth()
   const axis = useMemo(() => buildTimeAxis(win, { width, kind }), [win, width, kind])
   const focus = useTimeFocus(win, { onFocus: setTimeRange, kind, enabled: focusable })
-  return { win, wrapRef, axis, focus, syncId }
+  return { win, wrapRef, width, axis, focus, syncId }
 }
 
 /**
@@ -73,25 +77,44 @@ function mergeSeries(win, entities, metric) {
   })
 }
 
+/**
+ * One line per host, under a series budget: a fleet chart draws the first few
+ * hosts its width can make legible and says how many it is holding back (see
+ * components/charts/seriesBudget.js).
+ *
+ * Every host is merged into the rows. While the budget is holding hosts back,
+ * the y axis is sized from all of them, drawn or not, so it does not jump as
+ * "Show all" adds lines and the capped chart's scale still admits that a
+ * held-back host runs higher. A chart under its cap keeps its automatic axis.
+ */
 function MultiHostChart({ metric, unit, formatVal, height = 130, palette, hosts, nameKey = 'host' }) {
-  const { win, wrapRef, axis, focus, syncId } = useChartTime()
+  const { win, wrapRef, width, axis, focus, syncId } = useChartTime()
   const [hoverKey, hoverProps] = useSeriesHover()
+  const budget = useSeriesBudget(hosts.length, width)
   const data = useMemo(() => mergeSeries(win, hosts, metric), [win, hosts, metric])
+  const allMax = useMemo(() => maxOf(data, hosts.map((_, hi) => `h${hi}`)), [data, hosts])
+  const y = useMemo(() => (
+    fixesAxis(budget.status) ? niceAxis(allMax, 4, { decimals: formatVal ? formatDecimals(formatVal) : Infinity }) : null
+  ), [budget.status, allMax, formatVal])
+  const drawn = hosts.slice(0, budget.count)
   return (
-    <div ref={wrapRef} style={{ width: '100%', height }}>
-      <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={data} margin={{ top: 6, right: 6, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
-          <CartesianGrid {...GRID_PROPS} />
-          <XAxis {...axis.props} />
-          <YAxis {...valueAxisProps({ format: formatVal, maxValue: maxOf(data, hosts.map((_, hi) => `h${hi}`)) })} />
-          <Tooltip content={p => <MultiTooltip {...p} unit={unit} formatVal={formatVal} palette={palette} hosts={hosts} nameKey={nameKey} hoverKey={hoverKey} suppressed={!focus.hovered} />} {...NO_ANIM} />
-          {hosts.map((h, hi) => (
-            <Line {...LINE_PROPS} key={h[nameKey]} dataKey={`h${hi}`} stroke={palette[hi % palette.length]} strokeWidth={1.4} dot={false} activeDot={{ r: 3, strokeWidth: 0 }} {...hoverProps(`h${hi}`)} />
-          ))}
-          {focus.overlay}
-        </LineChart>
-      </ResponsiveContainer>
-    </div>
+    <>
+      <div ref={wrapRef} style={{ width: '100%', height }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={data} margin={{ top: 6, right: 6, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
+            <CartesianGrid {...GRID_PROPS} />
+            <XAxis {...axis.props} />
+            <YAxis {...valueAxisProps({ format: formatVal, maxValue: y?.top ?? allMax, domain: y ? [0, y.top] : undefined })} ticks={y?.ticks} />
+            <Tooltip content={p => <MultiTooltip {...p} unit={unit} formatVal={formatVal} palette={palette} hosts={hosts} nameKey={nameKey} hoverKey={hoverKey} suppressed={!focus.hovered} limit={TOOLTIP_ROWS} />} {...NO_ANIM} />
+            {drawn.map((h, hi) => (
+              <Line {...LINE_PROPS} key={h[nameKey]} dataKey={`h${hi}`} stroke={cycledColor(palette, hi)} strokeWidth={1.4} dot={false} activeDot={{ r: 3, strokeWidth: 0 }} {...hoverProps(`h${hi}`)} />
+            ))}
+            {focus.overlay}
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+      <SeriesBudgetFooter budget={budget} noun={nameKey === 'host' ? 'hosts' : 'series'} />
+    </>
   )
 }
 
@@ -114,7 +137,7 @@ function rowInstantMs(row) {
 // text and onto the swatch. Every host then reads at the same contrast, instead
 // of the pale ones being harder to read than the rest for no reason the data
 // supports.
-function MultiTooltip({ active, payload, unit = '', formatVal, palette, hosts, nameKey = 'host', hoverKey, suppressed }) {
+function MultiTooltip({ active, payload, unit = '', formatVal, palette, hosts, nameKey = 'host', hoverKey, suppressed, limit }) {
   const { win } = useContext(InfraTime)
   if (!active || !payload?.length) return null
   const items = payload.flatMap((p, i) => {
@@ -133,7 +156,7 @@ function MultiTooltip({ active, payload, unit = '', formatVal, palette, hosts, n
       key: p.dataKey ?? hi,
       label: hosts[hi]?.[nameKey],
       value: `${formatVal ? formatVal(p.value) : Math.round(p.value)}${unit}`,
-      color: palette[hi % palette.length],
+      color: cycledColor(palette, hi),
     }]
   })
   if (!items.length) return null
@@ -144,6 +167,7 @@ function MultiTooltip({ active, payload, unit = '', formatVal, palette, hosts, n
       hoverKey={hoverKey}
       suppressed={suppressed}
       items={items}
+      limit={limit}
     />
   )
 }
@@ -317,7 +341,7 @@ function HostDetail({ host }) {
     <div className="infra-host-detail">
       <div className="infra-host-meta">
         <span className={`badge ${host.status}`}>{host.status}</span>
-        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>traffic → <span className="mono" style={{ color: 'var(--text-secondary)' }}>{host.service}</span></span>
+        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>traffic → <span className="mono" style={{ color: 'var(--text-secondary)' }}>{host.service ?? 'no APM service'}</span></span>
       </div>
 
       <div className="infra-detail-grid">
@@ -1227,7 +1251,7 @@ export default function InfraView({ goHome, source, resource, selectedHost, setS
                   <span className={`status-dot ${h.status}`} />
                   <span className="mono">{h.host}</span>
                 </span>
-                <span className="mono" style={{ color: 'var(--text-secondary)', fontSize: 11 }}>{h.service}</span>
+                <span className="mono" style={{ color: 'var(--text-secondary)', fontSize: 11 }} title={h.service ? undefined : 'No APM service reports from this host'}>{h.service ?? '—'}</span>
                 <span className="isr-bar">
                   <span className="track"><span className="fill" style={{ width: `${h.cpu}%`, background: h.cpu >= 85 ? 'var(--critical)' : h.cpu >= 70 ? 'var(--warning)' : 'var(--brand)' }} /></span>
                   <span className={`isr-val ${cpuCls}`}>{h.cpu.toFixed(2)}</span>
