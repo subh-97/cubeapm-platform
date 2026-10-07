@@ -65,6 +65,15 @@ export function noteFor({ saved, examples, appliedQuery, saveable, stringify }) 
     ?? null
 }
 
+// The bar's saved list for what has been typed (`q`, lowercased): the user's
+// own saves first, then the page's examples. Each page brings its own examples
+// because a log example offered on Traces names fields a span does not have.
+export function matchSaved({ saved = [], examples = [], q, stringify }) {
+  return [...saved, ...examples].filter(s =>
+    !q || s.name.toLowerCase().includes(q) || stringify(s.chips).toLowerCase().includes(q)
+  )
+}
+
 export function newEntry({ name, description, chips, pipes, now = Date.now() }) {
   return { id: `sq-${now}`, savedAt: now, name, description, chips, pipes }
 }

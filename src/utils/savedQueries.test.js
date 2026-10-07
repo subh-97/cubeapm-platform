@@ -6,10 +6,10 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { chipsToString } from '@/components/QueryBuilder'
+import { chipsToString, SAVED_QUERIES } from '@/components/QueryBuilder'
 import {
   keyOf, canSave, isComposedButUnrun, findMatch, findOrigin,
-  updatableFrom, noteFor, newEntry, applyEdit, removeEntry,
+  updatableFrom, noteFor, matchSaved, newEntry, applyEdit, removeEntry,
 } from './savedQueries.js'
 
 const S = chipsToString
@@ -148,4 +148,30 @@ test('removeEntry drops one and keeps the rest', () => {
   const list = [entry('1', 'One', ERRORS), entry('2', 'Two', ERRORS)]
   assert.deepEqual(removeEntry(list, '1').map(q => q.id), ['2'])
   assert.deepEqual(removeEntry(list, 'missing').map(q => q.id), ['1', '2'])
+})
+
+// The bar's saved list. Each page brings its own examples — a log example
+// offered on Traces names fields a span does not have, so it matches nothing.
+const MINE = { id: 'u1', name: 'My errors', chips: [chip('log.level', 'error')] }
+const FAILING_SPANS = { id: 'tq1', name: 'Failing spans', chips: [chip('status_code', 'ERROR')] }
+
+test('matchSaved lists the user’s saves, then the page’s examples', () => {
+  assert.deepEqual(
+    matchSaved({ saved: [MINE], examples: [FAILING_SPANS], q: '', stringify: S }),
+    [MINE, FAILING_SPANS],
+  )
+})
+
+test('a page’s examples replace the log set rather than joining it', () => {
+  const traces = matchSaved({ examples: [FAILING_SPANS], q: 'log.level', stringify: S })
+  assert.deepEqual(traces, [])
+  const logs = matchSaved({ examples: SAVED_QUERIES, q: 'log.level:=error', stringify: S })
+  assert.ok(logs.length > 0)
+})
+
+test('typing narrows by name or by the query itself', () => {
+  const list = { saved: [MINE], examples: [FAILING_SPANS], stringify: S }
+  assert.deepEqual(matchSaved({ ...list, q: 'failing' }), [FAILING_SPANS])
+  assert.deepEqual(matchSaved({ ...list, q: 'log.level:=error' }), [MINE])
+  assert.deepEqual(matchSaved({ ...list, q: 'nothing like this' }), [])
 })
