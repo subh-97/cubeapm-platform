@@ -572,6 +572,31 @@ export function redEndpointSeriesForWindow(win, key) {
   }))
 }
 
+/**
+ * Each external call's / DB operation's metric sampled across the window, for
+ * the External and DB tabs' charts, keyed like their tables: 'rpm', 'avg',
+ * 'errPct'.
+ *
+ * Those charts used to rescale the SERVICE's series by the row's figure over
+ * the service's quiet value, which multiplied the incident too: a Redis call
+ * at 3.2% errors became 64 × the service's 14% incident peak, about 900%. Each
+ * row's own profile is the one its table figure is reduced from, so the line
+ * and the number agree on every range — and a rate stays a rate.
+ */
+export function externalEndpointSeriesForWindow(win, key) {
+  return derivedTable(externalEndpoints, EXT_SPEC).map(({ row, profiles }) => ({
+    endpoint: row.endpoint,
+    series: windowSeries(win, profiles[key]),
+  }))
+}
+
+export function dbEndpointSeriesForWindow(win, key) {
+  return derivedTable(dbEndpoints, EXT_SPEC).map(({ row, profiles }) => ({
+    endpoint: row.endpoint,
+    series: windowSeries(win, profiles[key]),
+  }))
+}
+
 /** '9m ago' / '4h ago' / '3d ago' — how a sample request is dated. */
 function agoLabel(minutes) {
   if (minutes < 60) return `${Math.max(1, Math.round(minutes))}m ago`
@@ -642,9 +667,9 @@ export const externalEndpoints = [
 // 100 within one external endpoint.
 export const externalEndpointCallers = {
   'POST api.twilio.com/2010-04-01/Messages.json': [
-    { endpoint: 'POST /v1/payments/:id/capture', kind: 'web', timeConsumedPct: 54, rpm: 22.3, avg: 221, errPct: 6.3 },
-    { endpoint: 'POST /v1/payments', kind: 'web', timeConsumedPct: 31, rpm: 12.8, avg: 208, errPct: 5.4 },
-    { endpoint: 'PATCH /v1/payments/:id', kind: 'web', timeConsumedPct: 15, rpm: 6.1, avg: 196, errPct: 4.1 },
+    { endpoint: 'POST /v1/payments/:id/capture', kind: 'web', timeConsumedPct: 54, rpm: 22.3, avg: 222, errPct: 6.3 },
+    { endpoint: 'POST /v1/payments', kind: 'web', timeConsumedPct: 31, rpm: 12.8, avg: 209, errPct: 5.4 },
+    { endpoint: 'PATCH /v1/payments/:id', kind: 'web', timeConsumedPct: 15, rpm: 6.1, avg: 197, errPct: 4.1 },
   ],
   'GET api.twilio.com/2010-04-01/Accounts': [
     { endpoint: 'GET /v1/payments/:id', kind: 'web', timeConsumedPct: 71, rpm: 16.3, avg: 85, errPct: 0.2 },
@@ -661,12 +686,38 @@ export const externalEndpointCallers = {
   ],
 }
 
+// Every statement payment-service runs against its two stores, heaviest first.
+// The first three feed the Detail tab's "Hits per request", so new rows go
+// after them. Twenty-four is the long tail a real service has, and it is what
+// the DB tab's charts are sized against: they draw the first few operations
+// their width allows and hold the rest back (components/charts/seriesBudget.js).
+// Redis rows sit on the incident path (the session pool is what failed), MySQL
+// rows do not; time-consumed shares add to 100.
 export const dbEndpoints = [
-  { endpoint: 'SELECT payments.transactions', kind: 'mysql', timeConsumedPct: 54, rpm: 210.4, avg: 38, p90: 65, errPct: 0 },
-  { endpoint: 'UPDATE payments.transactions', kind: 'mysql', timeConsumedPct: 22, rpm: 84.7, avg: 22, p90: 42, errPct: 0.1 },
-  { endpoint: 'GET redis.session:*', kind: 'redis', timeConsumedPct: 14, rpm: 620.5, avg: 3.6, p90: 210, errPct: 3.2 },
-  { endpoint: 'SETEX redis.session:*', kind: 'redis', timeConsumedPct: 8, rpm: 410.9, avg: 2.1, p90: 190, errPct: 2.8 },
-  { endpoint: 'INSERT payments.audit_log', kind: 'mysql', timeConsumedPct: 2, rpm: 52.3, avg: 8, p90: 14, errPct: 0 },
+  { endpoint: 'SELECT payments.transactions', kind: 'mysql', timeConsumedPct: 38, rpm: 210.4, avg: 38, p90: 65, errPct: 0 },
+  { endpoint: 'UPDATE payments.transactions', kind: 'mysql', timeConsumedPct: 15, rpm: 84.7, avg: 22, p90: 42, errPct: 0.1 },
+  { endpoint: 'GET redis.session:*', kind: 'redis', timeConsumedPct: 10, rpm: 620.5, avg: 3.6, p90: 210, errPct: 3.2 },
+  { endpoint: 'SETEX redis.session:*', kind: 'redis', timeConsumedPct: 6, rpm: 410.9, avg: 2.1, p90: 190, errPct: 2.8 },
+  { endpoint: 'INSERT payments.transactions', kind: 'mysql', timeConsumedPct: 4, rpm: 40.6, avg: 18, p90: 34, errPct: 0.1 },
+  { endpoint: 'SELECT payments.payment_methods', kind: 'mysql', timeConsumedPct: 3, rpm: 58.2, avg: 9.5, p90: 17, errPct: 0 },
+  { endpoint: 'GET redis.idem:*', kind: 'redis', timeConsumedPct: 3, rpm: 142.8, avg: 2.8, p90: 186, errPct: 2.9 },
+  { endpoint: 'INSERT payments.ledger_entries', kind: 'mysql', timeConsumedPct: 2, rpm: 64.2, avg: 6.4, p90: 12, errPct: 0 },
+  { endpoint: 'SET redis.idem:*', kind: 'redis', timeConsumedPct: 2, rpm: 104.7, avg: 2.4, p90: 178, errPct: 2.6 },
+  { endpoint: 'SELECT payments.refunds', kind: 'mysql', timeConsumedPct: 2, rpm: 22.6, avg: 14, p90: 27, errPct: 0 },
+  { endpoint: 'INCR redis.ratelimit:*', kind: 'redis', timeConsumedPct: 2, rpm: 452.7, avg: 1.1, p90: 162, errPct: 2.1 },
+  { endpoint: 'INSERT payments.audit_log', kind: 'mysql', timeConsumedPct: 1, rpm: 52.3, avg: 8, p90: 14, errPct: 0 },
+  { endpoint: 'EXPIRE redis.ratelimit:*', kind: 'redis', timeConsumedPct: 1, rpm: 226.4, avg: 0.9, p90: 158, errPct: 2 },
+  { endpoint: 'GET redis.token:*', kind: 'redis', timeConsumedPct: 1, rpm: 88.3, avg: 1.9, p90: 171, errPct: 2.4 },
+  { endpoint: 'SELECT payments.idempotency_keys', kind: 'mysql', timeConsumedPct: 1, rpm: 40.6, avg: 5.2, p90: 10, errPct: 0 },
+  { endpoint: 'INSERT payments.idempotency_keys', kind: 'mysql', timeConsumedPct: 1, rpm: 40.6, avg: 4.8, p90: 9, errPct: 0 },
+  { endpoint: 'UPDATE payments.refunds', kind: 'mysql', timeConsumedPct: 1, rpm: 6.3, avg: 19, p90: 36, errPct: 0.1 },
+  { endpoint: 'SELECT payments.ledger_entries', kind: 'mysql', timeConsumedPct: 1, rpm: 18.9, avg: 11.5, p90: 22, errPct: 0 },
+  { endpoint: 'HGET redis.merchant:*', kind: 'redis', timeConsumedPct: 1, rpm: 101.8, avg: 1.6, p90: 166, errPct: 2.2 },
+  { endpoint: 'SET redis.lock:payment:*', kind: 'redis', timeConsumedPct: 1, rpm: 64.2, avg: 1.4, p90: 152, errPct: 1.8 },
+  { endpoint: 'DEL redis.session:*', kind: 'redis', timeConsumedPct: 1, rpm: 12.7, avg: 1.2, p90: 140, errPct: 1.5 },
+  { endpoint: 'INSERT payments.webhooks_outbox', kind: 'mysql', timeConsumedPct: 1, rpm: 46.1, avg: 5.9, p90: 11, errPct: 0 },
+  { endpoint: 'UPDATE payments.webhooks_outbox', kind: 'mysql', timeConsumedPct: 1, rpm: 44.8, avg: 4.1, p90: 8, errPct: 0 },
+  { endpoint: 'DELETE payments.idempotency_keys', kind: 'mysql', timeConsumedPct: 1, rpm: 3.2, avg: 7.5, p90: 13, errPct: 0 },
 ]
 
 // Which service endpoints originate each DB call. Same shape as
@@ -697,6 +748,81 @@ export const dbEndpointCallers = {
     { endpoint: 'POST /v1/payments', kind: 'web', timeConsumedPct: 42, rpm: 22.0, avg: 8, errPct: 0 },
     { endpoint: 'POST /v1/payments/:id/capture', kind: 'web', timeConsumedPct: 33, rpm: 17.3, avg: 8, errPct: 0 },
     { endpoint: 'PATCH /v1/payments/:id', kind: 'web', timeConsumedPct: 25, rpm: 13.0, avg: 7, errPct: 0 },
+  ],
+  'INSERT payments.transactions': [
+    { endpoint: 'POST /v1/payments', kind: 'web', timeConsumedPct: 100, rpm: 40.6, avg: 18, errPct: 0.1 },
+  ],
+  'SELECT payments.payment_methods': [
+    { endpoint: 'POST /v1/payments', kind: 'web', timeConsumedPct: 55, rpm: 32.0, avg: 9.1, errPct: 0 },
+    { endpoint: 'POST /v1/payments/:id/capture', kind: 'web', timeConsumedPct: 45, rpm: 26.2, avg: 10.0, errPct: 0 },
+  ],
+  'GET redis.idem:*': [
+    { endpoint: 'POST /v1/payments', kind: 'web', timeConsumedPct: 40, rpm: 57.1, avg: 2.8, errPct: 2.9 },
+    { endpoint: 'POST /v1/payments/:id/capture', kind: 'web', timeConsumedPct: 35, rpm: 50.0, avg: 2.9, errPct: 2.9 },
+    { endpoint: 'PATCH /v1/payments/:id', kind: 'web', timeConsumedPct: 25, rpm: 35.7, avg: 2.7, errPct: 2.9 },
+  ],
+  'INSERT payments.ledger_entries': [
+    { endpoint: 'POST /v1/payments/:id/capture', kind: 'web', timeConsumedPct: 100, rpm: 64.2, avg: 6.4, errPct: 0 },
+  ],
+  'SET redis.idem:*': [
+    { endpoint: 'POST /v1/payments', kind: 'web', timeConsumedPct: 45, rpm: 47.1, avg: 2.4, errPct: 2.6 },
+    { endpoint: 'POST /v1/payments/:id/capture', kind: 'web', timeConsumedPct: 40, rpm: 41.9, avg: 2.5, errPct: 2.6 },
+    { endpoint: 'PATCH /v1/payments/:id', kind: 'web', timeConsumedPct: 15, rpm: 15.7, avg: 2.3, errPct: 2.6 },
+  ],
+  'SELECT payments.refunds': [
+    { endpoint: 'GET /v1/payments/:id', kind: 'web', timeConsumedPct: 70, rpm: 15.8, avg: 14, errPct: 0 },
+    { endpoint: 'PATCH /v1/payments/:id', kind: 'web', timeConsumedPct: 30, rpm: 6.8, avg: 15, errPct: 0 },
+  ],
+  'INCR redis.ratelimit:*': [
+    { endpoint: 'GET /v1/payments/:id', kind: 'web', timeConsumedPct: 37, rpm: 167.5, avg: 1.1, errPct: 2.1 },
+    { endpoint: 'POST /v1/payments/:id/capture', kind: 'web', timeConsumedPct: 23, rpm: 104.1, avg: 1.2, errPct: 2.1 },
+    { endpoint: 'GET /v1/payments/:id/status', kind: 'web', timeConsumedPct: 18, rpm: 81.5, avg: 1.0, errPct: 2.1 },
+    { endpoint: 'POST /v1/payments', kind: 'web', timeConsumedPct: 15, rpm: 67.9, avg: 1.2, errPct: 2.1 },
+    { endpoint: 'PATCH /v1/payments/:id', kind: 'web', timeConsumedPct: 7, rpm: 31.7, avg: 1.1, errPct: 2.1 },
+  ],
+  'EXPIRE redis.ratelimit:*': [
+    { endpoint: 'GET /v1/payments/:id', kind: 'web', timeConsumedPct: 45, rpm: 101.9, avg: 0.9, errPct: 2 },
+    { endpoint: 'POST /v1/payments/:id/capture', kind: 'web', timeConsumedPct: 30, rpm: 67.9, avg: 1.0, errPct: 2 },
+    { endpoint: 'POST /v1/payments', kind: 'web', timeConsumedPct: 25, rpm: 56.6, avg: 0.8, errPct: 2 },
+  ],
+  'GET redis.token:*': [
+    { endpoint: 'POST /v1/payments/:id/capture', kind: 'web', timeConsumedPct: 60, rpm: 53.0, avg: 1.9, errPct: 2.4 },
+    { endpoint: 'POST /v1/payments', kind: 'web', timeConsumedPct: 40, rpm: 35.3, avg: 2.0, errPct: 2.4 },
+  ],
+  'SELECT payments.idempotency_keys': [
+    { endpoint: 'POST /v1/payments', kind: 'web', timeConsumedPct: 100, rpm: 40.6, avg: 5.2, errPct: 0 },
+  ],
+  'INSERT payments.idempotency_keys': [
+    { endpoint: 'POST /v1/payments', kind: 'web', timeConsumedPct: 100, rpm: 40.6, avg: 4.8, errPct: 0 },
+  ],
+  'UPDATE payments.refunds': [
+    { endpoint: 'PATCH /v1/payments/:id', kind: 'web', timeConsumedPct: 100, rpm: 6.3, avg: 19, errPct: 0.1 },
+  ],
+  'SELECT payments.ledger_entries': [
+    { endpoint: 'GET /v1/payments/:id', kind: 'web', timeConsumedPct: 60, rpm: 11.3, avg: 11.1, errPct: 0 },
+    { endpoint: 'PATCH /v1/payments/:id', kind: 'web', timeConsumedPct: 40, rpm: 7.6, avg: 12.1, errPct: 0 },
+  ],
+  'HGET redis.merchant:*': [
+    { endpoint: 'GET /v1/payments/:id', kind: 'web', timeConsumedPct: 50, rpm: 50.9, avg: 1.6, errPct: 2.2 },
+    { endpoint: 'POST /v1/payments', kind: 'web', timeConsumedPct: 30, rpm: 30.5, avg: 1.7, errPct: 2.2 },
+    { endpoint: 'POST /v1/payments/:id/capture', kind: 'web', timeConsumedPct: 20, rpm: 20.4, avg: 1.5, errPct: 2.2 },
+  ],
+  'SET redis.lock:payment:*': [
+    { endpoint: 'POST /v1/payments/:id/capture', kind: 'web', timeConsumedPct: 100, rpm: 64.2, avg: 1.4, errPct: 1.8 },
+  ],
+  'DEL redis.session:*': [
+    { endpoint: 'PATCH /v1/payments/:id', kind: 'web', timeConsumedPct: 100, rpm: 12.7, avg: 1.2, errPct: 1.5 },
+  ],
+  'INSERT payments.webhooks_outbox': [
+    { endpoint: 'POST /v1/payments/:id/capture', kind: 'web', timeConsumedPct: 60, rpm: 27.7, avg: 5.5, errPct: 0 },
+    { endpoint: 'PATCH /v1/payments/:id', kind: 'web', timeConsumedPct: 40, rpm: 18.4, avg: 6.5, errPct: 0 },
+  ],
+  'UPDATE payments.webhooks_outbox': [
+    { endpoint: 'POST /v1/payments/:id/capture', kind: 'web', timeConsumedPct: 65, rpm: 29.1, avg: 3.8, errPct: 0 },
+    { endpoint: 'PATCH /v1/payments/:id', kind: 'web', timeConsumedPct: 35, rpm: 15.7, avg: 4.7, errPct: 0 },
+  ],
+  'DELETE payments.idempotency_keys': [
+    { endpoint: 'POST /v1/payments', kind: 'web', timeConsumedPct: 100, rpm: 3.2, avg: 7.5, errPct: 0 },
   ],
 }
 

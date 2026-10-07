@@ -16,10 +16,11 @@ import {
   servicesForWindow, redEndpointsForWindow, externalEndpointsForWindow, dbEndpointsForWindow,
   infraCorrelationForWindow, latencyDrilldownForWindow, latencyDrilldownSeriesForWindow,
   latencyDrilldownTotalForWindow, slowRequestsForWindow, errorRequestsForWindow, healthHistoryForWindow,
+  externalEndpointSeriesForWindow, dbEndpointSeriesForWindow, externalEndpointCallers, dbEndpointCallers,
   redEndpoints, externalEndpoints, dbEndpoints, infraCorrelation, latencyDrilldown,
   slowRequests, errorRequests,
 } from './services.js'
-import { logVolumeForWindow, logTotalsForWindow } from './observability.js'
+import { logVolumeForWindow, logTotalsForWindow, infraHostsForWindow } from './observability.js'
 
 const preset = v => resolveWindow({ kind: 'preset', value: v })
 const payment = win => servicesForWindow(win).find(s => s.id === 'payment-service')
@@ -241,6 +242,69 @@ test('the drilldown Total is the caller latency, and runs below the stack', () =
     })
   }
   assert.equal(latencyDrilldownTotalForWindow(REFERENCE_WINDOW).ms, 340, 'the hour still reads 340 ms')
+})
+
+test('External and DB charts draw each row\'s own series: a rate stays a rate, and the line agrees with its row', () => {
+  // These charts used to rescale the SERVICE's error series by the row's figure
+  // over the service's quiet 0.05%, which multiplied the incident as well: a
+  // Redis call at 3.2% errors drew about 900%. Sampling the row's own profile
+  // keeps every point a percentage and makes the line average to the table.
+  const tables = [
+    ['external', externalEndpointSeriesForWindow, externalEndpointsForWindow],
+    ['db', dbEndpointSeriesForWindow, dbEndpointsForWindow],
+  ]
+  for (const v of ['5m', '1h', '24h', '7d']) {
+    const w = v === '1h' ? REFERENCE_WINDOW : preset(v)
+    for (const [name, sample] of tables) {
+      for (const { endpoint, series } of sample(w, 'errPct')) {
+        for (const p of series) {
+          if (p.value == null) continue
+          assert.ok(p.value >= 0 && p.value <= 100, `${name} ${endpoint} on ${v}: error % ${p.value} is not a percentage`)
+        }
+      }
+    }
+  }
+  for (const [name, sample, table] of tables) {
+    const rows = table(REFERENCE_WINDOW)
+    sample(REFERENCE_WINDOW, 'errPct').forEach(({ endpoint, series }, i) => {
+      const vals = series.map(p => p.value).filter(x => x != null)
+      const mean = vals.reduce((a, b) => a + b, 0) / vals.length
+      assert.equal(endpoint, rows[i].endpoint, `${name}: series and table rows in the same order`)
+      assert.ok(Math.abs(mean - rows[i].errPct) <= 0.05, `${name} ${endpoint}: line averages ${mean.toFixed(3)}, table says ${rows[i].errPct}`)
+    })
+  }
+})
+
+test('a DB or external row reconciles with its callers: rpm, shares, and the average they wait', () => {
+  // The callers split one row by the endpoint that made the call, so they have
+  // to add back up to it. The average is the one that is easy to get wrong by
+  // hand: it is the callers' rpm-weighted mean, read at the row's own precision.
+  for (const [name, rows, callers] of [['db', dbEndpoints, dbEndpointCallers], ['external', externalEndpoints, externalEndpointCallers]]) {
+    for (const r of rows) {
+      const c = callers[r.endpoint]
+      assert.ok(c?.length, `${name} ${r.endpoint}: has callers`)
+      const rpm = c.reduce((a, x) => a + x.rpm, 0)
+      assert.equal(Math.round(rpm * 10) / 10, r.rpm, `${name} ${r.endpoint}: caller rpm adds up`)
+      assert.equal(c.reduce((a, x) => a + x.timeConsumedPct, 0), 100, `${name} ${r.endpoint}: caller shares add to 100`)
+      const weighted = c.reduce((a, x) => a + x.rpm * x.avg, 0) / rpm
+      const decimals = String(r.avg).split('.')[1]?.length ?? 0
+      assert.ok(Math.abs(weighted - r.avg) < 0.5 * 10 ** -decimals, `${name} ${r.endpoint}: callers average ${weighted.toFixed(3)}, row says ${r.avg}`)
+    }
+    assert.equal(rows.reduce((a, r) => a + r.timeConsumedPct, 0), 100, `${name}: row shares add to 100`)
+  }
+})
+
+test('a fleet worker\'s status dot agrees with its own bars on every range', () => {
+  // Status is fixed at the reference hour, the bars are coloured from each
+  // range's mean. The generated workers are kept clear of the thresholds so the
+  // two can never disagree, however the range moves the noise.
+  const level = v => (v >= 85 ? 2 : v >= 70 ? 1 : 0)
+  const STATUS = ['healthy', 'warning', 'critical']
+  for (const v of ['5m', '15m', '1h', '2h', '3h', '6h', '12h', '24h', '2d', '3d', '7d', 'today']) {
+    for (const h of infraHostsForWindow(preset(v)).filter(h => h.service == null)) {
+      assert.equal(STATUS[Math.max(level(h.cpu), level(h.mem))], h.status, `${v} ${h.host}: dot ${h.status} beside cpu ${h.cpu} / mem ${h.mem}`)
+    }
+  }
 })
 
 test('the health strip puts the incident where the incident was', () => {
