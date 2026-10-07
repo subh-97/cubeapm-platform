@@ -9,6 +9,7 @@ import HomePage from '@/pages/HomePage'
 import ServiceOverview from '@/pages/ServiceOverview'
 import LogsView from '@/pages/LogsView'
 import TracesView from '@/pages/TracesView'
+import ExploreView from '@/pages/ExploreView'
 import InfraView from '@/pages/InfraView'
 import TraceDetail from '@/pages/TraceDetail'
 import LoginPage from '@/pages/LoginPage'
@@ -30,6 +31,10 @@ function getInfraNavItems() {
   return items
 }
 const INFRA_NAV_ITEMS = getInfraNavItems()
+
+// Explore applies an incoming payload once per nonce (ARCH D13), so clicking
+// the same card twice has to arrive as two different payloads.
+let exploreNonce = 0
 
 // The views of one service, listed in the card's left column. Which service
 // you are looking at is picked in the page itself, by ServicePicker.
@@ -55,6 +60,7 @@ export default function App() {
     const path = location.pathname
     if (path === '/logs') return 'logs'
     if (path === '/traces') return 'traces'
+    if (path === '/explore') return 'explore'
     if (path === '/infrastructure') return 'infra'
     if (path.startsWith('/trace/')) return 'trace'
     if (path.startsWith('/service/')) return 'service'
@@ -64,6 +70,7 @@ export default function App() {
   const [traceId, setTraceId] = useState(() => location.pathname.split('/trace/')[1] ?? '')
   const [logsQuery, setLogsQuery] = useState(null)
   const [tracesQuery, setTracesQuery] = useState(null)
+  const [exploreIncoming, setExploreIncoming] = useState(null)
   const [navCollapsed, setNavCollapsed] = useState(true)
   // One range for the whole app, in the form the data layer reads:
   // { kind: 'preset', value: '1h' } or { kind: 'absolute', from, to }. Pages
@@ -92,12 +99,23 @@ export default function App() {
   // to reach all three.
   const openLink = useCallback((link) => {
     if (!link) return
-    if (link.view === 'traces') return openTrace(link.traceId)
+    if (link.view === 'traces') {
+      if (link.traceId) return openTrace(link.traceId)
+      setView('traces')
+      return
+    }
     if (link.view === 'service') {
       setServiceId(link.serviceId)
       setServiceSubTab(link.subTab ?? 'overview')
       setServiceEndpoint(link.endpoint ?? '')
       setView('service')
+      return
+    }
+    if (link.view === 'explore') {
+      // The payload travels whole; Explore reads it once and says so.
+      setExploreIncoming({ ...link, nonce: ++exploreNonce })
+      setView('explore')
+      setSettingsOpen(false)
       return
     }
     if (link.view === 'infra') {
@@ -169,13 +187,17 @@ export default function App() {
 
   useEffect(() => {
     if (isDesignSystem) return
-    if (view === 'home') navigate('/home')
-    else if (view === 'logs') navigate('/logs')
-    else if (view === 'traces') navigate('/traces')
-    else if (view === 'infra') navigate('/infrastructure')
-    else if (view === 'service' && serviceId) navigate(`/service/${serviceId}`)
-    else if (view === 'trace' && traceId) navigate(`/trace/${traceId}`)
-  }, [view, serviceId, traceId, navigate, isDesignSystem])
+    // A deep link's query string belongs to the page it addresses; navigating
+    // to the path we are already on would throw it away on mount.
+    const at = (p) => { if (location.pathname !== p) navigate(p) }
+    if (view === 'home') at('/home')
+    else if (view === 'logs') at('/logs')
+    else if (view === 'traces') at('/traces')
+    else if (view === 'explore') at('/explore')
+    else if (view === 'infra') at('/infrastructure')
+    else if (view === 'service' && serviceId) at(`/service/${serviceId}`)
+    else if (view === 'trace' && traceId) at(`/trace/${traceId}`)
+  }, [view, serviceId, traceId, navigate, isDesignSystem, location.pathname])
 
   if (isDesignSystem) {
     return <DesignSystemPage theme={theme} setTheme={setTheme} />
@@ -190,6 +212,7 @@ export default function App() {
   const isTraces = view === 'traces'
   const isInfra = view === 'infra'
   const isTrace = view === 'trace'
+  const isExplore = view === 'explore'
 
   return (
     <div className={`app${navCollapsed ? ' nav-collapsed' : ''}`}>
@@ -268,6 +291,7 @@ export default function App() {
                 serviceEndpoint={serviceEndpoint}
                 setServiceEndpoint={setServiceEndpoint}
                 setToast={setToast}
+                onOpenLink={openLink}
                 settingsOpen={settingsOpen}
                 setSettingsOpen={setSettingsOpen}
                 settingsTab={settingsTab}
@@ -301,6 +325,12 @@ export default function App() {
                 onOpenLink={openLink}
                 incomingChip={logsQuery}
                 onIncomingChipApplied={() => setLogsQuery(null)}
+              />
+            ) : isExplore ? (
+              <ExploreView
+                goHome={goHome} timeRange={timeRange} setTimeRange={setTimeRange} setToast={setToast}
+                incoming={exploreIncoming}
+                onIncomingApplied={() => setExploreIncoming(null)}
               />
             ) : isInfra ? (
               <InfraView

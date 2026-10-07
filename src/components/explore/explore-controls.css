@@ -1,0 +1,303 @@
+/* ============================================================================
+   Explore — shared controls
+   ExSelect · FilterRows · CodeEditor · GeneratedQuery
+
+   Every class here is prefixed `ex-`, and every colour is a token, so both
+   themes work without this file knowing which one is on. `src/index.css` is not
+   touched.
+
+   The one place raw values appear is the syntax palette below — the same
+   arrangement index.css uses, where a primitive layer holds the values and
+   everything else consumes the aliases.
+   ============================================================================ */
+
+:root {
+  /* Syntax hues. Blues, violets, cyans, teals and pinks — the chart-palette
+     family — because red, amber and green are reserved for severity across the
+     whole product (CLAUDE.md rule 2). A query is never "warning-coloured".
+     Chosen for contrast on the dark card; the light theme restates them below. */
+  --ex-tok-name: var(--brand-on-muted);
+  --ex-tok-fn: #C4B5FD;
+  --ex-tok-kw: #67E8F9;
+  --ex-tok-str: #5EEAD4;
+  --ex-tok-num: #F9A8D4;
+  --ex-tok-op: var(--text-secondary);
+  --ex-tok-punct: var(--text-muted);
+  --ex-tok-plain: var(--text-primary);
+  /* Shared editor metrics. The ink layer and the textarea both read these, so
+     the two copies of the text can only ever be set together. */
+  --ex-code-font: 11.5px;
+  --ex-code-line: 18px;
+  --ex-code-pad-y: 8px;
+  --ex-code-pad-x: 10px;
+}
+
+:root[data-theme="light"] {
+  --ex-tok-name: #1D4ED8;
+  --ex-tok-fn: #6D28D9;
+  --ex-tok-kw: #0E7490;
+  --ex-tok-str: #0F766E;
+  --ex-tok-num: #BE185D;
+}
+
+/* ---------- Syntax token classes ------------------------------------------
+   Both lexers' type names map onto the eight hues above. A type neither lexer
+   emits falls through to the plain colour, so an unknown token is uncoloured
+   rather than invisible. */
+
+.ex-tok-plain, .ex-tok-whitespace, .ex-tok-word { color: var(--ex-tok-plain); }
+.ex-tok-metric, .ex-tok-field, .ex-tok-label, .ex-tok-macro, .ex-tok-pipeName {
+  color: var(--ex-tok-name); font-weight: 500;
+}
+.ex-tok-function, .ex-tok-aggregation, .ex-tok-statsFn { color: var(--ex-tok-fn); }
+.ex-tok-keyword, .ex-tok-pipe { color: var(--ex-tok-kw); font-weight: 500; }
+.ex-tok-string { color: var(--ex-tok-str); }
+.ex-tok-number, .ex-tok-duration { color: var(--ex-tok-num); }
+.ex-tok-operator, .ex-tok-matchop, .ex-tok-colon, .ex-tok-star { color: var(--ex-tok-op); }
+.ex-tok-paren, .ex-tok-brace, .ex-tok-bracket, .ex-tok-comma { color: var(--ex-tok-punct); }
+
+/* An error token keeps the plain ink and takes a squiggle instead: this marks
+   WHICH characters are at fault, the way an editor does, and is severity rather
+   than syntax — so the critical token is the right one to spend here.
+   `skip-ink: none` keeps the wave continuous through descenders. */
+.ex-tok-error {
+  color: var(--ex-tok-plain);
+  text-decoration: underline wavy var(--critical);
+  text-decoration-skip-ink: none;
+  text-underline-offset: 2px;
+}
+
+/* ============ ExSelect ============ */
+
+.ex-select { position: relative; display: inline-flex; min-width: 0; max-width: 100%; }
+.ex-select-btn {
+  display: inline-flex; align-items: center; gap: 6px; width: 100%; min-width: 0;
+  padding: 4px 8px; min-height: 28px;
+  background: var(--panel); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm); color: var(--text-primary);
+  font-family: inherit; font-size: 12px; line-height: 1.4; text-align: left;
+  cursor: pointer; transition: border-color .12s, background .12s;
+}
+.ex-select-btn:hover:not(:disabled) { background: var(--panel-2); border-color: var(--border-panel); }
+.ex-select.is-open .ex-select-btn { border-color: var(--brand); }
+.ex-select-btn:disabled { opacity: .45; cursor: not-allowed; }
+.ex-select-value {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ex-select-value.is-placeholder { color: var(--text-muted); }
+.ex-select-chev { flex-shrink: 0; color: var(--text-muted); transition: transform .12s; }
+.ex-select.is-open .ex-select-chev { transform: rotate(180deg); }
+
+/* Portaled to <body> and positioned fixed against the trigger, so no ancestor's
+   overflow can clip it and no page scroll leaves it behind. */
+.ex-select-menu {
+  position: fixed; z-index: 700;
+  background: var(--raised); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm); box-shadow: var(--shadow-dropdown);
+  padding: 4px; display: flex; flex-direction: column; min-width: 0;
+}
+.ex-select-search { padding: 2px 2px 5px; }
+.ex-select-search input {
+  width: 100%; padding: 4px 7px;
+  background: var(--panel); border: 1px solid var(--border-subtle);
+  border-radius: 4px; color: var(--text-primary);
+  font-family: inherit; font-size: 12px; outline: none;
+}
+.ex-select-search input:focus { border-color: var(--brand); box-shadow: var(--focus-ring); }
+.ex-select-search input::placeholder { color: var(--text-muted); }
+
+.ex-select-list { overflow-y: auto; min-height: 0; }
+.ex-select-group {
+  padding: 6px 8px 3px; font-size: 9.5px; font-weight: 600;
+  letter-spacing: .8px; text-transform: uppercase; color: var(--text-muted);
+}
+.ex-select-item {
+  display: flex; align-items: flex-start; gap: 7px; width: 100%;
+  padding: 5px 8px; border: 0; border-radius: 4px; background: none;
+  color: var(--text-secondary); font-family: inherit; font-size: 12px;
+  text-align: left; cursor: pointer;
+}
+/* Hover and keyboard highlight are one state, so the two ways of moving through
+   the list look the same rather than competing. */
+.ex-select-item[data-active="true"] { background: var(--panel-2); color: var(--text-primary); }
+.ex-select-item.is-on { color: var(--text-primary); }
+.ex-select-item.is-disabled { opacity: .45; cursor: not-allowed; }
+.ex-select-item-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.ex-select-item-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ex-select-item-desc {
+  font-size: 10.5px; line-height: 1.4; color: var(--text-muted);
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+}
+.ex-select-tick { flex-shrink: 0; margin-top: 2px; color: var(--brand); }
+.ex-select-box {
+  flex-shrink: 0; width: 13px; height: 13px; margin-top: 2px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border-strong); border-radius: 3px; color: transparent;
+}
+.ex-select-box.is-on { background: var(--brand); border-color: var(--brand); color: #fff; }
+
+.ex-select-note {
+  display: flex; align-items: center; gap: 8px; justify-content: space-between;
+  padding: 8px; font-size: 11.5px; color: var(--text-muted);
+}
+.ex-select-note.is-error { color: var(--critical-fg); }
+.ex-select-retry {
+  display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;
+  padding: 3px 7px; background: var(--panel); border: 1px solid var(--border-panel);
+  border-radius: 4px; color: var(--text-primary);
+  font-family: inherit; font-size: 11px; cursor: pointer;
+}
+.ex-select-retry:hover { background: var(--panel-2); border-color: var(--border-strong); }
+
+/* ============ FilterRows ============ */
+
+.ex-rows { display: flex; flex-direction: column; gap: 6px; }
+.ex-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.ex-row-cap {
+  flex-shrink: 0; min-width: 48px;
+  font-size: 9.5px; font-weight: 600; letter-spacing: .8px; text-transform: uppercase;
+  color: var(--text-muted);
+}
+.ex-row-label { flex: 1 1 170px; min-width: 0; }
+.ex-row-op { flex: 0 0 118px; }
+.ex-row-val { flex: 2 1 220px; min-width: 0; }
+.ex-row-btn {
+  display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;
+  padding: 4px 8px; min-height: 28px;
+  background: none; border: 1px solid transparent; border-radius: var(--radius-sm);
+  color: var(--text-muted); font-family: inherit; font-size: 11.5px; cursor: pointer;
+}
+.ex-row-btn:hover { background: var(--panel-2); border-color: var(--border-subtle); color: var(--text-primary); }
+.ex-row-btn.is-add { color: var(--brand); }
+
+/* ============ CodeEditor ============ */
+
+.ex-code { position: relative; min-width: 0; }
+
+/* The scroller. It carries NO padding of its own, so the textarea's `width:
+   100%` (the content box) and the ink layer's `width: 100%` (the padding box of
+   an absolutely positioned child) are the same number. `scrollbar-gutter:
+   stable` settles the one case where they could diverge: a classic scrollbar
+   appearing mid-typing would otherwise narrow one layer and move its wrap
+   points while the other stayed put. */
+.ex-code-box {
+  position: relative; overflow: auto; padding: 0; scrollbar-gutter: stable;
+  background: var(--panel); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm); cursor: text; transition: border-color .12s;
+}
+.ex-code-box:focus-within { border-color: var(--brand); }
+.ex-code-box.is-error { border-color: var(--critical-fg); }
+.ex-code-box.is-readonly { background: var(--card); cursor: default; }
+
+/* EVERY metric that decides where a glyph lands is set once, for both layers.
+   Splitting this rule in two is how the ink and the caret drift apart. */
+.ex-code-ink,
+.ex-code-area {
+  display: block; width: 100%; margin: 0; border: 0;
+  padding: var(--ex-code-pad-y) var(--ex-code-pad-x);
+  font-family: var(--font-mono); font-size: var(--ex-code-font);
+  line-height: var(--ex-code-line); letter-spacing: 0; font-variant-ligatures: none;
+  white-space: pre-wrap; overflow-wrap: break-word; word-break: normal;
+  tab-size: 2; -moz-tab-size: 2;
+}
+.ex-code-ink {
+  position: absolute; top: 0; left: 0;
+  pointer-events: none; color: var(--ex-tok-plain);
+}
+.ex-code-area {
+  position: relative; resize: none; overflow: hidden;
+  background: transparent; color: transparent; caret-color: var(--text-primary);
+}
+/* The placeholder has no ink layer behind it, so it paints itself. */
+.ex-code-area::placeholder { color: var(--text-muted); }
+.ex-code-area::selection { background: var(--brand-muted); color: transparent; }
+/* Keep the focus ring, pull it inside the box so it does not sit on the border. */
+.ex-code-area:focus-visible { outline-offset: -3px; }
+
+.ex-code-error {
+  display: flex; align-items: center; gap: 5px;
+  margin-top: 5px; font-size: 10.5px; color: var(--critical-fg);
+}
+.ex-code-error svg { flex-shrink: 0; }
+
+.ex-code-foot {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
+  margin-top: 5px; font-size: 9.5px; color: var(--text-muted);
+}
+.ex-code-foot kbd {
+  font-family: var(--font-mono); font-size: 9px;
+  background: var(--panel); border: 1px solid var(--border-subtle);
+  border-radius: 3px; padding: 1px 4px; color: var(--text-secondary);
+}
+
+.ex-code-menu {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 650;
+  max-height: 300px; overflow-y: auto;
+  background: var(--raised); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm); box-shadow: var(--shadow-dropdown);
+  padding: 4px 0;
+}
+.ex-code-group + .ex-code-group {
+  border-top: 1px solid var(--border-subtle); margin-top: 3px; padding-top: 3px;
+}
+.ex-code-group-lbl {
+  padding: 6px 12px 4px; font-size: 9.5px; font-weight: 600;
+  letter-spacing: .8px; text-transform: uppercase; color: var(--text-muted);
+}
+.ex-code-item {
+  display: flex; align-items: flex-start; gap: 8px; width: 100%;
+  padding: 5px 12px; background: none; border: none; color: var(--text-secondary);
+  font: inherit; font-size: 12px; cursor: pointer; text-align: left;
+}
+.ex-code-item.is-active { background: var(--panel-2); color: var(--text-primary); }
+.ex-code-item-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; flex-shrink: 0; margin-top: 1px; border-radius: 3px;
+  background: var(--panel); color: var(--text-muted);
+  font-family: var(--font-mono); font-size: 9.5px;
+}
+.ex-code-item.is-active .ex-code-item-badge { background: var(--brand-muted); color: var(--brand-on-muted); }
+.ex-code-item-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.ex-code-item-label {
+  font-family: var(--font-mono); font-size: 11.5px; color: var(--text-primary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ex-code-item-doc {
+  font-size: 10px; line-height: 1.4; color: var(--text-muted);
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+}
+.ex-code-item-detail {
+  flex-shrink: 0; margin-top: 2px; font-size: 10px; color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* ============ GeneratedQuery ============ */
+
+.ex-genq {
+  border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);
+  background: var(--card); overflow: hidden;
+}
+.ex-genq-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 5px 8px 5px 10px; border-bottom: 1px solid var(--border-head);
+}
+.ex-genq-title {
+  font-size: 9.5px; font-weight: 600; letter-spacing: .8px;
+  text-transform: uppercase; color: var(--text-muted);
+}
+.ex-genq-copy {
+  display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;
+  padding: 3px 7px; background: none; border: 1px solid var(--border-subtle);
+  border-radius: 4px; color: var(--text-secondary);
+  font-family: inherit; font-size: 11px; cursor: pointer;
+}
+.ex-genq-copy:hover:not(:disabled) { background: var(--panel); color: var(--text-primary); }
+.ex-genq-copy:disabled { opacity: .45; cursor: not-allowed; }
+.ex-genq-copy.is-done { color: var(--brand); border-color: var(--brand); }
+.ex-genq-body {
+  margin: 0; padding: 8px 10px;
+  font-family: var(--font-mono); font-size: var(--ex-code-font);
+  line-height: var(--ex-code-line); color: var(--ex-tok-plain);
+  white-space: pre-wrap; overflow-wrap: break-word; max-height: 160px; overflow: auto;
+}
+.ex-genq-body.is-empty { color: var(--text-muted); font-style: italic; }

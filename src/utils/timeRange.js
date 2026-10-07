@@ -162,18 +162,46 @@ export function rangeLabel(range) {
 }
 
 /**
- * Drag-to-zoom (reference zoom handler): floor the start and ceil the end to
- * the minute, so the new range is whole minutes and a step boundary. A drag
- * with no width is a click, and a click does nothing.
+ * Drag-to-zoom: round the selection outward to a boundary, so the new range is
+ * one the step ladder can bucket cleanly. A drag with no width is a click, and
+ * a click does nothing.
+ *
+ * `snapMs` is the boundary to round to, a minute by default. A chart whose
+ * buckets are finer than that passes its own step instead: a 5-minute window is
+ * bucketed at 15 seconds, so snapping a two-bucket drag to the minute would
+ * hand back twice the span that was actually selected.
+ *
+ * `minSpanMs` is a floor on the RESULT, which `snapMs` alone does not give. Two
+ * successive drags otherwise walk down to a one-minute window — four fat
+ * buckets and four labels, which reads as a rendering fault rather than as a
+ * zoom. `notAfterMs` keeps a selection out of the future, where the From/To
+ * picker already refuses to go.
  */
-export function zoomRange(minMs, maxMs) {
+export function zoomRange(minMs, maxMs, { snapMs = 60000, minSpanMs = 60000, notAfterMs } = {}) {
   if (!Number.isFinite(minMs) || !Number.isFinite(maxMs)) return null
+  const snap = Math.max(1000, snapMs)
   let lo = Math.min(minMs, maxMs)
   let hi = Math.max(minMs, maxMs)
   if (hi - lo <= 0) return null
-  lo -= lo % 60000
-  if (hi % 60000) hi += 60000 - (hi % 60000)
-  if (hi - lo < 60000) return null
+  lo -= lo % snap
+  if (hi % snap) hi += snap - (hi % snap)
+  if (Number.isFinite(notAfterMs)) {
+    hi = Math.min(hi, notAfterMs)
+    if (hi <= lo) return null
+  }
+  // Grow a too-small selection around its own centre rather than refusing it —
+  // the reader asked for "around here", and the floor is a rendering limit, not
+  // a rejection.
+  const floor = Math.max(snap, minSpanMs)
+  if (hi - lo < floor) {
+    const mid = (lo + hi) / 2
+    lo = Math.round((mid - floor / 2) / snap) * snap
+    hi = lo + floor
+    if (Number.isFinite(notAfterMs) && hi > notAfterMs) {
+      hi = notAfterMs
+      lo = hi - floor
+    }
+  }
   return { kind: 'absolute', from: lo, to: hi }
 }
 

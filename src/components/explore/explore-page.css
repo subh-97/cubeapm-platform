@@ -1,0 +1,208 @@
+/* ============================================================================
+   Explore — the page shell
+   ExploreView: the scroll area, the one bordered sub-card, its head and the
+   actions row that joins the editor to the result.
+
+   Only the shell is here. The editor bodies are in explore-metrics.css and
+   explore-logs.css, the shared controls in explore-controls.css, and the
+   toolbar, chart, legend and table in explore-results.css — this file adds the
+   frame around them and nothing those four already draw.
+
+   `src/index.css` is not edited by this work, so where a platform class already
+   fits it is worn as it is (.tabbar/.tab for the datasource switch,
+   .seg-toggle/.seg for the mode toggle, .hbtn.primary.run-btn for Generate
+   Graph) and the rules below only say what is missing. Every colour is a
+   var(--…) token so both themes follow.
+   ============================================================================ */
+
+/* `.card-scroll` is `overflow: hidden` and a flex column, so the page owns its
+   own scrolling — otherwise a tall result would be cut off rather than
+   reachable. */
+.ex-page {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-bottom: 8px;
+}
+
+/* The one sub-card, built like `.logs-main` so Explore reads as the same
+   product as Logs and Traces. Deliberately NOT `overflow: hidden`: the code
+   editors' suggestion menus are positioned inside their own stacking context,
+   and a clipping boundary here would cut the bottom off the list. */
+.ex-card {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-lg);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* ================================== Head ================================= */
+
+/* Datasource left, mode right. Both are real tablists of real buttons, so the
+   gap between them is the only thing this rule is for — what each looks like
+   is already decided by .tabbar and .seg-toggle. */
+.ex-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+/* `.tab` and `.seg` are written for <div>s; these buttons need the browser's
+   own button styling undone before the platform rules can take. */
+.ex-card-head .tabbar button.tab,
+.ex-card-head .seg-toggle button.seg {
+  font: inherit;
+  border: 0;
+  background: none;
+}
+.ex-card-head .tabbar button.tab { font-size: 12px; font-weight: 500; }
+.ex-card-head .tabbar button.tab.active { background: var(--raised); font-weight: 700; }
+.ex-card-head .seg-toggle button.seg { font-size: 11.5px; font-weight: 500; line-height: 1.45; }
+.ex-card-head .seg-toggle button.seg.active { background: var(--card); font-weight: 600; }
+
+/* ================================ Editor ================================= */
+
+.ex-card-editor { padding: 14px 12px; min-width: 0; }
+
+/* ============================== Separator ================================ */
+
+/* The same control as the trace waterfall's `.tw-split`, and deliberately the
+   same shape: one product, one way to resize a pane. It sits between the query
+   and its answer, and drags the editor's height — the editor is the half that
+   varies, since an Advanced query with several operation cards is tall enough
+   to push the chart off the screen. */
+/* 15px of grab area, then 16px of air before the row below — the rule should
+   not sit tight against the controls it divides from the query. Everything is
+   border-box, so the height carries the padding rather than being reduced by
+   it: 31 - 16 leaves the 15px the grip is centred in. */
+.ex-split {
+  flex-shrink: 0;
+  height: 31px;
+  padding-bottom: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: row-resize;
+  position: relative;
+}
+/* The rule runs to the card's own edges, so it joins the border rather than
+   stopping short of it. Anchored to the middle of the GRAB AREA rather than to
+   50% of the box: an absolute child measures from the padding box, so 50%
+   would drop the rule into the space below and leave the grip floating above
+   it. */
+.ex-split::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 7px;
+  height: 1px;
+  background: var(--border-subtle);
+}
+/* Always on screen rather than summoned by hover: a control nobody can see is
+   one nobody drags, and hover cannot be discovered on a touch screen at all.
+   The ribs are the part that says "grab". */
+.ex-split-grip {
+  position: relative;
+  width: 30px;
+  height: 9px;
+  border-radius: 5px;
+  background:
+    repeating-linear-gradient(
+      to right,
+      var(--text-muted) 0 1.5px,
+      transparent 1.5px 4px
+    ) center / 16px 5px no-repeat,
+    var(--card);
+  border: 1px solid var(--border-panel);
+  opacity: .75;
+  transition: opacity .12s, border-color .12s;
+}
+.ex-split:hover .ex-split-grip,
+.ex-split:focus-visible .ex-split-grip,
+.ex-split.is-dragging .ex-split-grip { opacity: 1; border-color: var(--border-strong); }
+.ex-split.is-dragging::before,
+.ex-split:hover::before { background: var(--border-strong); }
+.ex-split:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; border-radius: 3px; }
+
+/* Actions, the error band and the result are one section: what the separator
+   moves is the boundary between the query and all of its answer, not between
+   the query and the chart with the toolbar left behind. */
+.ex-lower {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* Sizing a pane inside a column the page is already scrolling gains nothing
+   once the two stack, so the separator goes and everything sizes to content. */
+@media (max-width: 900px) {
+  .ex-split { display: none; }
+  .ex-card-editor { height: auto !important; overflow: visible !important; }
+}
+
+/* =============================== Actions ================================= */
+
+/* Generate Graph and the results toolbar are one row (ARCH D1): the things that
+   change how an answer is read, and then the button that fetches it, last and
+   furthest right — the end of the row you read left to right.
+
+   The rule under the row belongs to the ROW, not to the toolbar inside it:
+   drawn by the toolbar it stopped wherever the toolbar did, leaving the line
+   broken under whatever shared the row. So the toolbar gives up its own border
+   and its side padding, and the row draws one line the full width.
+
+   No top border either: the separator above already divides the query from its
+   answer, and a second line a few pixels under the first reads as a mistake
+   rather than as structure. */
+.ex-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.ex-actions .ex-toolbar {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-left: 0;
+  padding-right: 0;
+  border-bottom: 0;
+}
+
+/* `.run-btn` is sized for the Logs page's query bar, where it opts out of a
+   stretching row. Here the row does not stretch, so it only needs its icon and
+   its label on one line. */
+.ex-actions .run-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  align-self: center;
+  margin: 8px 0;
+}
+.ex-actions .run-btn svg { width: 13px; height: 13px; margin-right: 0; }
+
+/* =============================== Results ================================= */
+
+/* A definite height is what lets the legend scroll instead of stretching the
+   card: `.ex-legend` reaches for 100% of its column, and a column with no
+   height of its own would simply grow to fit sixty rows. The number is the
+   chart's own height plus the padding `.ex-results-chart` puts around it. */
+.ex-page .ex-results { height: 314px; }
+.ex-page .ex-results-legend { display: flex; }
+.ex-page .ex-results-legend > .ex-legend { flex: 1 1 auto; min-width: 0; }
+
+/* Stacked, the two are read one after the other and each needs its own room. */
+@media (max-width: 900px) {
+  .ex-page .ex-results { height: auto; }
+  .ex-page .ex-results-legend { max-height: 260px; }
+}

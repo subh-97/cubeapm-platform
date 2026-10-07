@@ -201,6 +201,10 @@ export function resolveWindow(range, nowMs = BASE_TIME.getTime()) {
   const pastBuckets = buckets.filter(b => !b.future)
   return {
     start: begin, end, step, stepMin, spanSec,
+    // How this window labels itself. The axis needs both: `relative` is the
+    // "-59m … now" mode the default hour has always used, and `crossesDay`
+    // decides whether a tick has to carry a date.
+    relative, crossesDay, trailing,
     spanMin: spanSec / MIN,
     buckets,
     // Buckets that have actually happened — what every aggregate divides by.
