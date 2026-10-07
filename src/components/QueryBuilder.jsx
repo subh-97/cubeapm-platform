@@ -10,7 +10,7 @@ import {
   splitField, resolveOperator, buildChip, isCommittable, interpret, isKnownField,
   matchConnector, CONNECTORS, deriveFreeText,
 } from '@/utils/typedQuery'
-import { matchSaved } from '@/utils/savedQueries'
+import { keyOf, matchSaved } from '@/utils/savedQueries'
 
 // ---------- Field catalog ----------
 // Types map to CubeAPM's log query grammar (docs.cubeapm.com/logs/querying).
@@ -834,7 +834,13 @@ export default function QueryBuilder({
       return
     }
     if (item.kind === 'recent') { applyChipSet(item.payload); return }
-    if (item.kind === 'saved') { applyChipSet(item.payload.chips); return }
+    if (item.kind === 'saved') {
+      applyChipSet(item.payload.chips)
+      // A user's save carries its pipes, even when there are none; the
+      // examples have none to carry and leave the page's pipes alone.
+      if (item.payload.pipes) onApplyPipes?.(item.payload.pipes)
+      return
+    }
   }
 
   const commitTypedValue = () => {
@@ -1686,7 +1692,7 @@ export default function QueryBuilder({
                           onHover={() => setHighlight(idx)} onPick={() => commitItem(flatItems[idx])}
                           label={<>
                             <span className="qb-ov-name">{s.name}</span>
-                            <span className="qb-ov-preview mono">{chipsToString(s.chips)}</span>
+                            <span className="qb-ov-preview mono">{keyOf(s, chipsToString)}</span>
                           </>} />
                       )
                     })}

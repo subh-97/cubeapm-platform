@@ -1096,6 +1096,7 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
             setChips={setChips}
             recents={recents}
             addRecent={addRecent}
+            savedQueries={savedQueries}
             onRun={runQuery}
             onBlockedChange={setBuilderBlocked}
             onCopyQuery={copyableQuery ? copyQuery : null}

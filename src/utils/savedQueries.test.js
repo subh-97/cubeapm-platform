@@ -175,3 +175,9 @@ test('typing narrows by name or by the query itself', () => {
   assert.deepEqual(matchSaved({ ...list, q: 'log.level:=error' }), [MINE])
   assert.deepEqual(matchSaved({ ...list, q: 'nothing like this' }), [])
 })
+
+test('a save is found by its pipes, not only its conditions', () => {
+  const grouped = entry('2', 'Errors by service', ERRORS, [statsPipe({ groupBy: ['service'] })])
+  const list = { saved: [grouped, MINE], stringify: S }
+  assert.deepEqual(matchSaved({ ...list, q: 'stats by' }), [grouped])
+})
