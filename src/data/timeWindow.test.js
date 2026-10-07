@@ -14,8 +14,8 @@ import {
 } from './timeWindow.js'
 import {
   servicesForWindow, redEndpointsForWindow, externalEndpointsForWindow, dbEndpointsForWindow,
-  infraCorrelationForWindow, latencyDrilldownForWindow, slowRequestsForWindow,
-  errorRequestsForWindow, healthHistoryForWindow,
+  infraCorrelationForWindow, latencyDrilldownForWindow, latencyDrilldownSeriesForWindow,
+  latencyDrilldownTotalForWindow, slowRequestsForWindow, errorRequestsForWindow, healthHistoryForWindow,
   redEndpoints, externalEndpoints, dbEndpoints, infraCorrelation, latencyDrilldown,
   slowRequests, errorRequests,
 } from './services.js'
@@ -220,6 +220,27 @@ test('derived tables dilute with the window, and counts grow instead', () => {
   const redis = l => l.find(x => x.label === 'DB redis').ms
   assert.ok(redis(drillHour) > drillHour.reduce((a, b) => a + b.ms, 0) / 2, 'Redis dominates the hour')
   assert.ok(redis(drillDay) < drillDay.reduce((a, b) => a + b.ms, 0) / 3, 'Redis is a minor layer across a day')
+})
+
+test('the drilldown Total is the caller latency, and runs below the stack', () => {
+  // Total is measured, not summed: the Twilio send overlaps the database work,
+  // so the layers consume more time than the caller waits. If Total ever goes
+  // back to being the layers' sum it lands on the top edge of the stack again
+  // and stops being a line you can see.
+  for (const v of ['5m', '1h', '24h', '7d']) {
+    const w = v === '1h' ? REFERENCE_WINDOW : preset(v)
+    const total = latencyDrilldownTotalForWindow(w)
+    const kpi = servicesForWindow(w).find(s => s.id === 'payment-service').latencyAvg
+    assert.equal(total.ms, kpi, `${v}: Total should read the Avg Latency KPI`)
+
+    const layers = latencyDrilldownSeriesForWindow(w)
+    total.series.forEach((p, i) => {
+      if (p.value == null) return
+      const sum = layers.reduce((a, l) => a + (l.series[i]?.value ?? 0), 0)
+      assert.ok(sum - p.value > 20, `${v} bucket ${i}: Total ${p.value} should sit clearly below the stack ${sum}`)
+    })
+  }
+  assert.equal(latencyDrilldownTotalForWindow(REFERENCE_WINDOW).ms, 340, 'the hour still reads 340 ms')
 })
 
 test('the health strip puts the incident where the incident was', () => {
