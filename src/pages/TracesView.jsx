@@ -784,6 +784,7 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
                 recents={recents}
                 addRecent={addRecent}
                 savedQueries={savedQueries}
+                exampleQueries={TRACE_SAVED_QUERIES}
                 onRun={runQuery}
                 onBlockedChange={setBuilderBlocked}
                 onCopyQuery={copyableQuery ? copyQuery : null}

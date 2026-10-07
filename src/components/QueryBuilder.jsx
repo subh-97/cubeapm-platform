@@ -10,6 +10,7 @@ import {
   splitField, resolveOperator, buildChip, isCommittable, interpret, isKnownField,
   matchConnector, CONNECTORS, deriveFreeText,
 } from '@/utils/typedQuery'
+import { matchSaved } from '@/utils/savedQueries'
 
 // ---------- Field catalog ----------
 // Types map to CubeAPM's log query grammar (docs.cubeapm.com/logs/querying).
@@ -420,7 +421,7 @@ export function applyChipsToLog(log, chips, getValue = getFieldValue) {
  * native method instead — which threw and blanked the Logs page.
  */
 export default function QueryBuilder({
-  chips, setChips, recents = [], addRecent, savedQueries = [], onRun, onBlockedChange,
+  chips, setChips, recents = [], addRecent, savedQueries = [], exampleQueries = SAVED_QUERIES, onRun, onBlockedChange,
   onCopyQuery, parsePastedQuery, onApplyPipes, fetchFieldValues, leading,
   fieldCatalog = FIELD_CATALOG, rows = logRows, getValue = getFieldValue,
   placeholder = 'Type a field name (e.g. service, duration_ms) or free text',
@@ -605,11 +606,7 @@ export default function QueryBuilder({
     const rec = recents
       .filter(r => !q || chipsToString(r).toLowerCase().includes(q))
       .slice(0, 5)
-    // User-saved queries appear before the built-in demo set.
-    const allSaved = [...savedQueries, ...SAVED_QUERIES]
-    const sav = allSaved.filter(s =>
-      !q || s.name.toLowerCase().includes(q) || chipsToString(s.chips).toLowerCase().includes(q)
-    )
+    const sav = matchSaved({ saved: savedQueries, examples: exampleQueries, q, stringify: chipsToString })
     const fac = fieldCatalog.filter(f =>
       !q || f.field.toLowerCase().includes(q) || f.desc.toLowerCase().includes(q)
     )
@@ -633,10 +630,13 @@ export default function QueryBuilder({
     // input, where the user isn't already narrowing towards a field.
     return {
       mode: 'fields', recents: rec, saved: sav, facets: fac, freeText,
+      // With nothing saved and no examples the section is dropped, rather than
+      // reporting that nothing matched a list that was never there.
+      hasSaved: savedQueries.length + exampleQueries.length > 0,
       freeTextFirst: fac.length === 0, canGroup: !typed,
       connectors: conns, connectorsFirst: CONNECTORS.includes(typed),
     }
-  }, [text, phase, composing, needsTypedValue, recents, savedQueries, chips.length, insertionPath, valueSource])
+  }, [text, phase, composing, needsTypedValue, recents, savedQueries, exampleQueries, chips.length, insertionPath, valueSource])
 
   const flatItems = useMemo(() => {
     if (suggestions.mode === 'fields') {
@@ -1675,21 +1675,23 @@ export default function QueryBuilder({
                   })}
                 </Section>
 
-                <Section label="Saved Queries" meta="Team">
-                  {suggestions.saved.length === 0 ? (
-                    <Empty>No saved queries match "{text}"</Empty>
-                  ) : suggestions.saved.map((s, i) => {
-                    const idx = flatItems.findIndex(x => x.key === `s${i}`)
-                    return (
-                      <Row key={`s${i}`} icon="☆" active={idx === highlight}
-                        onHover={() => setHighlight(idx)} onPick={() => commitItem(flatItems[idx])}
-                        label={<>
-                          <span className="qb-ov-name">{s.name}</span>
-                          <span className="qb-ov-preview mono">{chipsToString(s.chips)}</span>
-                        </>} />
-                    )
-                  })}
-                </Section>
+                {suggestions.hasSaved && (
+                  <Section label="Saved Queries" meta="Team">
+                    {suggestions.saved.length === 0 ? (
+                      <Empty>No saved queries match "{text}"</Empty>
+                    ) : suggestions.saved.map((s, i) => {
+                      const idx = flatItems.findIndex(x => x.key === `s${i}`)
+                      return (
+                        <Row key={`s${i}`} icon="☆" active={idx === highlight}
+                          onHover={() => setHighlight(idx)} onPick={() => commitItem(flatItems[idx])}
+                          label={<>
+                            <span className="qb-ov-name">{s.name}</span>
+                            <span className="qb-ov-preview mono">{chipsToString(s.chips)}</span>
+                          </>} />
+                      )
+                    })}
+                  </Section>
+                )}
               </>
             )}
 
