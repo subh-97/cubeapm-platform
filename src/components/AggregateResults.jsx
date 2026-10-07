@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts'
 import { TrendingDown, TrendingUp } from 'lucide-react'
 import { paletteColor as palette } from '@/utils/chartPalette'
-import { GRID_PROPS, NO_ANIM, LINE_PROPS, valueAxisProps } from '@/components/charts/chartDefaults'
+import { GRID_PROPS, LINE_PROPS, valueAxisProps } from '@/components/charts/chartDefaults'
 
 function formatValue(n) {
   if (n == null || !Number.isFinite(n)) return '—'

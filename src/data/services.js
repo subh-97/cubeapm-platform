@@ -1,8 +1,9 @@
 import { statusForLatency, statusForErrorRate, worstStatus } from '@/utils/status'
 import {
   REFERENCE_WINDOW, calibratePeak, peakIncidentWeight, pinToReference,
-  valueAtWeight, windowMean, windowQuantile, windowSeries,
+  valueAtWeight, windowMean, windowQuantile, windowSeries, noiseAt,
 } from './timeWindow'
+import { RUNTIME_HOSTS, hostPresence, DRAW_MIN } from './runtimeHosts'
 
 const RANK = { healthy: 0, warning: 1, critical: 2 }
 
@@ -626,6 +627,37 @@ export const dbEndpoints = [
   { endpoint: 'INSERT payments.audit_log', kind: 'mysql', timeConsumedPct: 2, rpm: 52.3, avg: 8, p90: 14, errPct: 0 },
 ]
 
+// Which service endpoints originate each DB call. Same shape as
+// externalEndpointCallers; percentages add to 100 within one DB endpoint.
+export const dbEndpointCallers = {
+  'SELECT payments.transactions': [
+    { endpoint: 'GET /v1/payments/:id', kind: 'web', timeConsumedPct: 46, rpm: 97.0, avg: 39, errPct: 0 },
+    { endpoint: 'GET /v1/payments/:id/status', kind: 'web', timeConsumedPct: 24, rpm: 50.6, avg: 36, errPct: 0 },
+    { endpoint: 'POST /v1/payments/:id/capture', kind: 'web', timeConsumedPct: 18, rpm: 37.9, avg: 41, errPct: 0.1 },
+    { endpoint: 'PATCH /v1/payments/:id', kind: 'web', timeConsumedPct: 12, rpm: 24.9, avg: 35, errPct: 0 },
+  ],
+  'UPDATE payments.transactions': [
+    { endpoint: 'POST /v1/payments/:id/capture', kind: 'web', timeConsumedPct: 58, rpm: 49.1, avg: 23, errPct: 0.1 },
+    { endpoint: 'PATCH /v1/payments/:id', kind: 'web', timeConsumedPct: 42, rpm: 35.6, avg: 21, errPct: 0 },
+  ],
+  'GET redis.session:*': [
+    { endpoint: 'GET /v1/payments/:id', kind: 'web', timeConsumedPct: 38, rpm: 235.8, avg: 3.9, errPct: 3.4 },
+    { endpoint: 'POST /v1/payments', kind: 'web', timeConsumedPct: 27, rpm: 167.5, avg: 3.5, errPct: 3.1 },
+    { endpoint: 'POST /v1/payments/:id/capture', kind: 'web', timeConsumedPct: 21, rpm: 130.3, avg: 3.4, errPct: 3.0 },
+    { endpoint: 'GET /v1/payments/:id/status', kind: 'web', timeConsumedPct: 14, rpm: 86.9, avg: 3.6, errPct: 3.3 },
+  ],
+  'SETEX redis.session:*': [
+    { endpoint: 'POST /v1/payments', kind: 'web', timeConsumedPct: 44, rpm: 180.8, avg: 2.2, errPct: 2.9 },
+    { endpoint: 'POST /v1/payments/:id/capture', kind: 'web', timeConsumedPct: 36, rpm: 147.9, avg: 2.1, errPct: 2.7 },
+    { endpoint: 'PATCH /v1/payments/:id', kind: 'web', timeConsumedPct: 20, rpm: 82.2, avg: 2.0, errPct: 2.6 },
+  ],
+  'INSERT payments.audit_log': [
+    { endpoint: 'POST /v1/payments', kind: 'web', timeConsumedPct: 42, rpm: 22.0, avg: 8, errPct: 0 },
+    { endpoint: 'POST /v1/payments/:id/capture', kind: 'web', timeConsumedPct: 33, rpm: 17.3, avg: 8, errPct: 0 },
+    { endpoint: 'PATCH /v1/payments/:id', kind: 'web', timeConsumedPct: 25, rpm: 13.0, avg: 7, errPct: 0 },
+  ],
+}
+
 export const slowQueries = [
   { time: 'Jul 15, 22:38pm', query: 'SELECT * FROM `payments`.`transactions` WHERE `id` = ? AND `merchant_id` = ?', duration: 812 },
   { time: 'Jul 15, 22:37pm', query: 'GET redis.session:usr_a92f8b0c34', duration: 743 },
@@ -657,6 +689,34 @@ function generateErrorSpark(count, seed) {
 }
 errorGroups.server = errorGroups.server.map((e, i) => ({ ...e, series: generateErrorSpark(e.count, 71 + i * 7) }))
 errorGroups.client = errorGroups.client.map((e, i) => ({ ...e, series: generateErrorSpark(e.count, 91 + i * 7) }))
+
+/**
+ * Error-group series resampled across the active time window so the sparklines
+ * respond to the time range the same way every other chart on the page does
+ * (wider ranges dilute the incident, the window's own labels drive the x-axis).
+ * The count field tracks total errors in the window — the sum of the samples.
+ */
+export function errorGroupsForWindow(win, side = 'server') {
+  const groups = errorGroups[side] || []
+  return groups.map((e, i) => {
+    const baseSeed = (side === 'client' ? 91 : 71) + i * 7
+    let s = baseSeed
+    const rnd = () => { s = (s * 9301 + 49297) % 233280; return s / 233280 }
+    const peak = Math.max(1, e.count / 3)
+    const buckets = win.buckets
+    const incidentFrac = 0.73
+    let total = 0
+    const series = buckets.map(b => {
+      if (b.future) return { m: b.m, t: b.t, label: b.label, exactTime: b.exactTime, value: null }
+      const i0 = buckets.indexOf(b) / Math.max(1, buckets.length - 1)
+      const inIncident = i0 >= incidentFrac
+      const v = inIncident ? Math.max(0, Math.round(peak * rnd())) : (rnd() < 0.08 ? 1 : 0)
+      total += v
+      return { m: b.m, t: b.t, label: b.label, exactTime: b.exactTime, value: v }
+    })
+    return { ...e, series, count: total }
+  })
+}
 
 export const tracesList = [
   { id: '97ce4645fe10f574e053bf91729f4750', endpoint: 'POST /v1/payments/:id/capture', durationMs: 812, time: 'Jul 15, 22:40pm', status: 'critical', service: 'payment-service' },
@@ -698,26 +758,298 @@ export const traceDetail = {
   ],
 }
 
-export const runtimeHosts = [
-  { id: 'ip-10-0-142-133', name: 'ip-10-0-142-133', status: 'critical' },
-  { id: 'ip-10-0-142-2', name: 'ip-10-0-142-2', status: 'critical' },
-  { id: 'ip-10-0-143-40', name: 'ip-10-0-143-40', status: 'warning' },
-  { id: 'ip-10-0-130-150', name: 'ip-10-0-130-150', status: 'healthy' },
-]
+// The hosts, their runs and how a window clips them live in runtimeHosts.js.
+export { RUNTIME_HOSTS as runtimeHosts } from './runtimeHosts'
 
+/* ---- JVM runtime ---- */
+
+// Everything below is in BYTES, not megabytes. The panel's headers say
+// "(bytes)" and a chart cannot talk its way out of its own axis: the previous
+// set stored megabytes, the chart that read them printed a hardcoded unit, and
+// a 470 MB heap came out as "used = 470 ms". Store the unit the header claims
+// and the formatter has nothing to guess.
+const MIB = 1024 * 1024
+
+/**
+ * The JVM's own view of itself, as the runtime panel draws it.
+ *
+ * Three kinds of series live here and they behave differently on purpose:
+ *
+ *   A LIMIT is configuration. `-Xmx` does not move because Redis is down, so a
+ *   limit is flat across every window with only enough noise to prove it is
+ *   sampled rather than drawn. It never carries the incident.
+ *
+ *   COMMITTED is what the JVM has taken from the OS. It moves, slowly, and only
+ *   a little under pressure — the heap grows toward its limit over minutes, not
+ *   within a bucket.
+ *
+ *   USED is the live metric, and it is the one that carries the incident. When
+ *   payment-service's Redis pool gives out, threads block holding their request
+ *   state: CPU climbs, the thread count climbs, old-gen occupancy climbs and the
+ *   collector starts working for its living. That is the same event every other
+ *   series on the platform samples — see INCIDENT_START_MIN in timeWindow.
+ *
+ * No profile here is `diurnal`, and that is a decision rather than an omission.
+ * The daily wave is normalised against the REFERENCE hour, so a demo opened at
+ * the quiet end of the day scales a week-wide window up to ~2.2x — fine for a
+ * request rate, fatal for a metric that has to stay under its own `limit` line.
+ * A used-vs-committed chart where used crosses committed is a chart that is
+ * lying, so these stay bounded and the wave stays with the traffic metrics.
+ *
+ * `round` is read by the builder below, not by `sampleAt`: bytes, threads and
+ * loaded classes are whole numbers, and two decimal places on a heap is eleven
+ * characters of noise in a tooltip.
+ */
 const RUNTIME_PROFILES = {
-  cpuPct: { baseline: 68, peak: 1.35, noise: 0.08, seed: 201 },
-  heapUsedMB: { baseline: 480, peak: 1.28, noise: 0.06, seed: 202 },
-  heapLimitMB: { baseline: 640, noise: 0.005, seed: 203 },
-  threads: { baseline: 220, peak: 1.4, noise: 0.05, seed: 204 },
-  gcMinorMs: { baseline: 8, peak: 2.4, noise: 0.25, seed: 205 },
-  gcMajorMs: { baseline: 3, peak: 3.2, noise: 0.3, seed: 206 },
+  // A JVM on a multi-core host, idling around a quarter of its cores and
+  // burning through them while requests pile up against the pool.
+  cpuPct: { baseline: 24, peak: 1.8, noise: 0.1, seed: 201 },
+  // Process RSS: the heap plus metaspace, code cache, thread stacks and the
+  // JVM itself, so comfortably larger than anything in the heap charts.
+  memUsedBytes: { baseline: 1150 * MIB, peak: 1.08, noise: 0.02, seed: 202, round: 0 },
+  // Blocked threads are the shape of this incident, not a side effect of it.
+  threadCount: { baseline: 50, peak: 1.5, noise: 0.06, seed: 203, round: 0 },
+  classCount: {
+    count: { baseline: 20400, noise: 0.008, seed: 204, round: 0 },
+    // Near zero and staying there, like the reference. A long-lived JVM has
+    // nothing left to unload; the series exists so that the day it is NOT zero
+    // somebody notices.
+    unloaded: { baseline: 0.8, noise: 1.5, seed: 205, round: 0 },
+  },
+  heap: {
+    limit: { baseline: 1134 * MIB, noise: 0.002, seed: 206, round: 0 },
+    committed: { baseline: 960 * MIB, noise: 0.01, seed: 207, round: 0 },
+    // `used` is not written here — a heap is its generations, so it is summed
+    // from them in the builder below.
+  },
+  // Metaspace, code cache and compressed class space. Grows with what the
+  // application has loaded, which the incident does not change.
+  nonHeapPoolUsed: { baseline: 182 * MIB, peak: 1.04, noise: 0.04, seed: 208, round: 0 },
+  // Milliseconds of CPU the collector spent inside each bucket. Young
+  // collections are constant and cheap; an old-generation collection is rare
+  // and expensive, which is why this chart is drawn as two filled bands and why
+  // the old-gen band only really appears once the incident is under way.
+  gcCpuTime: {
+    g1Old: { baseline: 1.1, peak: 4.5, noise: 1.4, seed: 209 },
+    g1Young: { baseline: 6, peak: 2.6, noise: 1.0, seed: 210 },
+  },
+  g1OldGenHeap: {
+    // Old gen may grow into the whole heap, so it shares the heap's limit.
+    limit: { baseline: 1134 * MIB, noise: 0.002, seed: 211, round: 0 },
+    committed: { baseline: 592 * MIB, noise: 0.012, seed: 212, round: 0 },
+    // Objects that survived long enough to be promoted. Request state held by
+    // threads waiting on a dead Redis pool is exactly that, which is the
+    // incident's fingerprint on the heap.
+    used: { baseline: 455 * MIB, peak: 1.14, noise: 0.045, seed: 213, round: 0 },
+  },
+  g1EdenHeap: {
+    committed: { baseline: 336 * MIB, noise: 0.01, seed: 214, round: 0 },
+    // Sampled flat here and given its sawtooth in the builder.
+    used: { baseline: 190 * MIB, peak: 1.12, noise: 0.03, seed: 215, round: 0 },
+  },
+  g1SurvivorHeap: {
+    committed: { baseline: 34 * MIB, noise: 0.015, seed: 216, round: 0 },
+    used: { baseline: 20 * MIB, peak: 1.15, noise: 0.1, seed: 217, round: 0 },
+  },
+  // NIO buffers. Both pools sit just under their ceiling, which is the whole
+  // point of charting them: the interesting day is the one where used meets
+  // limit and allocation starts throwing.
+  bufferDirect: {
+    limit: { baseline: 10 * MIB, noise: 0.002, seed: 218, round: 0 },
+    used: { baseline: 9.2 * MIB, peak: 1.02, noise: 0.03, seed: 219, round: 0 },
+  },
+  bufferMapped: {
+    limit: { baseline: 2.5 * MIB, noise: 0.002, seed: 220, round: 0 },
+    used: { baseline: 2.38 * MIB, noise: 0.02, seed: 221, round: 0 },
+  },
 }
 
-export function runtimeMetricsForWindow(win) {
+/**
+ * Eden fills and is emptied, over and over — the one shape in this panel that
+ * is not a level but a cycle, and the reason a heap chart looks like a saw.
+ *
+ * The ramp is keyed on the BUCKET INDEX rather than on the clock. A young
+ * collection runs seconds apart, so keyed on wall time the cycle would alias
+ * into noise the moment a bucket covered half an hour, and the seven-day chart
+ * would claim eden sits flat at its mean — which it never does at any instant.
+ * Keyed on the index, the chart says "this is what eden does" at every width,
+ * which is the true statement of the two.
+ */
+const EDEN_PERIOD = 6
+const EDEN_LOW = 0.5
+const EDEN_HIGH = 1.25
+
+function edenSawtooth(series) {
+  const span = EDEN_HIGH - EDEN_LOW
+  return series.map((d, i) => ({
+    ...d,
+    value: d.value == null
+      ? null
+      : Math.round(d.value * (EDEN_LOW + span * ((i % EDEN_PERIOD) / (EDEN_PERIOD - 1)))),
+  }))
+}
+
+/** Elementwise sum, null-preserving: a bucket that has not happened stays empty. */
+function sumSeries(...parts) {
+  return parts[0].map((d, i) => {
+    let total = 0
+    for (const p of parts) {
+      const v = p[i].value
+      if (v == null) return { ...d, value: null }
+      total += v
+    }
+    return { ...d, value: Math.round(total) }
+  })
+}
+
+// Walks the profile tree, sampling every leaf and keeping the nesting, so a
+// chart reads `runtime.heap.used` and gets the same `{ m, t, label, exactTime,
+// value }` rows every other series on the platform is drawn from.
+function runtimeSeries(win, node) {
+  if (node.baseline != null) return windowSeries(win, node, { round: node.round ?? 2 })
   return Object.fromEntries(
-    Object.entries(RUNTIME_PROFILES).map(([k, profile]) => [k, windowSeries(win, profile)]),
+    Object.entries(node).map(([k, child]) => [k, runtimeSeries(win, child)]),
   )
+}
+
+/**
+ * Every host together: the average per JVM across the hosts reporting in each
+ * bucket. This is the calibrated series the panel has always drawn, untouched —
+ * per-host series below are derived FROM it, not the other way round, so the
+ * default view cannot drift when a host's story changes.
+ *
+ * An average and never a sum: every runtime metric is per JVM, and summing
+ * would multiply each `-Xmx` limit line by the host count and turn "used vs
+ * limit" into something no JVM is actually close to.
+ */
+function fleetRuntime(win) {
+  const out = runtimeSeries(win, RUNTIME_PROFILES)
+  out.g1EdenHeap.used = edenSawtooth(out.g1EdenHeap.used)
+  // Heap used is its generations added up rather than a seventh profile that
+  // happens to look about right. It costs nothing and it buys the one invariant
+  // a reader can actually catch you breaking: the heap can never hold less than
+  // the regions inside it, whichever window is selected.
+  out.heap.used = sumSeries(out.g1OldGenHeap.used, out.g1EdenHeap.used, out.g1SurvivorHeap.used)
+  return out
+}
+
+/**
+ * How one host differs from the fleet, per bucket.
+ *
+ * Two families. LOAD (CPU, threads, GC time) follows how much traffic the JVM
+ * takes; HEAP (generations, non-heap, RSS, classes) follows it at half the
+ * amplitude, because a heap fills toward the same steady state whatever the
+ * load. Both dip after a JVM starts and climb back: a load balancer's slow
+ * start, and a fresh heap's old gen and metaspace filling. That warm-up is what
+ * makes the restarted and the hand-added host visibly climb straight back into
+ * the incident.
+ *
+ * The raw factors are normalised over the hosts drawn in each bucket, so the
+ * plain mean of the per-host values is the fleet value — "All hosts" is
+ * literally the average of what the rows show.
+ */
+const HOST_FAMILIES = {
+  load: { base: h => h.load, depth: 0.35, tauMin: 2, salt: 1 },
+  heap: { base: h => 1 + (h.load - 1) * 0.5, depth: 0.25, tauMin: 4, salt: 2 },
+}
+
+// Mean of 1 - depth·e^(-age/tau) over the seconds of [t0, t1] a host reported,
+// in closed form, so a three-hour bucket averages the warm-up instead of
+// sampling a dip at its edge.
+function warmOver(lives, t0, t1, { depth, tauMin }) {
+  let covered = 0
+  let area = 0
+  for (const l of lives) {
+    const s = Math.max(t0, l.from)
+    const e = Math.min(t1, l.to)
+    if (e <= s) continue
+    const mins = (e - s) / 60
+    covered += mins
+    if (!Number.isFinite(l.from)) { area += mins; continue }
+    const a0 = (s - l.from) / 60
+    const a1 = (e - l.from) / 60
+    area += mins - depth * tauMin * (Math.exp(-a0 / tauMin) - Math.exp(-a1 / tauMin))
+  }
+  return covered > 0 ? area / covered : 1
+}
+
+function hostFactors(win, k) {
+  const presence = RUNTIME_HOSTS.map(h => hostPresence(h, win))
+  const drawn = (j, i) => (presence[j].bucketCoverage[i] ?? 0) >= DRAW_MIN
+  const out = { config: win.buckets.map((_, i) => (drawn(k, i) ? 1 : null)) }
+  for (const [fam, spec] of Object.entries(HOST_FAMILIES)) {
+    out[fam] = win.buckets.map((b, i) => {
+      if (!drawn(k, i)) return null
+      const t1 = Math.min(b.t + b.durMin * 60, win.nowSec)
+      const raw = j => {
+        const h = RUNTIME_HOSTS[j]
+        const jitter = 1 + (noiseAt(h.seed * 10 + spec.salt, b.t) - 0.5) * 0.04
+        return spec.base(h) * warmOver(presence[j].lives, b.t, t1, spec) * jitter
+      }
+      let sum = 0
+      let n = 0
+      RUNTIME_HOSTS.forEach((_, j) => { if (drawn(j, i)) { sum += raw(j); n += 1 } })
+      return raw(k) / (sum / n)
+    })
+  }
+  return out
+}
+
+// Limits are configuration and identical on every host; so are the NIO pools,
+// which sit at their caps everywhere, and the unloaded-class trickle.
+function familyOf(path) {
+  const [head] = path
+  const key = path[path.length - 1]
+  if (key === 'limit' || head === 'bufferDirect' || head === 'bufferMapped') return 'config'
+  if (head === 'classCount' && key === 'unloaded') return 'config'
+  if (head === 'cpuPct' || head === 'threadCount' || head === 'gcCpuTime') return 'load'
+  return 'heap'
+}
+
+// Same walk as runtimeSeries, over sampled rows instead of profiles. Rows keep
+// every key but `value` — the axis plots `t`, the tooltip reads it — and a
+// null stays null, both for "has not happened" and "this host was not running".
+function scopeTree(node, profile, path, factors) {
+  if (Array.isArray(node)) {
+    const f = factors[familyOf(path)]
+    const p = 10 ** (profile?.round ?? 2)
+    return node.map((row, i) => ({
+      ...row,
+      value: row.value == null || f[i] == null ? null : Math.round(row.value * f[i] * p) / p,
+    }))
+  }
+  return Object.fromEntries(
+    Object.entries(node).map(([k, child]) => [k, scopeTree(child, profile?.[k], [...path, k], factors)]),
+  )
+}
+
+// used ≤ committed ≤ limit, bucket by bucket. The factors are shallow enough
+// that this never fires today; it is here so retuning a host cannot draw a JVM
+// holding more than it has taken from the OS.
+function clampPools(node) {
+  if (!node || Array.isArray(node) || typeof node !== 'object') return
+  const cap = (series, ceiling) => series.map((r, i) => (
+    r.value == null || ceiling[i]?.value == null ? r : { ...r, value: Math.min(r.value, ceiling[i].value) }
+  ))
+  if (node.committed && node.limit) node.committed = cap(node.committed, node.limit)
+  const ceiling = node.committed ?? node.limit
+  if (node.used && ceiling) node.used = cap(node.used, ceiling)
+  Object.values(node).forEach(clampPools)
+}
+
+/**
+ * @param {object} win
+ * @param {string|null} [hostId] one of `runtimeHosts`. Anything else — null,
+ *   undefined, an id that does not exist — is every host, averaged per JVM.
+ */
+export function runtimeMetricsForWindow(win, hostId = null) {
+  const fleet = fleetRuntime(win)
+  const k = RUNTIME_HOSTS.findIndex(h => h.id === hostId)
+  if (k < 0) return fleet
+  const out = scopeTree(fleet, RUNTIME_PROFILES, [], hostFactors(win, k))
+  clampPools(out)
+  out.heap.used = sumSeries(out.g1OldGenHeap.used, out.g1EdenHeap.used, out.g1SurvivorHeap.used)
+  return out
 }
 
 export const runtimeMetrics = runtimeMetricsForWindow(REFERENCE_WINDOW)

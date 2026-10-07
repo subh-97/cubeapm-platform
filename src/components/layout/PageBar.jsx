@@ -1,10 +1,12 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useId } from 'react'
 import {
-  TIME_PRESETS, rangeLabel, resolveRange, formatDateTimeInput,
-  validateCustomRange, autoFillTo,
+  TIME_PRESETS, AUTO_REFRESH_OPTIONS, rangeLabel,
+  validateCustomRange, autoFillTo, formatDateTimeInput,
 } from '@/utils/timeRange'
+import { seedCustomRange, normalizeAutoRefresh, panelPosition } from '@/utils/timePanel'
+import './page-bar.css'
 
-function SvgIcon({ name }) {
+function SvgIcon({ name, className }) {
   const paths = {
     refresh: <><path d="M4 4v6h6M20 20v-6h-6"/><path d="M5 15a8 8 0 0013.9 3.2M19 9A8 8 0 005.1 5.8"/></>,
     clock: <><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></>,
@@ -12,7 +14,7 @@ function SvgIcon({ name }) {
     chevronDown: <path d="M6 9l6 6 6-6"/>,
   }
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
       {paths[name]}
     </svg>
   )
@@ -32,6 +34,18 @@ function SvgIcon({ name }) {
  * `timeRange` is the app-wide range object, not a label — `{ kind: 'preset' }`
  * or `{ kind: 'absolute' }`. Only this component and the data layer care which;
  * a page hands it straight through.
+ *
+ * Refresh (all optional, ARCH D5 — a page that passes none of them gets exactly
+ * the bar it got before these existed, down to the inert ↻):
+ *   onRefresh            run the page's query again. Gives the ↻ button its job.
+ *   refreshing           a run is in flight: ↻ spins, and an auto-refresh tick
+ *                        that lands mid-run is skipped rather than stacked.
+ *   autoRefresh          the chosen interval in seconds; 0 / absent is Off. The
+ *                        page owns the value, this bar owns the timer — it is
+ *                        the one calling `onRefresh` on the interval, so a page
+ *                        must not run a second one of its own.
+ *   onAutoRefreshChange  receives the new interval. Passing it is what makes the
+ *                        auto-refresh control appear at all.
  */
 export default function PageBar({
   children,
@@ -41,9 +55,35 @@ export default function PageBar({
   showSettings = false,
   settingsOpen,
   setSettingsOpen,
+  onRefresh,
+  refreshing = false,
+  autoRefresh,
+  onAutoRefreshChange,
 }) {
   const [timeOpen, setTimeOpen] = useState(false)
   const timeBtnRef = useRef(null)
+  const timeTriggerRef = useRef(null)
+  const autoId = useId()
+
+  // The interval must not restart on every render — pages pass inline arrows,
+  // and an interval rebuilt that often would never reach its first tick. The
+  // tick reads both through refs, so only the period is a dependency.
+  const liveRef = useRef({ onRefresh, refreshing })
+  useEffect(() => { liveRef.current = { onRefresh, refreshing } })
+
+  const autoSec = normalizeAutoRefresh(autoRefresh)
+  const canRefresh = Boolean(onRefresh)
+
+  useEffect(() => {
+    if (!autoSec || !canRefresh) return undefined
+    const id = setInterval(() => {
+      // A tick that lands while the last run is still out is dropped, not
+      // queued: a 5 s interval over a slower query would otherwise pile up.
+      if (liveRef.current.refreshing) return
+      liveRef.current.onRefresh?.()
+    }, autoSec * 1000)
+    return () => clearInterval(id)
+  }, [autoSec, canRefresh])
 
   useEffect(() => {
     if (!timeOpen) return
@@ -56,17 +96,58 @@ export default function PageBar({
     return () => document.removeEventListener('click', handler)
   }, [timeOpen])
 
+  // Esc closes the panel and hands focus back to the button that opened it —
+  // without it a keyboard user who changes their mind is stranded inside it.
+  useEffect(() => {
+    if (!timeOpen) return undefined
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return
+      setTimeOpen(false)
+      timeTriggerRef.current?.focus()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [timeOpen])
+
   return (
     <div className="card-crumbs">
       <div className="card-crumbs-left">{children}</div>
       <div className="card-crumbs-right">
         {actions}
-        <button className="hbtn icon" title="Refresh now" aria-label="Refresh"><SvgIcon name="refresh" /></button>
+        {onAutoRefreshChange && (
+          <label className={`hbtn ex-auto${autoSec ? ' active' : ''}`} htmlFor={autoId}>
+            <span className="ex-auto-text">Auto</span>
+            <select
+              id={autoId}
+              className="ex-auto-select"
+              value={autoSec}
+              aria-label="Auto-refresh interval"
+              onChange={e => onAutoRefreshChange(Number(e.target.value))}
+            >
+              {AUTO_REFRESH_OPTIONS.map(o => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+            <SvgIcon name="chevronDown" />
+          </label>
+        )}
+        <button
+          className="hbtn icon"
+          title={refreshing ? 'Refreshing…' : 'Refresh now'}
+          aria-label="Refresh"
+          aria-busy={refreshing || undefined}
+          onClick={onRefresh}
+        >
+          <SvgIcon name="refresh" className={refreshing ? 'ex-spin' : undefined} />
+        </button>
         <div style={{ position: 'relative' }} ref={timeBtnRef}>
           <button
+            ref={timeTriggerRef}
             className={`hbtn time-btn${timeOpen ? ' active' : ''}`}
             title={`Time range: ${rangeLabel(timeRange)}`}
             aria-label="Change time range"
+            aria-haspopup="dialog"
+            aria-expanded={timeOpen}
             onClick={(e) => { e.stopPropagation(); setTimeOpen(o => !o) }}
           >
             <SvgIcon name="clock" /> {rangeLabel(timeRange)} <SvgIcon name="chevronDown" />
@@ -74,7 +155,14 @@ export default function PageBar({
           {timeOpen && (
             <TimePanel
               timeRange={timeRange}
-              setTimeRange={(v) => { setTimeRange(v); setTimeOpen(false) }}
+              setTimeRange={(v) => {
+                setTimeRange(v)
+                setTimeOpen(false)
+                // Choosing a range unmounts the panel under the cursor — and
+                // under the keyboard. Focus goes back to the button that opened
+                // it rather than falling to the top of the document.
+                timeTriggerRef.current?.focus()
+              }}
               anchorRef={timeBtnRef}
             />
           )}
@@ -104,14 +192,10 @@ function TimePanel({ timeRange, setTimeRange, anchorRef }) {
   // The custom fields open on the range that is already showing, whatever form
   // it took — so narrowing "Last 6 hours" by an hour is an edit rather than a
   // date lookup, and a range arrived at by dragging on a chart can be nudged.
-  const [from, setFrom] = useState(() => {
-    if (timeRange?.kind === 'absolute') return formatDateTimeInput(timeRange.from)
-    return formatDateTimeInput(resolveRange(timeRange).start * 1000)
-  })
-  const [to, setTo] = useState(() => {
-    if (timeRange?.kind === 'absolute') return formatDateTimeInput(timeRange.to)
-    return formatDateTimeInput(resolveRange(timeRange).end * 1000)
-  })
+  const [seed] = useState(() => seedCustomRange(timeRange))
+  const [from, setFrom] = useState(seed.from)
+  const [to, setTo] = useState(seed.to)
+  const reasonId = useId()
 
   const { from: fromMs, to: toMs, canApply, reason } = validateCustomRange(from, to)
 
@@ -128,21 +212,20 @@ function TimePanel({ timeRange, setTimeRange, anchorRef }) {
     if (parsed != null) setTo(formatDateTimeInput(autoFillTo(parsed)))
   }
 
-  const r = anchorRef.current?.getBoundingClientRect()
-  if (!r) return null
-  const panelW = 460
-  const left = Math.min(r.right - panelW, window.innerWidth - panelW - 8)
-  const style = {
-    position: 'fixed',
-    top: r.bottom + 4,
-    left: Math.max(8, left),
-    zIndex: 500,
-  }
+  const at = panelPosition(anchorRef.current?.getBoundingClientRect(), window.innerWidth)
+  if (!at) return null
+  const style = { position: 'fixed', ...at, zIndex: 500 }
 
   const activePreset = timeRange?.kind === 'absolute' ? null : (timeRange?.value ?? '1h')
 
   return (
-    <div className="dd-panel time-portal" style={style} onClick={e => e.stopPropagation()}>
+    <div
+      className="dd-panel time-portal"
+      style={style}
+      role="dialog"
+      aria-label="Select time range"
+      onClick={e => e.stopPropagation()}
+    >
       <div className="time-panel">
         <div className="time-panel-custom">
           <div className="time-panel-title">Select time range</div>
@@ -154,6 +237,7 @@ function TimePanel({ timeRange, setTimeRange, anchorRef }) {
                 id="time-from"
                 type="text"
                 placeholder="YYYY-MM-DD HH:mm:ss"
+                aria-describedby={reasonId}
                 value={from}
                 onChange={e => setFrom(e.target.value)}
                 onBlur={onFromBlur}
@@ -169,6 +253,7 @@ function TimePanel({ timeRange, setTimeRange, anchorRef }) {
                 id="time-to"
                 type="text"
                 placeholder="YYYY-MM-DD HH:mm:ss"
+                aria-describedby={reasonId}
                 value={to}
                 onChange={e => setTo(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && apply()}
@@ -177,8 +262,11 @@ function TimePanel({ timeRange, setTimeRange, anchorRef }) {
           </div>
           {/* The reason a disabled Apply is disabled, said out loud. A button
               that simply greys out leaves the reader checking both fields for
-              a typo they cannot see. */}
+              a typo they cannot see. Both inputs point at it, so a screen
+              reader hears the same sentence the sighted reader does. */}
           <div
+            id={reasonId}
+            role="status"
             style={{
               minHeight: 15, fontSize: 10.5, lineHeight: '15px',
               color: reason ? 'var(--status-critical, #EF4444)' : 'var(--text-muted)',
@@ -196,15 +284,21 @@ function TimePanel({ timeRange, setTimeRange, anchorRef }) {
             Apply
           </button>
         </div>
+        {/* Real buttons: the presets are the fast path through this panel, and
+            a <div> with an onClick would hand the keyboard nothing to press.
+            `active` stays off while a custom range is set, so the highlight
+            never claims a preset the charts are not drawing. */}
         <div className="time-panel-presets">
           {TIME_PRESETS.map(p => (
-            <div
+            <button
               key={p.value}
+              type="button"
               className={`time-preset${p.value === activePreset ? ' active' : ''}`}
+              aria-pressed={p.value === activePreset}
               onClick={() => setTimeRange({ kind: 'preset', value: p.value })}
             >
               {p.label}
-            </div>
+            </button>
           ))}
         </div>
       </div>

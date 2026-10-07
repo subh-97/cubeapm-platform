@@ -1,0 +1,64 @@
+/* PageBar's time panel and auto-refresh control.
+ *
+ * src/index.css already draws the bar, the .hbtn buttons and the time panel;
+ * it is the platform stylesheet and is not edited by this work, so the few
+ * additive rules PageBar needs live here and are imported by it.
+ *
+ * Nothing below restyles anything index.css draws. These rules only undo the
+ * look a browser supplies by itself once a <div> becomes a <button> or a
+ * <select> joins the bar, and add the two states index.css has no rule for:
+ * the refresh icon while a run is in flight, and the auto-refresh shell.
+ * Every colour is a token, so both themes follow without a second rule.
+ */
+
+/* The preset rows are real <button>s, so the keyboard can reach them and a
+   screen reader is told which one is on. index.css still sizes, colours and
+   pads .time-preset — author rules outrank the UA sheet — so only the box and
+   the font family a button brings with it need resetting here. */
+button.time-preset {
+  display: block;
+  width: 100%;
+  margin: 0;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  font-family: inherit;
+}
+
+/* ↻ while the page says a run is in flight. */
+.ex-spin {
+  animation: ex-spin 0.7s linear infinite;
+  transform-origin: 50% 50%;
+}
+@keyframes ex-spin { to { transform: rotate(360deg); } }
+/* Reduced motion still needs to read as "working", so it slows rather than
+   stops — the same bargain .run-spinner strikes in index.css. */
+@media (prefers-reduced-motion: reduce) { .ex-spin { animation-duration: 2.4s; } }
+
+/* Auto-refresh. The shell borrows .hbtn so it sits at the same height and
+   weight as the buttons either side of it, and .hbtn.active lights it while an
+   interval is running. The interval is spelled out in words next to the word
+   "Auto": an icon with a dot on it cannot say how often. */
+.ex-auto { gap: 6px; }
+.ex-auto-text { color: var(--text-muted); }
+.ex-auto.active .ex-auto-text { color: var(--text-secondary); }
+.ex-auto svg { margin-right: 0; }
+
+/* A native <select> keeps the keyboard and the platform's own menu for free;
+   only its chrome is stripped, and the chevron beside it is drawn in
+   currentColor so it follows the theme the way a data-URI arrow could not. */
+.ex-auto-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background: none;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  cursor: pointer;
+  outline-offset: 1px;
+}

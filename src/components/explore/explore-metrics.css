@@ -1,0 +1,283 @@
+/* ============================================================================
+   Explore — the Metrics editor
+   MetricsEditor · QuickBuilder · AdvancedBuilder · PromqlCodeTab
+
+   The editor is one two-column grid: a narrow column of uppercase captions
+   (CALCULATE, WHERE, GROUP BY, FROM, SELECT) and a wide column of controls.
+   The caption column is 72px and RIGHT-aligned, like `.trace-clause-op` in
+   index.css, so the words end where the controls begin and the eye follows one
+   edge down the form instead of a ragged one.
+
+   The Logs/Traces editor is built on the same grid and the same FilterRows, so
+   the two read as one system. The numbers that make that true are the three
+   below — caption width, the gap after it, and the caption's own type — and
+   they are restated there rather than shared, because each editor owns its own
+   stylesheet and `src/index.css` is not edited by this work.
+
+   Everything here is scoped under `.ex-met` so no rule can reach the other
+   editor's markup, and every colour is a var(--…) token so both themes follow.
+   ============================================================================ */
+
+.ex-met {
+  --ex-met-cap-w: 72px;
+  --ex-met-cap-gap: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+/* One labelled line of the form. `align-items: start` and the caption's own
+   padding centre the word against a 28px control without tying the two
+   together — a control column that grows (the operation cards) keeps its
+   caption at the top, where the thing it names starts. */
+.ex-met-row {
+  display: grid;
+  grid-template-columns: var(--ex-met-cap-w) minmax(0, 1fr);
+  column-gap: var(--ex-met-cap-gap);
+  align-items: start;
+}
+
+.ex-met-cap {
+  padding-top: 7px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .5px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  text-align: right;
+}
+
+.ex-met-ctl {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+/* The operation cards and the picker below them: a column, not a wrapped row. */
+.ex-met-ctl.is-column { flex-direction: column; align-items: stretch; }
+
+/* The add-operation picker sits in its own row inside that column. Without it
+   the picker is a column item, where `flex: 0 1 260px` would set its HEIGHT. */
+.ex-met-ops-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* FilterRows draws its own caption per row (WHERE, then AND), so a WHERE block
+   is a sibling of the grid rows rather than a child. These three declarations
+   are what put its caption on the same edge as theirs. */
+.ex-met .ex-rows { gap: 8px; }
+.ex-met .ex-row { gap: var(--ex-met-cap-gap); }
+.ex-met .ex-row-cap {
+  flex: 0 0 var(--ex-met-cap-w);
+  min-width: var(--ex-met-cap-w);
+  font-size: 10px;
+  letter-spacing: .5px;
+  text-align: right;
+}
+
+/* ---------- Control widths ----------
+   Stated per control rather than once for the column: a CALCULATE of four
+   options and a FROM of several hundred metrics do not want the same width. */
+.ex-met-calc { flex: 0 1 260px; }
+.ex-met-metric { flex: 1 1 320px; max-width: 460px; }
+.ex-met-group { flex: 1 1 300px; max-width: 460px; }
+.ex-met-add { flex: 0 1 260px; }
+
+/* ---------- Numbers ---------- */
+
+.ex-met-num {
+  width: 92px;
+  padding: 4px 8px;
+  min-height: 28px;
+  background: var(--panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+.ex-met-num:hover { border-color: var(--border-panel); }
+.ex-met-num:focus { border-color: var(--brand); outline: none; box-shadow: var(--focus-ring); }
+/* A keyboard focus must stay visible even though :focus above styles the box. */
+.ex-met-num:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.ex-met-num.is-invalid { border-color: var(--critical-fg); }
+
+/* The unit the number is in, beside it rather than inside it: an input that
+   paints its own suffix hides it from a screen reader and from a paste. */
+.ex-met-suffix {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.ex-met-invalid {
+  flex-basis: 100%;
+  font-size: 10.5px;
+  color: var(--critical-fg);
+}
+
+/* ---------- Checkbox ---------- */
+
+.ex-met-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ex-met-check input { accent-color: var(--brand); cursor: pointer; margin: 0; }
+
+/* ---------- Notes ---------- */
+
+/* Said once, where the empty control is, so "nothing to choose" never has to be
+   guessed at (ARCH D12 / reference bug R8). */
+.ex-met-note {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+/* A retry beside the sentence that explains why there is nothing to retry from.
+   A button, not an anchor: it goes nowhere. */
+.ex-met-link {
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--brand);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.ex-met-link:hover { color: var(--text-primary); }
+
+/* Why the Code tab opened with text in it. Informational, never severity — it
+   reports a carry-over, not a problem. */
+.ex-met-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  padding: 6px 9px;
+  background: var(--brand-muted);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--brand-on-muted);
+}
+.ex-met-hint svg { flex-shrink: 0; margin-top: 1px; }
+
+.ex-met-title {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .5px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.ex-met-code { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+
+/* ---------- Operation cards ---------- */
+
+.ex-met-op {
+  background: var(--panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+}
+.ex-met-op-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ex-met-op-name {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+/* The order operations apply in is the order they were added, and there is no
+   way to reorder them — so the position is worth printing. */
+.ex-met-op-step {
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: .5px;
+  color: var(--text-muted);
+}
+.ex-met-op-del {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding: 3px 7px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.ex-met-op-del:hover {
+  background: var(--panel-2);
+  border-color: var(--border-subtle);
+  color: var(--text-primary);
+}
+
+/* The reference hides this sentence behind an info icon. Shown, it costs one
+   muted line and answers "what does deriv do?" without a hover (CLAUDE.md
+   rule 4 — no icon-only controls). */
+.ex-met-op-doc {
+  margin: 4px 0 0;
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.ex-met-op-args {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+/* An argument is captioned the same way the form is, one indent in: the same
+   right-aligned column, narrower, so a card reads as part of the grid. */
+.ex-met-arg {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  column-gap: var(--ex-met-cap-gap);
+  align-items: center;
+}
+.ex-met-arg-cap {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .5px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  text-align: right;
+}
+/* Wrapping, so the "choose a metric first" note drops under the control it
+   explains rather than squeezing it. */
+.ex-met-arg-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.ex-met-arg-ctl .ex-select { flex: 1 1 220px; max-width: 380px; }
+
+/* ---------- Narrow widths ----------
+   Below this the caption column costs more than it aligns: the form stacks and
+   the captions sit above their controls, left-aligned like any other label. */
+@media (max-width: 640px) {
+  .ex-met-row { grid-template-columns: minmax(0, 1fr); row-gap: 4px; }
+  .ex-met-cap { padding-top: 0; text-align: left; }
+  .ex-met .ex-row { gap: 6px; }
+  .ex-met .ex-row-cap { flex-basis: 100%; min-width: 0; text-align: left; }
+}

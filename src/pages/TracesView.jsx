@@ -1,14 +1,14 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceArea, ResponsiveContainer } from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { spanRowsForWindow, spanVolumeForWindow, buildSpanFacets, spanFacetFieldsFor } from '@/data/tracesExplorer'
 import { BASE_TIME } from '@/data/observability'
 import { resolveWindow, bucketIndexOf } from '@/data/timeWindow'
-import { zoomRange } from '@/utils/timeRange'
 import PageBar from '@/components/layout/PageBar'
 import QueryBuilder, { applyChipsToLog, chipsToString } from '@/components/QueryBuilder'
 import FacetGroup from '@/components/explorer/FacetGroup'
 import FieldsDropdown from '@/components/explorer/FieldsDropdown'
 import { newGroup } from '@/utils/queryTree'
+import { toExploreLogsQuery } from '@/utils/explore/builders'
 import { aggregate } from '@/utils/aggregator'
 import AggregateResults from '@/components/AggregateResults'
 import { serializePipes, composeQuery, parsePipes, withImpliedCount, newStatsPipe, newSortPipe, newLimitPipe, newMathPipe, namesInScopeBefore } from '@/utils/pipes'
@@ -31,7 +31,10 @@ import {
   TRACE_FIELD_CATALOG, getSpanFieldValue, SPAN_ALL_FIELDS, DEFAULT_ACTIVE_FIELDS,
   columnsFor, formatSpanDuration, statusForSpan,
 } from '@/utils/traceFields'
-import { GRID_PROPS, timeAxisProps, valueAxisProps, fmtCount } from '@/components/charts/chartDefaults'
+import { GRID_PROPS, valueAxisProps, fmtCount } from '@/components/charts/chartDefaults'
+import { buildTimeAxis } from '@/components/charts/timeAxis'
+import ChartTooltip from '@/components/charts/ChartTooltip'
+import { useTimeFocus, useMeasuredWidth, useSeriesHover } from '@/components/charts/useTimeFocus'
 
 const AGG_ALL_FIELDS = TRACE_FIELD_CATALOG.map(f => f.field)
 const AGG_NUMERIC_FIELDS = new Set(TRACE_FIELD_CATALOG.filter(f => f.type === 'keyword').map(f => f.field))
@@ -85,22 +88,43 @@ const VOLUME_SERIES = [
   { key: 'error', label: 'ERROR', color: '#EF4444', opacity: 0.85 },
 ]
 
-function VolumeTooltip({ active, payload, label }) {
+// Named because the tick ladder has to subtract the right-hand margin from the
+// width it is given: that strip is not room a label can be drawn in.
+const VOLUME_MARGIN = { top: 8, right: 6, left: 0, bottom: 0 }
+
+// The band colours survive the move to the shared tooltip, because here they
+// genuinely mean severity rather than identity — but they move off the text and
+// onto the swatch, so an ERROR count reads as legibly as an UNSET one.
+// Worst-first, matching the legend under the chart.
+const VOLUME_TOOLTIP_SERIES = [...VOLUME_SERIES].reverse()
+
+//
+// `suppressed` is the platform rule for a page with more than one chart: only
+// the chart the pointer is actually in opens a panel, the rest show the
+// crosshair alone. This page draws a single chart today, so it is always the
+// hovered one and the flag never fires — it is wired anyway so that a second
+// chart placed beside this one inherits the rule without an edit here.
+function VolumeTooltip({ active, payload, nowMs, hoverKey, suppressed }) {
   if (!active || !payload?.length) return null
   const rec = payload[0]?.payload
   if (!rec) return null
+  // The bucket's own instant, off the row — not parsed back out of the axis
+  // label, which has already been shortened for the axis.
+  const tMs = rec.t != null ? rec.t * 1000 : rec.x ?? null
   return (
-    <div style={{ background: 'var(--raised)', border: '1px solid var(--border-panel)', borderRadius: 6, padding: '6px 10px', fontSize: 11, minWidth: 150 }}>
-      <div style={{ color: 'var(--text-primary)', fontWeight: 600, marginBottom: 4 }}>{label}</div>
-      {[...VOLUME_SERIES].reverse().map(s => (
-        <div key={s.key} style={{ color: s.color, display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-          <span>{s.label}</span><span style={{ fontWeight: 600 }}>{rec[s.key]?.toLocaleString()}</span>
-        </div>
-      ))}
-      <div style={{ borderTop: '1px solid var(--border-panel)', marginTop: 5, paddingTop: 5, color: 'var(--text-primary)', fontWeight: 600, display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-        <span>total</span><span>{rec.total?.toLocaleString()}</span>
-      </div>
-    </div>
+    <ChartTooltip
+      tMs={tMs}
+      nowMs={nowMs}
+      hoverKey={hoverKey}
+      suppressed={suppressed}
+      items={VOLUME_TOOLTIP_SERIES.map(s => ({
+        key: s.key,
+        label: s.label,
+        value: rec[s.key]?.toLocaleString(),
+        color: s.color,
+      }))}
+      footer={{ label: 'total', value: rec.total?.toLocaleString() }}
+    />
   )
 }
 
@@ -431,9 +455,8 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
   // A drag on the histogram sets the app-wide range rather than keeping a
   // private zoom beside it; `zoomedFrom` is only what Reset goes back to.
   const [zoomedFrom, setZoomedFrom] = useState(null)
-  const [dragBrush, setDragBrush] = useState(null)
+  const [bandHover, bandHoverProps] = useSeriesHover()
   const dragRef = useRef(null)
-  const brushStartRef = useRef(null)
 
   const addChipToQuery = useCallback((chip) => {
     setChips(prev => prev.length === 0 ? [chip] : [...prev, { connector: 'AND', ...chip }])
@@ -478,43 +501,17 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
     setTimeRange(v)
   }, [setTimeRange])
 
-  useEffect(() => {
-    const onUp = () => {
-      if (!brushStartRef.current) return
-      brushStartRef.current = null
-      setDragBrush(prev => {
-        if (prev && prev.s1 !== prev.s2) {
-          const b1 = win.buckets.find(d => d.label === prev.s1)
-          const b2 = win.buckets.find(d => d.label === prev.s2)
-          if (b1 && b2) {
-            // The later bucket contributes its whole span, or a one-bucket drag
-            // would select an instant.
-            const next = zoomRange(
-              Math.min(b1.ms, b2.ms),
-              Math.max(b1.ms, b2.ms) + win.step * 1000,
-            )
-            if (next) {
-              setZoomedFrom(cur => cur ?? timeRange)
-              setTimeRange(next)
-            }
-          }
-        }
-        return null
-      })
-    }
-    document.addEventListener('mouseup', onUp)
-    return () => document.removeEventListener('mouseup', onUp)
-  }, [win, timeRange, setTimeRange])
+  // Where a drag on the histogram lands: the app-wide range moves, and the
+  // range it moved away from is remembered once, so Reset goes back to where
+  // the reader started rather than to the previous drag.
+  const focusTimeRange = useCallback((next) => {
+    setZoomedFrom(cur => cur ?? timeRange)
+    setTimeRange(next)
+  }, [timeRange, setTimeRange])
 
-  const onChartMouseDown = (e) => {
-    if (!e?.activeLabel) return
-    brushStartRef.current = e.activeLabel
-    setDragBrush({ s1: e.activeLabel, s2: e.activeLabel })
-  }
-  const onChartMouseMove = (e) => {
-    if (!brushStartRef.current || !e?.activeLabel) return
-    setDragBrush(prev => (prev && prev.s2 === e.activeLabel ? prev : { s1: brushStartRef.current, s2: e.activeLabel }))
-  }
+  // The gesture itself is the shared one — see `useTimeFocus`. 'category'
+  // because this is a stacked BarChart and needs the band scale.
+  const focus = useTimeFocus(win, { onFocus: focusTimeRange, kind: 'category' })
 
   const startResize = useCallback((e) => {
     e.preventDefault()
@@ -578,6 +575,14 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
   )
   const composedQuery = spelledQuery || '*'
   const copyableQuery = spelledQuery
+
+  // Explore speaks the reference's LogsQL and needs a `| stats` pipe to have
+  // anything to plot; `toExploreLogsQuery` translates our chip dialect and
+  // appends `| stats count()` when the query has no aggregation of its own
+  // (ARCH D13). The bar as it stands travels, not the last run.
+  const openInExplore = useCallback(() => {
+    onOpenLink?.({ view: 'explore', datasource: 'traces', query: toExploreLogsQuery(composedQuery) })
+  }, [onOpenLink, composedQuery])
 
   const appliedQuery = useMemo(
     () => composeQuery(chipsToString(appliedChips), effectivePipes),
@@ -665,6 +670,26 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
   const volumeMax = useMemo(
     () => visibleVolume.reduce((max, d) => (d.total > max ? d.total : max), 0),
     [visibleVolume],
+  )
+
+  // Measured first: the value axis decides whether to mirror from this width,
+  // and the tick ladder is then budgeted against whatever plot is left.
+  const [volumeWrapRef, volumeWrapWidth] = useMeasuredWidth()
+
+  const volumeYAxis = useMemo(
+    () => valueAxisProps({ chartWidth: volumeWrapWidth, format: fmtCount, allowDecimals: false, maxValue: volumeMax }),
+    [volumeMax, volumeWrapWidth],
+  )
+
+  // The ladder is budgeted against the PLOT rather than the card, so the value
+  // gutter and the right margin come off the measured width before the tick
+  // interval is chosen.
+  const volumeAxis = useMemo(
+    () => buildTimeAxis(win, {
+      width: Math.max(0, volumeWrapWidth - volumeYAxis.width - VOLUME_MARGIN.right),
+      kind: 'category',
+    }),
+    [win, volumeWrapWidth, volumeYAxis.width],
   )
 
   const visibleTotals = useMemo(() => ({
@@ -808,6 +833,10 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
                     <button role="menuitem" className="logs-more-item" onClick={() => { setAlertOpen(true); setMoreOpen(false) }}>
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 10a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 20a2 2 0 004 0"/><line x1="12" y1="2" x2="12" y2="4"/></svg>
                       Create Alert
+                    </button>
+                    <button role="menuitem" className="logs-more-item" onClick={() => { openInExplore(); setMoreOpen(false) }}>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M16 8l-2.4 5.6L8 16l2.4-5.6z"/></svg>
+                      Open in Explore
                     </button>
                     <a
                       role="menuitem"
@@ -1045,6 +1074,10 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 10a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 20a2 2 0 004 0"/><line x1="12" y1="2" x2="12" y2="4"/></svg>
                   Alert
                 </button>
+                <button className="hbtn small" onClick={openInExplore} title="Chart this query in Explore">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M16 8l-2.4 5.6L8 16l2.4-5.6z"/></svg>
+                  Explore
+                </button>
               </div>
             </div>
 
@@ -1075,26 +1108,24 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
                       </button>
                     )}
                     {!zoomedFrom && <div className="volume-brush-hint">Click &amp; drag on chart to zoom in</div>}
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart
-                        data={visibleVolume}
-                        margin={{ top: 8, right: 6, left: 0, bottom: 0 }}
-                        onMouseDown={onChartMouseDown}
-                        onMouseMove={onChartMouseMove}
-                        style={{ cursor: brushStartRef.current ? 'ew-resize' : 'crosshair', userSelect: 'none' }}
-                      >
-                        <CartesianGrid {...GRID_PROPS} />
-                        <XAxis {...timeAxisProps(visibleVolume.length)} />
-                        <YAxis {...valueAxisProps({ format: fmtCount, allowDecimals: false, maxValue: volumeMax })} />
-                        <Tooltip content={<VolumeTooltip />} cursor={{ fill: 'rgba(255,255,255,0.02)' }} isAnimationActive={false} />
-                        {VOLUME_SERIES.map(s => (
-                          <Bar key={s.key} dataKey={s.key} stackId="v" fill={s.color} fillOpacity={s.opacity} isAnimationActive={false} />
-                        ))}
-                        {dragBrush && dragBrush.s1 !== dragBrush.s2 && (
-                          <ReferenceArea x1={dragBrush.s1} x2={dragBrush.s2} stroke="var(--brand)" strokeOpacity={0.6} fill="var(--brand)" fillOpacity={0.14} />
-                        )}
-                      </BarChart>
-                    </ResponsiveContainer>
+                    <div ref={volumeWrapRef} style={{ width: '100%', height: '100%' }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart
+                          data={visibleVolume}
+                          margin={VOLUME_MARGIN}
+                          {...focus.chartProps}
+                        >
+                          <CartesianGrid {...GRID_PROPS} />
+                          <XAxis {...volumeAxis.props} />
+                          <YAxis {...volumeYAxis} />
+                          <Tooltip content={p => <VolumeTooltip {...p} nowMs={win.end * 1000} hoverKey={bandHover} suppressed={!focus.hovered} />} cursor={{ fill: 'rgba(255,255,255,0.02)' }} isAnimationActive={false} />
+                          {VOLUME_SERIES.map(s => (
+                            <Bar key={s.key} dataKey={s.key} stackId="v" fill={s.color} fillOpacity={s.opacity} isAnimationActive={false} {...bandHoverProps(s.key)} />
+                          ))}
+                          {focus.overlay}
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
                   </div>
                   <div className="logs-volume-legend">
                     <div className="lvl-row"><span className="lvl-key">Total</span><span className="lvl-val">{compactCount(visibleTotals.total)}</span></div>

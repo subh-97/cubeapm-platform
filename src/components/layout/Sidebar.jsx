@@ -42,7 +42,7 @@ const NAV_GROUPS = [
     { id: 'dash', label: 'Dashboards', icon: 'dashboard' },
   ]},
   { label: 'Analyze', items: [
-    { id: 'explore', label: 'Explore', icon: 'compass' },
+    { id: 'explore', label: 'Explore', icon: 'compass', enabled: true },
     { id: 'slo', label: 'SLOs', icon: 'target' },
     { id: 'alerts', label: 'Alerts', icon: 'bell' },
     { id: 'synthetic', label: 'Synthetic', icon: 'radio' },
@@ -58,6 +58,7 @@ export default function Sidebar({ navCollapsed, setNavCollapsed, view, goHome, s
   // while you are inside one rather than jumping the highlight to APM.
   const activeId = view === 'home' ? 'home' : view === 'logs' ? 'logs'
     : view === 'traces' || view === 'trace' ? 'traces'
+    : view === 'explore' ? 'explore'
     : view === 'infra' ? 'infra' : 'apm'
   const [profileOpen, setProfileOpen] = useState(false)
   const [popPos, setPopPos] = useState({ left: 0, bottom: 0 })
@@ -101,7 +102,7 @@ export default function Sidebar({ navCollapsed, setNavCollapsed, view, goHome, s
                   key={it.id}
                   className={`nav-item${on ? ' active' : ''}${enabled ? '' : ' disabled'}`}
                   title={enabled ? it.label : `${it.label} - later redesign phase`}
-                  onClick={enabled ? (it.id === 'home' ? goHome : it.id === 'apm' ? () => setView('service') : it.id === 'logs' ? () => setView('logs') : it.id === 'traces' ? () => setView('traces') : it.id === 'infra' ? () => setView('infra') : undefined) : undefined}
+                  onClick={enabled ? (it.id === 'home' ? goHome : it.id === 'apm' ? () => setView('service') : it.id === 'logs' ? () => setView('logs') : it.id === 'traces' ? () => setView('traces') : it.id === 'explore' ? () => setView('explore') : it.id === 'infra' ? () => setView('infra') : undefined) : undefined}
                   tabIndex={enabled ? 0 : undefined}
                 >
                   <Icon name={it.icon} />

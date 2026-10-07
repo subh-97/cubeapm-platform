@@ -498,7 +498,41 @@ a { color: inherit; }
 .svc-sidebar-item.active .svc-sidebar-count { background: rgba(207,224,255,.15); color: var(--brand-on-muted); }
 .svc-sidebar-icon { flex-shrink: 0; color: var(--text-muted); }
 .svc-sidebar-item:hover .svc-sidebar-icon, .svc-sidebar-item.active .svc-sidebar-icon { color: inherit; }
-.svc-main { flex: 1; padding: 18px 0 24px; overflow-y: auto; min-width: 0; }
+/* Endpoint selector strip that sits at the top of the scrollable body on the
+ * Detail tab. It scrolls away with the content normally, then slides back
+ * down from the top with ease-out when the user reverses direction. */
+/* Negative top/side margins cancel .svc-main's padding so the strip sits flush
+ * under the tab row and bleeds to both card edges; the bottom margin restores
+ * the body's usual gap above the first panel. The sticky offset is negative
+ * for the same reason: sticky `top` is measured from the scroll container's
+ * content edge, so `top: 0` would leave the padding as a gap above it. */
+.endpoint-strip { display: flex; align-items: center; gap: 10px; padding: 8px 16px;
+  margin: calc(-1 * var(--svc-pad-top)) -16px var(--svc-pad-top);
+  background: var(--canvas); border-bottom: 1px solid var(--border-head); }
+.endpoint-strip.is-sticky { position: sticky; top: calc(-1 * var(--svc-pad-top)); z-index: 5;
+  will-change: transform; transform: translateY(0); }
+.endpoint-strip.is-sticky.is-hidden { transform: translateY(-110%); transition: transform 160ms ease-in; }
+.endpoint-strip.is-sticky.is-revealed { transform: translateY(0); transition: transform 240ms ease-out; box-shadow: 0 2px 8px rgba(15,23,42,.06); }
+/* Endpoint picker: the same label-inside FilterSelect as Host/Version, but
+ * unfilled and hugging its content. The route sits right next to its label
+ * rather than being pushed to the far end of a wide box — at 36% of the strip
+ * the two were a screen apart, which read as two unrelated controls. It keeps
+ * a resting outline, though: without one nothing marks it as clickable, so it
+ * read as a static caption. */
+.endpoint-strip .filter-select.is-endpoint { flex: 0 1 auto; width: 548px; min-width: 0; height: 30px;
+  justify-content: flex-start; gap: 10px;
+  background: none; border: 1px solid var(--border-panel); }
+/* At this width the shared right-aligned value would drift away from its
+ * label; keep the route beside the label and park only the chevron at the end. */
+.endpoint-strip .filter-select.is-endpoint .filter-value { justify-content: space-between; }
+.endpoint-strip .filter-select.is-endpoint:hover,
+.endpoint-strip .filter-select.is-endpoint.dd-open { background: none; border-color: var(--border-strong); }
+.filter-select.is-endpoint .filter-value > span { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; font-weight: 400; color: var(--text-primary); }
+/* Spans the full card width (the 16px inset lives in its padding instead of
+ * .card-scroll's) because overflow-y: auto clips anything that tries to bleed
+ * past its box — full-width strips inside the scroll area need room to reach
+ * the card edges. */
+.svc-main { --svc-pad-top: 18px; flex: 1; margin: 0 -16px; padding: var(--svc-pad-top) 16px 24px; overflow-y: auto; min-width: 0; }
 
 /* accordion group sources (AWS / GCP / Kubernetes) */
 .svc-sidebar-item.group-head { padding-right: 10px; }
@@ -512,7 +546,6 @@ a { color: inherit; }
  * the endpoint selector reads as adjacent to the service, not as a floating
  * sibling pushed around by `justify-content: space-between`. */
 .subtab-left { display: flex; align-items: center; gap: 10px; min-width: 0; flex-wrap: wrap; }
-.ep-bar.is-inline { margin: 0; align-items: center; }
 
 /* ============ summary strip ============ */
 .summary-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
@@ -785,6 +818,9 @@ tbody tr:hover { background: var(--panel-2); }
 .chart-card .cval { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
 .chart-card .cval .u { font-size: 12px; font-weight: 500; color: var(--text-secondary); margin-left: 2px; }
 .chart-host { width: 100%; height: 140px; }
+/* 3-up trend row (RPM / Error % / Apdex) breathes more vertically so the shape
+ * of each series reads instead of flattening against the baseline. */
+.charts-row .chart-host { height: 241px; }
 .flag { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 99px; }
 .flag.crit { background: rgba(239,68,68,.15); color: var(--critical-fg); }
 .flag.ok { background: rgba(34,197,94,.14); color: var(--healthy-fg); }
@@ -958,14 +994,14 @@ tbody tr:hover { background: var(--panel-2); }
 .split-ep-kind { font-size: 9px; font-family: 'Rubik', sans-serif; font-weight: 600; color: var(--text-muted); border: 1px solid var(--border-panel); padding: 1px 5px; border-radius: 3px; letter-spacing: .3px; text-transform: uppercase; flex-shrink: 0; }
 .split-ep-cell { text-align: right; color: var(--text-primary); }
 .split-ep-cell.dim { color: var(--text-secondary); }
-.split-ep-bar { display: flex; align-items: center; gap: 6px; justify-content: flex-end; }
-.split-ep-bar .track { display: block; width: 40px; height: 3px; border-radius: 2px; background: var(--border-panel); overflow: hidden; flex-shrink: 0; }
-.split-ep-bar .fill { display: block; height: 100%; border-radius: 2px; background: var(--brand); }
+.split-ep-bar { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.split-ep-bar .track { display: block; width: 100%; max-width: 68px; height: 3px; border-radius: 2px; background: var(--border-panel); overflow: hidden; flex-shrink: 0; }
+.split-ep-bar .fill { display: block; height: 100%; border-radius: 2px; background: var(--brand); min-width: 1px; }
 .split-charts { display: flex; flex-direction: column; gap: 0; }
 .split-chart-card { background: transparent; border: none; border-radius: 0; padding: 12px 14px 8px; }
 .split-chart-card + .split-chart-card { border-top: 1px solid var(--border-subtle); }
 .split-chart-card .clbl { font-size: 11.5px; font-weight: 600; margin-bottom: 8px; color: var(--text-primary); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.split-chart-card .chart-host { height: 130px; }
+.split-chart-card .chart-host { height: auto; }
 .split-chart-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 10px 14px 12px; border-top: 1px solid var(--border-subtle); font-size: 11px; color: var(--text-secondary); }
 .split-chart-legend-item { display: inline-flex; align-items: center; gap: 6px; cursor: default; transition: opacity .1s; }
 .split-chart-legend-item.dim { opacity: .35; }
@@ -975,6 +1011,15 @@ tbody tr:hover { background: var(--panel-2); }
 .split-ep-row.no-hover { cursor: default; }
 .split-ep-row.no-hover:hover { background: transparent; }
 .split-breakdown { border-top: 1px solid var(--border-subtle); }
+.title-dropdown { display: inline-flex; align-items: center; gap: 6px; background: transparent; border: none; padding: 0; margin: 0; font-family: inherit; font-size: 13px; font-weight: 600; color: var(--text-primary); cursor: pointer; border-radius: 4px; }
+.title-dropdown:hover { color: var(--brand); }
+.title-dropdown.open { color: var(--brand); }
+.title-dropdown svg { color: var(--text-muted); flex-shrink: 0; transition: transform .15s; }
+.title-dropdown.open svg { transform: rotate(180deg); color: var(--brand); }
+.title-dropdown-menu { background: var(--raised); border: 1px solid var(--border-panel); border-radius: 6px; padding: 4px; box-shadow: 0 8px 24px rgba(0,0,0,.3); z-index: 500; min-width: 180px; }
+.title-dropdown-item { font-size: 12.5px; color: var(--text-primary); padding: 7px 10px; border-radius: 4px; cursor: pointer; }
+.title-dropdown-item:hover { background: var(--panel-2); }
+.title-dropdown-item.active { color: var(--brand); font-weight: 600; }
 
 /* Slow Queries table */
 .slowq-row { display: grid; grid-template-columns: 130px 1fr 84px; gap: 12px; padding: 10px 16px; border-top: 1px solid var(--border-subtle); align-items: center; font-size: 12px; }
@@ -983,16 +1028,23 @@ tbody tr:hover { background: var(--panel-2); }
 .slowq-row .d { text-align: right; font-weight: 400; color: var(--text-primary); }
 
 /* ============ Errors tab ============ */
-.err-row { display: grid; grid-template-columns: 1fr 1.4fr 60px 320px; gap: 14px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--border-subtle); font-size: 12px; cursor: pointer; transition: background .1s; }
-.err-row:hover { background: var(--panel-2); }
+.err-row { display: grid; grid-template-columns: 1fr 1.4fr 60px 320px; gap: 14px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--border-subtle); font-size: 12px; }
+/* Clickable row opens the Traces page scoped to the error. The hover affordance
+ * is a brand-tinted left bar so the sparkline column keeps a stable chart
+ * background underneath. */
+.err-row.is-clickable { cursor: pointer; position: relative; }
+.err-row.is-clickable::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: transparent; transition: background .12s; }
+.err-row.is-clickable:hover::before,
+.err-row.is-clickable:focus-visible::before { background: var(--brand); }
+.err-row.is-clickable:focus-visible { outline: none; }
 .err-endpoint { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-primary); }
 .err-exc { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .err-exc-cls { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--critical-fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .err-exc-msg { font-size: 10.5px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.err-count { text-align: right; font-weight: 400; font-size: 15px; color: var(--text-primary); }
-.err-spark { height: 72px; }
+.err-count { text-align: right; font-weight: 400; font-size: 15px; color: var(--text-primary); margin-right: 20px; }
+.err-spark { height: 132px; }
 .err-head { display: grid; grid-template-columns: 1fr 1.4fr 60px 320px; gap: 14px; padding: 8px 16px; font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
-.err-head span:nth-child(3) { text-align: right; }
+.err-head span:nth-child(3) { text-align: right; margin-right: 20px; }
 .err-empty { padding: 60px 20px; text-align: center; color: var(--text-muted); font-size: 12px; }
 .err-empty svg { width: 34px; height: 34px; margin-bottom: 10px; color: var(--border-strong); }
 .seg-toggle { display: inline-flex; background: var(--panel); border-radius: var(--radius-sm); padding: 2px; gap: 1px; }
@@ -3442,18 +3494,84 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 .appdb-summary-row .num-cell { font-family: 'JetBrains Mono', monospace; font-weight: 600; color: var(--text-primary); text-align: right; }
 
 /* ============ Runtime tab ============ */
-.runtime-layout { display: grid; grid-template-columns: 200px 1fr; gap: 14px; align-items: start; margin-bottom: 20px; }
-.runtime-hosts { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); overflow: hidden; }
-.runtime-hosts-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px 6px 14px; font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; border-bottom: 1px solid var(--border-subtle); }
-.runtime-host-row { display: flex; align-items: center; gap: 8px; padding: 9px 14px; font-size: 11.5px; cursor: pointer; transition: background .1s; font-family: 'JetBrains Mono', monospace; color: var(--text-secondary); }
-.runtime-host-row:hover { background: var(--panel-2); color: var(--text-primary); }
-.runtime-host-row.selected { background: var(--brand-muted); color: var(--brand-on-muted); }
-.runtime-host-row .status-dot { width: 7px; height: 7px; flex-shrink: 0; }
+/* The host rail is part of the one surface card, not a card on it: flush on
+   the card's left edge, full height, divided from the charts by a single rule.
+   The negative margins cancel .card-scroll's 16px sides and 8px bottom, so the
+   rail reaches the card's edges and the charts column — which now does the
+   scrolling — keeps its scrollbar on the card's right edge. */
+.svc-main.has-rail { display: flex; min-height: 0; padding: 0; margin: 0 -16px -8px; overflow: hidden; }
+.runtime-layout { display: flex; flex: 1; min-width: 0; min-height: 0; }
+.runtime-main { --rt-pad-top: 18px; flex: 1; min-width: 0; overflow-y: auto; padding: var(--rt-pad-top) 16px 24px; }
+
+.rt-rail { position: relative; width: 232px; flex-shrink: 0; display: flex; flex-direction: column; min-height: 0;
+  background: var(--card); border-right: 1px solid var(--border-subtle); }
+.rt-head { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 12px 14px 10px; line-height: 16px; font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600;
+  border-bottom: 1px solid var(--border-head); }
+.rt-list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px 0; }
+.rt-empty { padding: 14px; font-size: 11.5px; color: var(--text-muted); }
+
+/* A <button>, so it resets the control defaults it arrives with. */
+.rt-host { display: flex; flex-direction: column; gap: 7px; width: 100%; padding: 9px 14px 11px; background: transparent;
+  border: 0; text-align: left; cursor: pointer; color: var(--text-secondary); font-family: inherit; transition: background .1s; }
+.rt-host:hover { background: var(--panel-2); color: var(--text-primary); }
+.rt-host:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.rt-host[aria-pressed="true"] { background: var(--brand-muted); color: var(--brand-on-muted); }
+.rt-host-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: 'JetBrains Mono', monospace; font-size: 11.5px; }
+.rt-host.is-ghost .rt-host-name { color: var(--text-muted); }
+.rt-ghost-divider { height: 1px; margin: 4px 14px; background: var(--border-subtle); }
+
+/* The lifeline. Runs are solid brand; gaps are a hairline; the part of Today
+   still to come is dotted. Round ends are a JVM starting or stopping, square
+   ends a run cut by the range or still going. */
+.rt-track { position: relative; display: block; height: 4px; transition: opacity .12s; }
+.rt-piece { position: absolute; top: 0; height: 100%; }
+.rt-piece.run { background: var(--brand); }
+.rt-piece.run.cap-l { border-top-left-radius: 2px; border-bottom-left-radius: 2px; }
+.rt-piece.run.cap-r { border-top-right-radius: 2px; border-bottom-right-radius: 2px; }
+.rt-piece.gap { top: 50%; height: 1px; margin-top: -.5px; background: var(--border-panel); }
+.rt-piece.future { top: 50%; height: 0; border-top: 1px dotted var(--border-strong); }
+.rt-rail.has-selection .rt-host:not([aria-pressed="true"]) .rt-track { opacity: .4; }
+
+/* What the charts are drawn from: the Detail tab's endpoint strip, across the
+   top of the charts column. Negative margins cancel .runtime-main's padding so
+   it sits flush under the tab row and reaches the card's right edge; it stays
+   put while the charts scroll under it. Its height is the rail header's
+   (12 + 16 + 10 + 1), so the two rules run on as one line across the rail's
+   border. */
+.rt-scope { position: sticky; top: calc(-1 * var(--rt-pad-top)); z-index: 5;
+  display: flex; align-items: center; gap: 10px; min-height: 39px; padding: 8px 16px;
+  margin: calc(-1 * var(--rt-pad-top)) -16px var(--rt-pad-top);
+  background: var(--canvas); border-bottom: 1px solid var(--border-head);
+  font-size: 12px; color: var(--text-secondary); }
+/* Hides while the charts scroll down and slides back as soon as they scroll
+   up — the same motion as the Detail tab's .endpoint-strip. */
+.rt-scope { will-change: transform; transform: translateY(0); }
+.rt-scope.is-hidden { transform: translateY(-110%); transition: transform 160ms ease-in; }
+.rt-scope.is-revealed { transform: translateY(0); transition: transform 240ms ease-out; box-shadow: 0 2px 8px rgba(15,23,42,.06); }
+.rt-scope-what { font-weight: 600; color: var(--text-primary); }
+.rt-scope-host { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; font-weight: 500; color: var(--text-primary); }
+.rt-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px;
+  padding: 9px 12px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--panel);
+  font-size: 11.5px; color: var(--text-secondary); }
+
+/* Narrow screens: the rail stacks above the charts instead of beside them. */
+@media (max-width: 900px) {
+  .svc-main.has-rail { overflow-y: auto; }
+  .runtime-layout { flex-direction: column; }
+  /* Tall enough for the demo's four hosts; a longer list scrolls inside it. */
+  .rt-rail { width: auto; max-height: 320px; border-right: 0; border-bottom: 1px solid var(--border-subtle); }
+  .runtime-main { overflow: visible; }
+  /* The page scrolls here, and it has no top padding to cancel. */
+  .rt-scope { top: 0; }
+}
+
 .runtime-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .runtime-chart-card { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); padding: 12px 14px 8px; }
 .runtime-chart-card .clbl { font-size: 11.5px; font-weight: 600; margin-bottom: 8px; color: var(--text-primary); display: flex; align-items: center; justify-content: space-between; }
 .runtime-chart-card .cval { font-size: 12px; color: var(--text-secondary); font-weight: 500; }
-.runtime-chart-card .chart-host { height: 140px; }
+.runtime-chart-card .chart-host { height: 200px; }
 .runtime-legend { display: flex; gap: 12px; margin-top: 4px; }
 .runtime-legend-item { display: flex; align-items: center; gap: 5px; font-size: 10.5px; color: var(--text-secondary); }
 .runtime-legend-swatch { width: 8px; height: 8px; border-radius: 2px; }
@@ -3484,8 +3602,7 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
   background: none; color: var(--text-muted); cursor: pointer; opacity: .55; transition: opacity .12s, background .12s, color .12s; }
 .card-menu-btn svg { width: 15px; height: 15px; }
 .kpi-card:hover .card-menu-btn, .panel:hover .card-menu-btn, .chart-card:hover .card-menu-btn,
-.split-chart-card:hover .card-menu-btn, .runtime-chart-card:hover .card-menu-btn,
-.runtime-hosts:hover .card-menu-btn { opacity: 1; }
+.split-chart-card:hover .card-menu-btn, .runtime-chart-card:hover .card-menu-btn { opacity: 1; }
 .card-menu-btn:hover, .card-menu-btn:focus-visible, .card-menu-btn.open { opacity: 1; background: var(--panel-2); color: var(--text-primary); }
 .card-menu-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
 
@@ -4399,17 +4516,6 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 }
 
 /* ══ Endpoint detail ═══════════════════════════════════════════════════ */
-.ep-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
-/* Outlined like the service picker; the native arrow is swapped for a drawn
-   chevron so it can sit clear of the right edge. */
-.ep-bar select {
-  height: 28px; padding: 0 34px 0 10px; border-radius: 6px; min-width: 343px;
-  border: 1px solid var(--border-panel); cursor: pointer;
-  color: var(--text-primary); font-family: 'JetBrains Mono', monospace; font-size: 12px;
-  appearance: none; -webkit-appearance: none;
-  background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23616C86' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") no-repeat right 12px center / 13px;
-}
-.ep-bar select:focus { outline: none; border-color: var(--border-strong); }
 .ep-hits { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .ep-hits td { padding: 8px 12px; border-bottom: 1px solid var(--border-subtle); color: var(--text-primary); }
 .ep-hits tr:last-child td { border-bottom: none; }
@@ -4418,3 +4524,58 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 /* A summary row that drills in says so on hover; one that does not, does not. */
 .appdb-summary-row.is-clickable { cursor: pointer; }
 .appdb-summary-row.is-clickable:hover { background: var(--panel-2); }
+
+/* ══ Health history: drag to focus ═════════════════════════════════════ */
+/* Every block on the strip is an exact instant range, so a drag across it is
+   the same gesture the charts carry — and the band is styled to match the
+   ReferenceArea they draw: brand stroke at .6 over a brand wash at .14.
+
+   It sits OVER the blocks rather than inside them. A healthy block renders at
+   half opacity, which would halve anything nested in it and make the band read
+   differently depending on which statuses it happened to cover. */
+.health-strip { position: relative; cursor: crosshair; }
+.health-strip.is-focusing { cursor: ew-resize; }
+.health-focus-band {
+  position: absolute; top: -2px; bottom: -2px;
+  border: 1px solid rgb(var(--c-brand) / .6);
+  background: rgb(var(--c-brand) / .14);
+  border-radius: 3px;
+  /* The blocks underneath have to keep reporting the drag crossing them. */
+  pointer-events: none;
+}
+
+/* ══ Runtime tab: the reference platform's chart grid ═══════════════════ */
+/* Twelve charts in rows of two, two, three, three, two — the shape the
+   reference uses, and the reason the track count is six rather than two: a
+   half-width card spans three of six, a third-width card spans two, and the
+   two row shapes line up on the same gutters instead of drifting apart.
+
+   These override the two-track rule above rather than editing it, so the
+   earlier block stays readable as "what a runtime card is" and this one as
+   "how the panel is laid out". */
+.runtime-grid { grid-template-columns: repeat(6, 1fr); }
+.runtime-grid .rt-half { grid-column: span 3; }
+.runtime-grid .rt-third { grid-column: span 2; }
+/* A third-width card is roughly 2/3 the width of a half-width one, so it is
+   given a little less height too — a chart that is taller than it is wide
+   reads every wobble as a spike. */
+.runtime-grid .rt-third .chart-host { height: 180px; }
+
+/* The grid reflows on the width of its own COLUMN, not of the viewport.
+   Those are not the same number and the gap moves: the host rail takes 232px
+   out of the column, and the nav rail takes more or less depending on whether
+   it is expanded. Written as viewport media queries, a 1300px window kept the
+   thirds three-across at ~260px each — narrower than the width the 1280px
+   breakpoint existed to protect. */
+.runtime-main { container-type: inline-size; container-name: runtime; }
+
+@container runtime (max-width: 900px) {
+  /* Three across stops being readable before two does: the value axis eats a
+     fixed ~50px whatever the card width, so the thirds collapse to halves
+     first and the halves hold on. */
+  .runtime-grid .rt-third { grid-column: span 3; }
+  .runtime-grid .rt-third .chart-host { height: 200px; }
+}
+@container runtime (max-width: 560px) {
+  .runtime-grid .rt-half, .runtime-grid .rt-third { grid-column: span 6; }
+}

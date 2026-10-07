@@ -1,8 +1,8 @@
 import { extraLogRecords } from './logRecordTypes'
 import { isNoiseField } from '@/utils/logFields'
 import {
-  BASE_TIME, REFERENCE_WINDOW, calibratePeak, incidentWeight,
-  sampleAt, sampleCount, spreadTimes, windowCount,
+  BASE_TIME, REFERENCE_WINDOW, calibratePeak, incidentWeight, pinToReference,
+  sampleAt, sampleCount, spreadTimes, windowCount, windowMean, windowSeries,
 } from './timeWindow'
 
 // The anchor now lives with the time model; re-exported because every module
@@ -318,21 +318,80 @@ export const INFRA_SOURCE_INDEX = INFRA_SOURCES.reduce((acc, s) => {
   return acc
 }, {})
 
-function generateHostSeries({ base, incident, seed }) {
-  const rnd = seededRnd(seed)
-  const out = []
-  for (let i = 59; i >= 0; i--) {
-    const jitter = (rnd() - 0.5) * 0.12
-    let v = base * (1 + jitter)
-    if (incident && i <= 22) {
-      const into = 22 - i
-      const ramp = Math.min(1, into / 4)
-      v = base * (1 + (incident - 1) * ramp) * (1 + jitter)
-    }
-    out.push({ m: i, value: Math.max(0, Math.round(v * 100) / 100) })
-  }
-  return out
+/**
+ * Infra used to be the last corner of the mock layer that ignored the time
+ * range: every series was a fixed 60-point array of `{ m, value }` built by a
+ * `generateHostSeries` that hard-coded the incident at minute 22 of its own
+ * private hour. Changing the range relabelled those charts and nothing else.
+ *
+ * It is now on the same footing as `data/services`: a profile per metric, a
+ * builder per table, and the module-level exports defined as the REFERENCE
+ * WINDOW's value so nothing that already imports them has to change.
+ *
+ * Two kinds of number live in these row tables, and they are calibrated
+ * differently:
+ *
+ *   • A PUBLISHED figure — the 92.4 the host table shows for
+ *     ip-10-0-142-133 — is what the reference hour AVERAGES to, exactly as
+ *     `services.js` treats 612 ms. It is not the quiet value: the quiet
+ *     baseline is lower, and `pinToReference` solves for whichever baseline
+ *     makes the published figure and the incident peak true together. That is
+ *     the whole reason the table and the chart above it can now agree; they
+ *     used to read the same literal as a mean and as a baseline at once.
+ *
+ *   • A series with NO figure beside it — Redis memory, disk I/O, the
+ *     allocation floor — keeps its old base as the quiet value and is not
+ *     pinned, because there is nothing for the reference hour to reproduce.
+ *
+ * The incident is the shared one. `generateHostSeries` expressed it as
+ * `incident: 1.4`, a multiplier at the worst of the outage over a four-minute
+ * ramp — which is precisely `sampleAt`'s `peak`, so those numbers carry across
+ * unchanged and the outage still lands on the hosts HOST_ROWS flags critical,
+ * with the same force.
+ */
+const INFRA_NOISE = 0.12
+
+function infraProfile(published, { peak = 1, noise = INFRA_NOISE, seed, diurnal = false, pin = true } = {}) {
+  const base = { baseline: published, peak, noise, seed, diurnal }
+  // Pinning is a no-op on a zero metric (connection errors, pod restarts), so
+  // those fall through with a flat baseline of 0 and no special case.
+  return pin ? pinToReference(base, windowMean, published) : base
 }
+
+/**
+ * The same profile on a different unit. Every term in `sampleAt` is
+ * multiplicative, so scaling the baseline scales the whole series and nothing
+ * else moves — which is how a host's network row stays in MB while its chart
+ * stays in bytes per second, off one calibration.
+ */
+const atScale = (profile, factor) => (factor === 1 ? profile : { ...profile, baseline: profile.baseline * factor })
+
+/** A series that does not vary: a node count, a container count, a CPU limit. */
+const flat = value => ({ baseline: value, peak: 1, noise: 0, seed: 1 })
+
+/**
+ * The daily traffic wave goes on throughput the incident does NOT touch, and
+ * nowhere else. This is the same split `services.js` makes — the wave is on
+ * `rpm`, while `p90` and `err` are flat — and it is not a stylistic choice.
+ *
+ * `sampleAt` normalises the wave against the reference hour, so a diurnal
+ * metric averages to 1x over that hour and to 1/WAVE_REFERENCE over a week.
+ * Whether that factor is above or below 1 depends on what time of day the demo
+ * is opened: at midnight it is about 1.18. Put the wave on a metric that also
+ * carries the incident and the two pull in opposite directions as the range
+ * widens — a critical host's CPU came out HIGHER over seven days than over the
+ * last hour, by an amount that changed with the wall clock. The incident
+ * thinning out is the one thing the range picker exists to show, so nothing
+ * that carries a peak also carries the wave.
+ *
+ * What is left is pod resource use and nothing else: no pod carries the
+ * outage, and the pod table's own figures are window aggregates from these
+ * same profiles, so the wave cannot drift them away from a static card.
+ */
+const DIURNAL = true
+
+const round2 = v => Math.round(v * 100) / 100
+const round4 = v => Math.round(v * 10000) / 10000
 
 const HOST_ROWS = [
   { host: 'ip-10-0-129-151', service: 'analytics-service', cpu: 26.21, mem: 38.95, disk: 73.6, netIn: 10.3, netOut: 4.84, cpuUnit: 'K', unit: 'M', status: 'healthy' },
@@ -344,15 +403,61 @@ const HOST_ROWS = [
   { host: 'minikube', service: 'demo-nodejs-service', cpu: 26.36, mem: 42.49, disk: 73.6, netIn: 1.9, netOut: 0.88, unit: 'K', status: 'healthy' },
 ]
 
-export const infraHosts = HOST_ROWS.map((h, i) => ({
-  ...h,
-  cpuSeries: generateHostSeries({ base: h.cpu, incident: h.status === 'critical' ? 1.4 : null, seed: 401 + i }),
-  memSeries: generateHostSeries({ base: h.mem, incident: h.status === 'critical' ? 1.15 : null, seed: 501 + i }),
-  diskSeries: generateHostSeries({ base: h.disk, incident: null, seed: 601 + i }),
-  netInSeries: generateHostSeries({ base: h.netIn * (h.unit === 'K' ? 100 : 100000), incident: h.status === 'critical' ? 1.3 : null, seed: 701 + i }),
-  netOutSeries: generateHostSeries({ base: h.netOut * (h.unit === 'K' ? 100 : 100000), incident: h.status === 'critical' ? 1.3 : null, seed: 801 + i }),
-  diskIoSeries: generateHostSeries({ base: h.status === 'critical' ? 34 : 5.5, incident: h.status === 'critical' ? 1.6 : null, seed: 901 + i }),
-}))
+// The host charts read bytes per second while the table reads MB or KB, and the
+// old code carried that as a literal multiplier on the series base. Kept.
+const netScale = h => (h.unit === 'K' ? 100 : 100000)
+
+// None of these carries the daily wave, and that is deliberate — see the note
+// on DIURNAL below. They are the metrics the incident moves, so the only thing
+// that should move them as the range widens is the incident thinning out.
+const HOST_PROFILES = HOST_ROWS.map((h, i) => {
+  // The hosts on the incident path are exactly the ones HOST_ROWS flags
+  // critical, which is how `generateHostSeries` chose them too.
+  const hit = h.status === 'critical'
+  return {
+    cpu: infraProfile(h.cpu, { peak: hit ? 1.4 : 1, seed: 401 + i }),
+    mem: infraProfile(h.mem, { peak: hit ? 1.15 : 1, seed: 501 + i }),
+    disk: infraProfile(h.disk, { seed: 601 + i }),
+    netIn: infraProfile(h.netIn, { peak: hit ? 1.3 : 1, seed: 701 + i }),
+    netOut: infraProfile(h.netOut, { peak: hit ? 1.3 : 1, seed: 801 + i }),
+    // No figure is published beside the disk I/O chart, so its old base stays
+    // the quiet value and there is nothing to pin it to.
+    diskIo: infraProfile(hit ? 34 : 5.5, { peak: hit ? 1.6 : 1, seed: 901 + i, pin: false }),
+  }
+})
+
+/**
+ * Every host as the selected window saw it.
+ *
+ * `status` is deliberately NOT re-derived from the window. It is the same
+ * worst-instant reading `services.js` keeps on a service row: a host that ran
+ * its CPU into the ceiling for 22 minutes does not become healthy because you
+ * widened the chart to a week, even though every average on the row fades back
+ * towards quiet. The numbers tell you what the window held; the dot tells you
+ * it broke.
+ */
+export function infraHostsForWindow(win) {
+  return HOST_ROWS.map((h, i) => {
+    const p = HOST_PROFILES[i]
+    const scale = netScale(h)
+    return {
+      ...h,
+      cpu: round2(windowMean(win, p.cpu)),
+      mem: round2(windowMean(win, p.mem)),
+      disk: round2(windowMean(win, p.disk)),
+      netIn: round2(windowMean(win, p.netIn)),
+      netOut: round2(windowMean(win, p.netOut)),
+      cpuSeries: windowSeries(win, p.cpu),
+      memSeries: windowSeries(win, p.mem),
+      diskSeries: windowSeries(win, p.disk),
+      netInSeries: windowSeries(win, atScale(p.netIn, scale)),
+      netOutSeries: windowSeries(win, atScale(p.netOut, scale)),
+      diskIoSeries: windowSeries(win, p.diskIo),
+    }
+  })
+}
+
+export const infraHosts = infraHostsForWindow(REFERENCE_WINDOW)
 
 export const HOST_PROCESSES = [
   { name: 'cube', color: '#F59E0B', cpu: 31.59, mem: 86.27 },
@@ -372,26 +477,41 @@ export const HOST_PROCESSES = [
 
 /* ============ KUBERNETES ============ */
 
-function genAllocSeries({ total, request, limit, usedBase, seed }) {
-  const rnd = seededRnd(seed)
-  const totalArr = [], requestArr = [], limitArr = [], usedArr = []
-  for (let i = 59; i >= 0; i--) {
-    const jitter = (rnd() - 0.5) * 0.06
-    totalArr.push({ m: i, value: total })
-    requestArr.push({ m: i, value: request })
-    limitArr.push({ m: i, value: limit })
-    usedArr.push({ m: i, value: Math.max(0, usedBase * (1 + jitter)) })
+// Total, request and limit are what the cluster was CONFIGURED for, so they are
+// flat lines across any window; only `used` is a reading. The old generator
+// jittered it by 6% and nothing it draws is published elsewhere, so its base
+// stays the quiet value.
+const ALLOC_SPECS = {
+  cpu: { total: 4, request: 1, limit: 4, usedBase: 0.1, seed: 1901, round: 4 },
+  mem: { total: 16_000_000_000, request: 900_000_000, limit: 16_000_000_000, usedBase: 700_000_000, seed: 1902, round: 0 },
+}
+
+function allocForWindow(win, { total, request, limit, usedBase, seed, round }) {
+  const opts = { round }
+  return {
+    total: windowSeries(win, flat(total), opts),
+    request: windowSeries(win, flat(request), opts),
+    limit: windowSeries(win, flat(limit), opts),
+    used: windowSeries(win, { baseline: usedBase, peak: 1, noise: 0.06, seed }, opts),
   }
-  return { total: totalArr, request: requestArr, limit: limitArr, used: usedArr }
 }
 
-export const k8sCpuAllocation = genAllocSeries({ total: 4, request: 1, limit: 4, usedBase: 0.1, seed: 1901 })
-export const k8sMemAllocation = genAllocSeries({ total: 16_000_000_000, request: 900_000_000, limit: 16_000_000_000, usedBase: 700_000_000, seed: 1902 })
+export const k8sCpuAllocationForWindow = win => allocForWindow(win, ALLOC_SPECS.cpu)
+export const k8sMemAllocationForWindow = win => allocForWindow(win, ALLOC_SPECS.mem)
 
-export const k8sContainersSeries = {
-  ready: Array.from({ length: 60 }, (_, idx) => ({ m: 59 - idx, value: 10 })),
-  notReady: Array.from({ length: 60 }, (_, idx) => ({ m: 59 - idx, value: 0 })),
+/** Both allocation charts in one call, for a view that draws them together. */
+export function k8sAllocationForWindow(win) {
+  return { cpu: k8sCpuAllocationForWindow(win), mem: k8sMemAllocationForWindow(win) }
 }
+
+export const k8sCpuAllocation = k8sCpuAllocationForWindow(REFERENCE_WINDOW)
+export const k8sMemAllocation = k8sMemAllocationForWindow(REFERENCE_WINDOW)
+
+export function k8sContainersSeriesForWindow(win) {
+  return { ready: windowSeries(win, flat(10), { round: 0 }), notReady: windowSeries(win, flat(0), { round: 0 }) }
+}
+
+export const k8sContainersSeries = k8sContainersSeriesForWindow(REFERENCE_WINDOW)
 
 export const k8sClusterSummary = {
   nodesTotal: 2, nodesReady: 2,
@@ -419,14 +539,36 @@ const K8S_NODE_ROWS = [
   { name: 'ip-10-0-143-40', cpu: 87.5, mem: 86.7, disk: 71.87, netIn: 2.79, netOut: 1.52, unit: 'M', pods: 4, status: 'critical' },
 ]
 
-export const k8sNodes = K8S_NODE_ROWS.map((n, i) => ({
-  ...n,
-  cpuSeries: generateHostSeries({ base: n.cpu, incident: 1.15, seed: 2001 + i }),
-  memSeries: generateHostSeries({ base: n.mem, incident: 1.1, seed: 2101 + i }),
-  diskSeries: generateHostSeries({ base: n.disk, incident: null, seed: 2201 + i }),
-  netInSeries: generateHostSeries({ base: n.netIn * 100000, incident: 1.2, seed: 2301 + i }),
-  netOutSeries: generateHostSeries({ base: n.netOut * 100000, incident: 1.2, seed: 2401 + i }),
+// Both nodes are on the incident path — they are where the payment pods sit —
+// so neither is conditioned on status, exactly as before.
+const NODE_PROFILES = K8S_NODE_ROWS.map((n, i) => ({
+  cpu: infraProfile(n.cpu, { peak: 1.15, seed: 2001 + i }),
+  mem: infraProfile(n.mem, { peak: 1.1, seed: 2101 + i }),
+  disk: infraProfile(n.disk, { seed: 2201 + i }),
+  netIn: infraProfile(n.netIn, { peak: 1.2, seed: 2301 + i }),
+  netOut: infraProfile(n.netOut, { peak: 1.2, seed: 2401 + i }),
 }))
+
+export function k8sNodesForWindow(win) {
+  return K8S_NODE_ROWS.map((n, i) => {
+    const p = NODE_PROFILES[i]
+    return {
+      ...n,
+      cpu: round2(windowMean(win, p.cpu)),
+      mem: round2(windowMean(win, p.mem)),
+      disk: round2(windowMean(win, p.disk)),
+      netIn: round2(windowMean(win, p.netIn)),
+      netOut: round2(windowMean(win, p.netOut)),
+      cpuSeries: windowSeries(win, p.cpu),
+      memSeries: windowSeries(win, p.mem),
+      diskSeries: windowSeries(win, p.disk),
+      netInSeries: windowSeries(win, atScale(p.netIn, 100000)),
+      netOutSeries: windowSeries(win, atScale(p.netOut, 100000)),
+    }
+  })
+}
+
+export const k8sNodes = k8sNodesForWindow(REFERENCE_WINDOW)
 
 // `labels` are the pod column's tags, searched as `pod.app:redis`.
 const K8S_POD_ROWS = [
@@ -438,16 +580,44 @@ const K8S_POD_ROWS = [
   { name: 'storage-provisioner', labels: { app: 'storage', tier: 'system' }, namespace: 'kube-system', node: 'ip-10-0-143-40', cpuUsed: 0.0016, cpuRequest: 0, cpuLimit: 0, memUsed: 13_100_000, memRequest: 0, memLimit: 0, netIn: 0.2, netOut: 0.2 },
 ]
 
-export const k8sPods = K8S_POD_ROWS.map((p, i) => ({
-  ...p,
-  containerName: p.name.split('-')[0],
-  cpuSeries: generateHostSeries({ base: Math.max(p.cpuUsed, 0.001), incident: null, seed: 2501 + i }),
-  memSeries: generateHostSeries({ base: p.memUsed, incident: null, seed: 2601 + i }),
-  diskSeries: generateHostSeries({ base: 73.9, incident: null, seed: 2701 + i }),
-  restartsSeries: Array.from({ length: 60 }, (_, idx) => ({ m: 59 - idx, value: 0 })),
-  netInSeries: generateHostSeries({ base: p.netIn, incident: null, seed: 2801 + i }),
-  netOutSeries: generateHostSeries({ base: p.netOut, incident: null, seed: 2901 + i }),
+// No pod carries the incident: the outage is in the Redis connection POOL, not
+// in the pod's own resource use, and the old generator passed `incident: null`
+// for every one of them. Their windows move with the daily wave alone.
+//
+// Requests and limits stay literal — an allocation is configuration, not a
+// reading, and does not average over a window.
+const POD_PROFILES = K8S_POD_ROWS.map((p, i) => ({
+  cpuUsed: infraProfile(p.cpuUsed, { seed: 2501 + i, diurnal: DIURNAL }),
+  memUsed: infraProfile(p.memUsed, { seed: 2601 + i }),
+  disk: infraProfile(73.9, { seed: 2701 + i, pin: false }),
+  netIn: infraProfile(p.netIn, { seed: 2801 + i, diurnal: DIURNAL }),
+  netOut: infraProfile(p.netOut, { seed: 2901 + i, diurnal: DIURNAL }),
 }))
+
+export function k8sPodsForWindow(win) {
+  return K8S_POD_ROWS.map((p, i) => {
+    const pr = POD_PROFILES[i]
+    return {
+      ...p,
+      containerName: p.name.split('-')[0],
+      cpuUsed: round4(windowMean(win, pr.cpuUsed)),
+      memUsed: Math.round(windowMean(win, pr.memUsed)),
+      netIn: round2(windowMean(win, pr.netIn)),
+      netOut: round2(windowMean(win, pr.netOut)),
+      // Pod CPU is in cores, and a system pod sits at 0.0002 of one. The old
+      // generator rounded every series to two decimals, which drew those pods
+      // as a flat zero line under an axis formatted to three.
+      cpuSeries: windowSeries(win, pr.cpuUsed, { round: 5 }),
+      memSeries: windowSeries(win, pr.memUsed, { round: 0 }),
+      diskSeries: windowSeries(win, pr.disk),
+      restartsSeries: windowSeries(win, flat(0), { round: 0 }),
+      netInSeries: windowSeries(win, pr.netIn),
+      netOutSeries: windowSeries(win, pr.netOut),
+    }
+  })
+}
+
+export const k8sPods = k8sPodsForWindow(REFERENCE_WINDOW)
 
 export const K8S_NAMESPACES = ['default', 'kube-system']
 
@@ -459,10 +629,18 @@ export const K8S_NAMESPACES = ['default', 'kube-system']
  * deliberately absent: a node is not namespaced, which is the one real
  * difference between this view and the cluster it sits inside.
  */
+export function k8sNamespaceDetailForWindow(win, namespace) {
+  return namespaceDetail(k8sPodsForWindow(win), namespace)
+}
+
 export function k8sNamespaceDetail(namespace) {
+  return namespaceDetail(k8sPods, namespace)
+}
+
+function namespaceDetail(allPods, namespace) {
   const alloc = k8sNamespaceSummary.find(n => n.namespace === namespace)
   if (!alloc) return null
-  const pods = k8sPods.filter(p => p.namespace === namespace)
+  const pods = allPods.filter(p => p.namespace === namespace)
   const deploy = k8sDeploymentSummary.find(d => d.namespace === namespace)
   const isSystem = namespace === 'kube-system'
   return {
@@ -494,19 +672,47 @@ export const mysqlSummary = {
   host: 'database-2.cgo30ygoem6z.ap-south-1.rds.amazonaws.com:3306',
   connections: 13.84, opsPerMin: 321.54, connErrPerMin: 0, slowQueriesPerMin: 0, replicationLag: null, dbSizeBytes: 474_660_000,
 }
-export const mysqlSeries = {
-  opsPerMin: generateHostSeries({ base: 320, incident: null, seed: 3001 }),
-  connErrors: generateHostSeries({ base: 0, incident: null, seed: 3002 }),
-  slowQueries: generateHostSeries({ base: 0, incident: null, seed: 3003 }),
+// MySQL is not on the incident path — it is Redis that gave out — so these keep
+// their old bases as quiet values and carry no peak. No daily wave either:
+// `mysqlSummary.opsPerMin` is a static card sitting beside this chart, and the
+// wave would walk the chart away from it by up to 18% depending on the hour.
+const MYSQL_PROFILES = {
+  opsPerMin: { baseline: 320, peak: 1, noise: INFRA_NOISE, seed: 3001 },
+  connErrors: { baseline: 0, peak: 1, noise: INFRA_NOISE, seed: 3002 },
+  slowQueries: { baseline: 0, peak: 1, noise: INFRA_NOISE, seed: 3003 },
 }
+
+export function mysqlSeriesForWindow(win) {
+  return {
+    opsPerMin: windowSeries(win, MYSQL_PROFILES.opsPerMin),
+    connErrors: windowSeries(win, MYSQL_PROFILES.connErrors),
+    slowQueries: windowSeries(win, MYSQL_PROFILES.slowQueries),
+  }
+}
+
+export const mysqlSeries = mysqlSeriesForWindow(REFERENCE_WINDOW)
 
 /* ============ REDIS ============ */
 
 export const redisSummary = {
   host: 'redis.0', connections: 128, connPerMin: 42, cmdPerMin: 640, memUsedBytes: 1_060_000_000, cacheHitPct: 71.2, status: 'critical',
 }
-export const redisSeries = {
-  memUsed: generateHostSeries({ base: 620_000_000, incident: 1.7, seed: 3101 }),
-  cmdPerMin: generateHostSeries({ base: 610, incident: 1.05, seed: 3102 }),
-  evictionsPerMin: generateHostSeries({ base: 2, incident: 18, seed: 3103 }),
+// Redis IS the incident, and `redisSummary` reads the plateau rather than an
+// hourly mean — 620 MB quiet times the 1.7 peak is the 1.06 GB the card shows,
+// and 610 commands times 1.05 is its 640. So these bases are quiet values and
+// are not pinned: pinning them to the summary would double-count the outage.
+const REDIS_PROFILES = {
+  memUsed: { baseline: 620_000_000, peak: 1.7, noise: INFRA_NOISE, seed: 3101 },
+  cmdPerMin: { baseline: 610, peak: 1.05, noise: INFRA_NOISE, seed: 3102 },
+  evictionsPerMin: { baseline: 2, peak: 18, noise: INFRA_NOISE, seed: 3103 },
 }
+
+export function redisSeriesForWindow(win) {
+  return {
+    memUsed: windowSeries(win, REDIS_PROFILES.memUsed, { round: 0 }),
+    cmdPerMin: windowSeries(win, REDIS_PROFILES.cmdPerMin),
+    evictionsPerMin: windowSeries(win, REDIS_PROFILES.evictionsPerMin),
+  }
+}
+
+export const redisSeries = redisSeriesForWindow(REFERENCE_WINDOW)

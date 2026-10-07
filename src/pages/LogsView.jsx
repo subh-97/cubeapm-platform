@@ -1,11 +1,11 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceArea, ResponsiveContainer } from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { logRowsForWindow, logVolumeForWindow, buildLogFacets, BASE_TIME } from '@/data/observability'
 import { resolveWindow, bucketIndexOf } from '@/data/timeWindow'
-import { zoomRange } from '@/utils/timeRange'
 import PageBar from '@/components/layout/PageBar'
 import QueryBuilder, { applyChipsToLog, chipsToString, FIELD_CATALOG, getFieldValue, SAVED_QUERIES } from '@/components/QueryBuilder'
 import { flattenLeaves, newGroup } from '@/utils/queryTree'
+import { toExploreLogsQuery } from '@/utils/explore/builders'
 import { aggregate } from '@/utils/aggregator'
 import AggregateResults from '@/components/AggregateResults'
 import { serializePipes, composeQuery, parsePipes, withImpliedCount, newStatsPipe, newSortPipe, newLimitPipe, newMathPipe, namesInScopeBefore } from '@/utils/pipes'
@@ -27,7 +27,10 @@ import FacetGroup from '@/components/explorer/FacetGroup'
 import FieldsDropdown from '@/components/explorer/FieldsDropdown'
 import QueryHistoryDrawer from '@/components/explorer/QueryHistoryDrawer'
 import AlertDrawer from '@/components/explorer/AlertDrawer'
-import { GRID_PROPS, timeAxisProps, valueAxisProps, fmtCount } from '@/components/charts/chartDefaults'
+import { GRID_PROPS, valueAxisProps, fmtCount } from '@/components/charts/chartDefaults'
+import { buildTimeAxis } from '@/components/charts/timeAxis'
+import { useTimeFocus, useMeasuredWidth } from '@/components/charts/useTimeFocus'
+import ChartTooltip from '@/components/charts/ChartTooltip'
 
 const AGG_ALL_FIELDS = FIELD_CATALOG.map(f => f.field)
 const AGG_NUMERIC_FIELDS = new Set(FIELD_CATALOG.filter(f => f.type === 'keyword').map(f => f.field))
@@ -50,20 +53,41 @@ function fullFn(f) {
 }
 
 
-function VolumeTooltip({ active, payload, label }) {
+// The log-level bands are the one case where a tooltip's colour means severity
+// rather than identity, so these stay exactly the colours the bars are drawn
+// in. What changes is where the colour sits: on the swatch, not on the text.
+// Red text on the panel was the least legible row in the tooltip, and it was
+// the row people came to read.
+const VOLUME_BANDS = [
+  { key: 'error', label: 'error', color: '#EF4444' },
+  { key: 'warn', label: 'warn', color: '#F59E0B' },
+  { key: 'info', label: 'info', color: '#60A5FA' },
+]
+
+// `hoverKey` is the band the pointer is actually inside. Recharts' tooltip is
+// shared across the stack — it knows the bucket, not which segment of it the
+// cursor is on — so the bars report that themselves.
+//
+// `suppressed` is the platform rule for a page with more than one chart: only
+// the chart the pointer is actually in opens a panel, the rest show the
+// crosshair alone. This page draws a single chart today, so it is always the
+// hovered one and the flag never fires — it is wired anyway so that a second
+// chart placed beside this one inherits the rule without an edit here.
+function VolumeTooltip({ active, payload, nowMs, hoverKey, suppressed }) {
   if (!active || !payload?.length) return null
   const rec = payload[0]?.payload
   if (!rec) return null
   return (
-    <div style={{ background: 'var(--raised)', border: '1px solid var(--border-panel)', borderRadius: 6, padding: '6px 10px', fontSize: 11, minWidth: 130 }}>
-      <div style={{ color: 'var(--text-primary)', fontWeight: 600, marginBottom: 4 }}>{label}</div>
-      <div style={{ color: '#EF4444', display: 'flex', justifyContent: 'space-between', gap: 12 }}><span>error</span><span style={{ fontWeight: 600 }}>{rec.error}</span></div>
-      <div style={{ color: '#F59E0B', display: 'flex', justifyContent: 'space-between', gap: 12 }}><span>warn</span><span style={{ fontWeight: 600 }}>{rec.warn}</span></div>
-      <div style={{ color: '#60A5FA', display: 'flex', justifyContent: 'space-between', gap: 12 }}><span>info</span><span style={{ fontWeight: 600 }}>{rec.info}</span></div>
-      <div style={{ borderTop: '1px solid var(--border-panel)', marginTop: 5, paddingTop: 5, color: 'var(--text-primary)', fontWeight: 600, display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-        <span>total</span><span>{rec.total}</span>
-      </div>
-    </div>
+    <ChartTooltip
+      // The bucket's own instant, not the axis label: the heading carries the
+      // year and the seconds, which the terse label never had.
+      tMs={rec.t != null ? rec.t * 1000 : rec.x ?? null}
+      nowMs={nowMs}
+      hoverKey={hoverKey}
+      suppressed={suppressed}
+      items={VOLUME_BANDS.map(b => ({ ...b, value: rec[b.key] }))}
+      footer={{ label: 'total', value: rec.total }}
+    />
   )
 }
 
@@ -580,13 +604,11 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
   // instead of two, and the range the rest of the product sees is the range you
   // dragged. `zoomedFrom` is only what Reset goes back to.
   const [zoomedFrom, setZoomedFrom] = useState(null)
-  const [dragBrush, setDragBrush] = useState(null)
   // Text-selection context menu: { x, y, text, field, value } | null
   const [selMenu, setSelMenu] = useState(null)
   // Distribution popover: { field, x, y } | null
   const [distField, setDistField] = useState(null)
   const dragRef = useRef(null)
-  const brushStartRef = useRef(null)
 
   // Detect a text selection inside the log table / detail panel and surface the menu.
   const handleLogSelection = useCallback(() => {
@@ -710,45 +732,40 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
     setTimeRange(v)
   }, [setTimeRange])
 
-  // Releasing a drag turns the two bucket labels back into instants and applies
-  // them as the range. `zoomRange` rounds to whole minutes, so the window that
-  // comes back is one the step ladder can bucket cleanly.
-  useEffect(() => {
-    const onUp = () => {
-      if (!brushStartRef.current) return
-      brushStartRef.current = null
-      setDragBrush(prev => {
-        if (prev && prev.s1 !== prev.s2) {
-          const b1 = win.buckets.find(d => d.label === prev.s1)
-          const b2 = win.buckets.find(d => d.label === prev.s2)
-          if (b1 && b2) {
-            // The later bucket contributes its whole span, or a one-bucket drag
-            // would select an instant.
-            const lo = Math.min(b1.ms, b2.ms)
-            const hi = Math.max(b1.ms, b2.ms) + win.step * 1000
-            const next = zoomRange(lo, hi)
-            if (next) {
-              setZoomedFrom(cur => cur ?? timeRange)
-              setTimeRange(next)
-            }
-          }
-        }
-        return null
-      })
-    }
-    document.addEventListener('mouseup', onUp)
-    return () => document.removeEventListener('mouseup', onUp)
-  }, [win, timeRange, setTimeRange])
+  // A released drag becomes the page's range. The gesture itself — the slop that
+  // keeps a click a click, the bucket the pointer is over, the overlay, the
+  // commit on release anywhere on the page — belongs to `useTimeFocus`, which
+  // every chart on the product shares; the only part that is this page's is
+  // remembering where the drag started from so Reset has somewhere to go back
+  // to. The first drag records it; later drags keep the original, so Reset
+  // returns to the range you were reading, not to the previous zoom.
+  const focusRange = useCallback((next) => {
+    setZoomedFrom(cur => cur ?? timeRange)
+    setTimeRange(next)
+  }, [timeRange, setTimeRange])
 
-  const onChartMouseDown = (e) => {
-    if (!e?.activeLabel) return
-    brushStartRef.current = e.activeLabel
-    setDragBrush({ s1: e.activeLabel, s2: e.activeLabel })
-  }
-  const onChartMouseMove = (e) => {
-    if (!brushStartRef.current || !e?.activeLabel) return
-    setDragBrush(prev => (prev && prev.s2 === e.activeLabel ? prev : { s1: brushStartRef.current, s2: e.activeLabel }))
-  }
+  // Category, not time: the volume chart is a stacked BarChart and needs the
+  // band scale. The ticks are the same ladder either way — resolved to bucket
+  // labels here rather than to instants.
+  const volumeFocus = useTimeFocus(win, { onFocus: focusRange, kind: 'category' })
+
+  // Which band of the stack the pointer is inside, so the tooltip can bring
+  // that row forward and let the other two recede. The bars have to say so
+  // themselves — the tooltip is shared across the stack and only knows which
+  // bucket is under the cursor. Clearing is guarded on the key still being this
+  // one, so that crossing from one band straight into the next cannot land on
+  // "nothing hovered" whichever order the two events arrive in.
+  const [volumeHover, setVolumeHover] = useState(null)
+  const bandHoverProps = (key) => ({
+    onMouseEnter: () => setVolumeHover(key),
+    onMouseLeave: () => setVolumeHover(cur => (cur === key ? null : cur)),
+  })
+
+  const [volumeWrapRef, volumeWidth] = useMeasuredWidth()
+  const volumeAxis = useMemo(
+    () => buildTimeAxis(win, { width: volumeWidth, kind: 'category' }),
+    [win, volumeWidth],
+  )
 
   const startResize = useCallback((e) => {
     e.preventDefault()
@@ -873,6 +890,15 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
   // Copy stays gated on there being something to copy — handing over `*` would
   // be handing over nothing.
   const copyableQuery = spelledQuery
+
+  // Explore speaks the reference's LogsQL and needs a `| stats` pipe to have
+  // anything to plot; `toExploreLogsQuery` translates our chip dialect and
+  // appends `| stats count()` when the query has no aggregation of its own
+  // (ARCH D13). The bar as it stands travels, not the last run — what you are
+  // looking at is what you mean to chart.
+  const openInExplore = useCallback(() => {
+    onOpenLink?.({ view: 'explore', datasource: 'vlogs', query: toExploreLogsQuery(composedQuery) })
+  }, [onOpenLink, composedQuery])
 
   // The save controls read the query that has been RUN, not the one in the bar.
   // Everything else on this surface splits the same way — the preview is live,
@@ -1113,6 +1139,10 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
                 <button role="menuitem" className="logs-more-item" onClick={() => { setAlertOpen(true); setMoreOpen(false) }}>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 10a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 20a2 2 0 004 0"/><line x1="12" y1="2" x2="12" y2="4"/></svg>
                   Create Alert
+                </button>
+                <button role="menuitem" className="logs-more-item" onClick={() => { openInExplore(); setMoreOpen(false) }}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M16 8l-2.4 5.6L8 16l2.4-5.6z"/></svg>
+                  Open in Explore
                 </button>
                 <a
                   role="menuitem"
@@ -1356,6 +1386,10 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 10a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 20a2 2 0 004 0"/><line x1="12" y1="2" x2="12" y2="4"/></svg>
             Alert
           </button>
+          <button className="hbtn small" onClick={openInExplore} title="Chart this query in Explore">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M16 8l-2.4 5.6L8 16l2.4-5.6z"/></svg>
+            Explore
+          </button>
           </div>
         </div>
 
@@ -1380,7 +1414,7 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
         <div className={`logs-results${isRunning ? ' is-stale' : ''}`} aria-busy={isRunning}>
         {appliedStatsFunctions.length === 0 && appliedGroupBy.length === 0 ? (<>
         {graphVisible && <div className="logs-volume">
-          <div className="logs-volume-chart">
+          <div className="logs-volume-chart" ref={volumeWrapRef}>
             {zoomedFrom && (
               <button className="volume-reset-btn" onClick={clearZoom} title="Go back to the range this was zoomed from">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
@@ -1394,20 +1428,20 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
               <BarChart
                 data={visibleVolume}
                 margin={{ top: 8, right: 6, left: 0, bottom: 0 }}
-                onMouseDown={onChartMouseDown}
-                onMouseMove={onChartMouseMove}
-                style={{ cursor: brushStartRef.current ? 'ew-resize' : 'crosshair', userSelect: 'none' }}
+                {...volumeFocus.chartProps}
               >
                 <CartesianGrid {...GRID_PROPS} />
-                <XAxis {...timeAxisProps(visibleVolume.length)} />
-                <YAxis {...valueAxisProps({ format: fmtCount, allowDecimals: false, maxValue: volumeMax })} />
-                <Tooltip content={<VolumeTooltip />} cursor={{ fill: 'rgba(255,255,255,0.02)' }} isAnimationActive={false} />
-                <Bar dataKey="info" stackId="v" fill="#60A5FA" fillOpacity={0.55} isAnimationActive={false} />
-                <Bar dataKey="warn" stackId="v" fill="#F59E0B" fillOpacity={0.75} isAnimationActive={false} />
-                <Bar dataKey="error" stackId="v" fill="#EF4444" fillOpacity={0.85} isAnimationActive={false} />
-                {dragBrush && dragBrush.s1 !== dragBrush.s2 && (
-                  <ReferenceArea x1={dragBrush.s1} x2={dragBrush.s2} stroke="var(--brand)" strokeOpacity={0.6} fill="var(--brand)" fillOpacity={0.14} />
-                )}
+                <XAxis {...volumeAxis.props} />
+                <YAxis {...valueAxisProps({ chartWidth: volumeAxis.width, format: fmtCount, allowDecimals: false, maxValue: volumeMax })} />
+                <Tooltip
+                  content={p => <VolumeTooltip {...p} nowMs={win.end * 1000} hoverKey={volumeHover} suppressed={!volumeFocus.hovered} />}
+                  cursor={{ fill: 'rgba(255,255,255,0.02)' }}
+                  isAnimationActive={false}
+                />
+                <Bar dataKey="info" stackId="v" fill="#60A5FA" fillOpacity={0.55} isAnimationActive={false} {...bandHoverProps('info')} />
+                <Bar dataKey="warn" stackId="v" fill="#F59E0B" fillOpacity={0.75} isAnimationActive={false} {...bandHoverProps('warn')} />
+                <Bar dataKey="error" stackId="v" fill="#EF4444" fillOpacity={0.85} isAnimationActive={false} {...bandHoverProps('error')} />
+                {volumeFocus.overlay}
               </BarChart>
             </ResponsiveContainer>
           </div>

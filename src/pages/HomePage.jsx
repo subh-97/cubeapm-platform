@@ -1,7 +1,9 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef, useCallback, useEffect } from 'react'
 import { servicesForWindow, serviceSummaryForWindow, healthHistoryForWindow, serviceEdges, externalDependencies } from '@/data/services'
 import { resolveWindow, windowHint } from '@/data/timeWindow'
 import { statusForLatency, statusColor } from '@/utils/status'
+import { zoomRange } from '@/utils/timeRange'
+import { MIN_FOCUS_MS } from '@/components/charts/useTimeFocus'
 import PageBar from '@/components/layout/PageBar'
 import { highlightTerms } from '@/utils/highlight'
 import TableSearch from '@/components/TableSearch'
@@ -150,7 +152,23 @@ function DetailTable({ services, onServiceClick }) {
 
 const HEALTH_BLOCKS = 36
 
-function HealthTab({ services, win }) {
+// Mirrors `.health-strip { gap }` in index.css. The focus band is laid over the
+// blocks rather than drawn inside them — a healthy block renders at half
+// opacity, which would fade anything nested in it — so it has to position
+// itself the way the flex row does.
+const HEALTH_GAP_PX = 2
+
+/** Where a band covering blocks `from`..`to` (inclusive) sits across a strip. */
+function focusBandStyle(from, to) {
+  const unit = `((100% - ${(HEALTH_BLOCKS - 1) * HEALTH_GAP_PX}px) / ${HEALTH_BLOCKS})`
+  const count = to - from + 1
+  return {
+    left: `calc(${unit} * ${from} + ${from * HEALTH_GAP_PX}px)`,
+    width: `calc(${unit} * ${count} + ${(count - 1) * HEALTH_GAP_PX}px)`,
+  }
+}
+
+function HealthTab({ services, win, setTimeRange }) {
   // Each block is the status that slice of the window averaged out at, read off
   // the same profile as every number on the page — so the red blocks sit where
   // the incident actually was, and narrowing the range spreads it out rather
@@ -159,9 +177,118 @@ function HealthTab({ services, win }) {
     () => Object.fromEntries(services.map(s => [s.id, healthHistoryForWindow(win, s.id, HEALTH_BLOCKS)])),
     [services, win],
   )
+
+  // Drag across the strip to make that span the page's range — the same gesture
+  // the charts get from `useTimeFocus`, committing through the same `zoomRange`
+  // with the same floor, so a drag here and a drag on a chart land on the same
+  // window.
+  //
+  // It needs none of that hook's machinery, because there is no chart to read
+  // coordinates off: block i already IS an exact instant range, covering
+  // spanSec/36 seconds from win.start + i * spanSec/36. The gesture is a pair of
+  // block indices and nothing has to be measured.
+  //
+  // Desktop mouse only, like the charts: nothing in this product supports touch,
+  // and a half-started drag that can never be released is worse than no gesture.
+  const [sel, setSel] = useState(null) // { from, to } block indices, inclusive
+  const anchor = useRef(null)          // the block the press landed on
+
+  const onBlockDown = useCallback((i, e) => {
+    // Left button only. A middle-click paste or a context menu must not start a
+    // selection, since neither ends in the `mouseup` that commits one.
+    if (e.button !== 0) return
+    // Without this the drag also text-selects every service name it crosses.
+    e.preventDefault()
+    anchor.current = i
+    setSel(null)
+  }, [])
+
+  // Entering a block extends the selection — which is also what keeps a press
+  // with no movement a click: a drag that never leaves its own block never sets
+  // a selection, and the release below has nothing to commit.
+  //
+  // Rows are columns of the same instants, so a drag that strays into another
+  // service's strip still means the same span. That makes a diagonal drag
+  // behave rather than dying the moment the pointer drifts off one row.
+  const onBlockEnter = useCallback((i, e) => {
+    const a = anchor.current
+    if (a == null) return
+    // A release outside the browser never reaches the document `mouseup` that
+    // commits, so the anchor can outlive its own drag. The next hover is where
+    // that surfaces: the button is no longer down, so this is a stale gesture
+    // rather than a live one, and it is dropped instead of extended. Without
+    // this a plain hover grows a band nobody is dragging.
+    if ((e.buttons & 1) === 0) { anchor.current = null; setSel(null); return }
+    const from = Math.min(a, i)
+    const to = Math.max(a, i)
+    setSel(cur => (cur && cur.from === from && cur.to === to ? cur : { from, to }))
+  }, [])
+
+  // Release commits, wherever the pointer happens to be. Listening on the
+  // document rather than on the strip is what lets a drag finish past the last
+  // block — which is how a reader selects "from here to the end".
+  useEffect(() => {
+    const onUp = () => {
+      // The anchor is read as well as the selection, and both are required.
+      // `sel` is state, so a cancel that clears it is only visible here once
+      // React has re-rendered; the anchor is a ref and clears synchronously.
+      // Escape, or a gesture abandoned outside the window, must not be beaten
+      // by a release that lands before the re-render — same guard as
+      // `useTimeFocus`, which checks its own anchor for this reason.
+      const a = anchor.current
+      const s = sel
+      anchor.current = null
+      setSel(null)
+      if (a == null || !s) return
+      const blockSec = win.spanSec / HEALTH_BLOCKS
+      const lo = (win.start + s.from * blockSec) * 1000
+      // The last block contributes its whole span: a drag that ends on a block
+      // means "including that block", not "up to where it starts".
+      const hi = (win.start + (s.to + 1) * blockSec) * 1000
+      const next = zoomRange(lo, Math.min(hi, win.end * 1000), {
+        // Snap to the bucket when buckets are finer than a minute, or a short
+        // drag would hand back more span than was actually selected.
+        snapMs: Math.min(win.step * 1000, 60000),
+        minSpanMs: MIN_FOCUS_MS,
+        // "Today" runs past now; a drag over the empty tail of it selects
+        // nothing rather than a window into the future.
+        notAfterMs: win.nowSec * 1000,
+      })
+      if (next) setTimeRange?.(next)
+    }
+    document.addEventListener('mouseup', onUp)
+    return () => document.removeEventListener('mouseup', onUp)
+  }, [sel, win, setTimeRange])
+
+  // Escape abandons the drag in progress, so the release that follows commits
+  // nothing. Registered unconditionally and guarded on the anchor, because a
+  // press that has not moved yet is a drag too — one with no selection to key
+  // the listener off.
+  //
+  // Losing the window abandons it for the same reason: a button released over
+  // another application never delivers the `mouseup` that would have committed
+  // or cleared this, and a selection left hanging would be applied by whatever
+  // the reader clicked on next.
+  useEffect(() => {
+    const cancel = () => {
+      if (anchor.current == null) return
+      anchor.current = null
+      setSel(null)
+    }
+    const onKey = e => { if (e.key === 'Escape') cancel() }
+    document.addEventListener('keydown', onKey)
+    window.addEventListener('blur', cancel)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      window.removeEventListener('blur', cancel)
+    }
+  }, [])
+
   return (
     <div className="panel">
-      <div className="panel-head">Health history <span className="hint">{windowHint(win)}</span></div>
+      <div className="panel-head">
+        Health history <span className="hint">{windowHint(win)} · drag across a row to focus that span</span>
+      </div>
       {services.map(s => {
         const blocks = history[s.id]
         return (
@@ -170,10 +297,20 @@ function HealthTab({ services, win }) {
               <span className={`status-dot ${s.status}`} title={statusTitle(s)} />
               {s.name}
             </div>
-            <div className="health-strip">
+            <div className={`health-strip${sel ? ' is-focusing' : ''}`}>
               {blocks.map((st, i) => (
-                <div key={i} className="health-block" style={{ background: statusColor(st), opacity: st === 'healthy' ? 0.5 : 1 }} title={`Status: ${st}`} />
+                <div
+                  key={i}
+                  className="health-block"
+                  style={{ background: statusColor(st), opacity: st === 'healthy' ? 0.5 : 1 }}
+                  title={`Status: ${st}`}
+                  onMouseDown={e => onBlockDown(i, e)}
+                  onMouseEnter={e => onBlockEnter(i, e)}
+                />
               ))}
+              {/* Drawn over the blocks, and transparent to the pointer, so the
+                  block underneath still reports the drag passing across it. */}
+              {sel && <div className="health-focus-band" style={focusBandStyle(sel.from, sel.to)} />}
             </div>
           </div>
         )
@@ -246,7 +383,7 @@ export default function HomePage({ selectService, timeRange, setTimeRange }) {
         <TabBar tabs={HOME_TABS} active={homeTab} onChange={setHomeTab} ariaLabel="Service view" />
       </div>
       {homeTab === 'detail' && <DetailTable services={services} onServiceClick={selectService} />}
-      {homeTab === 'health' && <HealthTab services={services} win={win} />}
+      {homeTab === 'health' && <HealthTab services={services} win={win} setTimeRange={setTimeRange} />}
       {homeTab === 'graph' && <GraphTab services={services} />}
       </div>
     </>
