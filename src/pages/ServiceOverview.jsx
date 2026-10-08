@@ -13,6 +13,7 @@ import { runtimeRoster } from '@/data/runtimeHosts'
 import RuntimeRail, { RuntimeScope } from '@/components/runtime/RuntimeRail'
 import { resolveWindow } from '@/data/timeWindow'
 import { statusForLatency, statusForErrorRate } from '@/utils/status'
+import { SERVICE_TABS } from '@/utils/route'
 import PageBar from '@/components/layout/PageBar'
 import ServicePicker from '@/components/ServicePicker'
 import CardMenu, { CardActionContext } from '@/components/CardMenu'
@@ -40,15 +41,19 @@ import { fixesAxis, TOOLTIP_ROWS } from '@/components/charts/seriesBudget'
 import { cycledColor } from '@/utils/chartPalette'
 import { KpiCardsSkeleton, LatencyDrilldownSkeleton, TrendChartsSkeleton } from '@/pages/ServiceOverviewSkeleton'
 
-const SERVICE_VIEWS = [
-  { id: 'overview', label: 'Overview', Icon: Gauge },
-  { id: 'detail', label: 'Detail', Icon: Crosshair },
-  { id: 'red', label: 'RED', Icon: ChartLine },
-  { id: 'external', label: 'External', Icon: Globe },
-  { id: 'db', label: 'DB', Icon: Database },
-  { id: 'errors', label: 'Errors', Icon: TriangleAlert },
-  { id: 'runtime', label: 'Runtime', Icon: Cpu },
-]
+// Which tabs there are, and their order, is SERVICE_TABS in utils/route — the
+// list a ?tab= in the URL is checked against — so the strip cannot offer a tab
+// the URL cannot name, or the other way round. Only the labels live here.
+const VIEW_META = {
+  overview: { label: 'Overview', Icon: Gauge },
+  detail: { label: 'Detail', Icon: Crosshair },
+  red: { label: 'RED', Icon: ChartLine },
+  external: { label: 'External', Icon: Globe },
+  db: { label: 'DB', Icon: Database },
+  errors: { label: 'Errors', Icon: TriangleAlert },
+  runtime: { label: 'Runtime', Icon: Cpu },
+}
+const SERVICE_VIEWS = SERVICE_TABS.map(id => ({ id, ...VIEW_META[id] }))
 
 
 const RED_EP_COLORS = ['#3B82F6', '#34D399', '#F472B6', '#A78BFA', '#06B6D4', '#6366F1']
@@ -1883,7 +1888,7 @@ function OverviewTab({ svc, data, win, syncId, onFocus, onOpenTrace, onOpenUpstr
   )
 }
 
-// Built but not wired: SERVICE_VIEWS has no Traces entry yet, so nothing
+// Built but not wired: SERVICE_TABS has no Traces entry yet, so nothing
 // renders this. Kept intact for the sub-tab that will mount it — unlike the
 // SparkChart that sat beside it, this is a finished screen rather than a
 // superseded helper, so it is silenced rather than deleted.

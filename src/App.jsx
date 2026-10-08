@@ -20,6 +20,7 @@ import { INFRA_SOURCES, infraHosts } from '@/data/observability'
 import { TIME_PRESETS, DEFAULT_PRESET, rangeLabel } from '@/utils/timeRange'
 import { filtersToChips } from '@/utils/tracesHandoff'
 import { useTheme } from '@/hooks/useTheme'
+import { parseRoute, canonicalUrl, routeUrl, serviceUrl, traceUrl, DEFAULT_SERVICE_TAB } from '@/utils/route'
 
 function getInfraNavItems() {
   const items = []
@@ -41,19 +42,6 @@ let exploreNonce = 0
 // page is already up, still has to land.
 let errorsNonce = 0
 
-// The view a path addresses. Read on the first render, and again at sign-in,
-// which takes a link opened while signed out on to the page it named.
-function viewForPath(path) {
-  if (path === '/logs') return 'logs'
-  if (path === '/traces') return 'traces'
-  if (path === '/explore') return 'explore'
-  if (path === '/errors') return 'errors'
-  if (path === '/infrastructure') return 'infra'
-  if (path.startsWith('/trace/')) return 'trace'
-  if (path.startsWith('/service/')) return 'service'
-  return 'home'
-}
-
 // The views of one service, listed in the card's left column. Which service
 // you are looking at is picked in the page itself, by ServicePicker.
 export default function App() {
@@ -74,23 +62,20 @@ export default function App() {
   const [loadingIn, setLoadingIn] = useState(false)
   const [walkthroughOpen, setWalkthroughOpen] = useState(false)
   const [toast, setToast] = useState(null)
-  const [view, setView] = useState(() => viewForPath(location.pathname))
+  // Page, service, tab and trace are read from the URL on every render and
+  // changed only by navigating (utils/route), so a reload, a shared link and
+  // Back/Forward all agree with the address bar.
+  const currentUrl = location.pathname + location.search
+  const route = parseRoute(location.pathname, location.search)
+  const { view } = route
   // A link opened while signed out - an Errors URL pasted from a chat, say - is
   // where the user was going; the sign-in screen only stands in front of it.
   // Only a path that names a page counts: '/', '/home' and anything unknown
   // land on Home anyway, and '/design-system' sits outside the app, so
   // returning there would send a user who just left it straight back.
   const [returnTo, setReturnTo] = useState(() => (
-    !loggedIn && viewForPath(location.pathname) !== 'home' ? location.pathname + location.search : null
+    !loggedIn && route.view !== 'home' ? currentUrl : null
   ))
-  // Read from the path, as traceId is, so a link to one service - followed
-  // signed in, or carried through sign-in by returnTo - opens that service
-  // rather than being rewritten to the default one.
-  const [serviceId, setServiceId] = useState(() => {
-    const id = location.pathname.split('/service/')[1]
-    return services.some(s => s.id === id) ? id : 'payment-service'
-  })
-  const [traceId, setTraceId] = useState(() => location.pathname.split('/trace/')[1] ?? '')
   const [logsQuery, setLogsQuery] = useState(null)
   const [tracesQuery, setTracesQuery] = useState(null)
   const [exploreIncoming, setExploreIncoming] = useState(null)
@@ -103,7 +88,6 @@ export default function App() {
   const [timeRange, setTimeRange] = useState({ kind: 'preset', value: DEFAULT_PRESET })
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsTab, setSettingsTab] = useState(null)
-  const [serviceSubTab, setServiceSubTab] = useState('overview')
   const [serviceEndpoint, setServiceEndpoint] = useState('')
   // Which side the service page's Errors tab shows. Held here, not in the tab,
   // so a link that names one (the Errors drawer's "Open service" on a Client
@@ -116,11 +100,42 @@ export default function App() {
   const [infraExpanded, setInfraExpanded] = useState({})
   const [hiddenNavItems, setHiddenNavItems] = useState(() => new Set())
 
+  // The service page remembers where it was left: APM in the sidebar reopens
+  // it, picking another service keeps the tab, and the settings drawer still
+  // names that service on other pages.
+  const [lastService, setLastService] = useState(() => ({
+    id: route.serviceId ?? services[0].id,
+    tab: route.serviceSubTab ?? DEFAULT_SERVICE_TAB,
+  }))
+  useEffect(() => {
+    if (route.view === 'service') setLastService({ id: route.serviceId, tab: route.serviceSubTab })
+  }, [route.view, route.serviceId, route.serviceSubTab])
+  const serviceId = route.serviceId ?? lastService.id
+  const serviceSubTab = route.serviceSubTab ?? lastService.tab
+  const traceId = route.traceId ?? ''
+
+  // Pushing the URL you are already on would add an entry Back steps through
+  // for nothing.
+  const go = useCallback((url) => {
+    if (url !== currentUrl) navigate(url)
+  }, [currentUrl, navigate])
+
+  // A page, by name. Already on it, nothing happens: its own query string (the
+  // Errors page's filters) stays, and Back gets no entry for the click.
+  const showView = useCallback((v) => {
+    if (v === 'service') return go(serviceUrl(lastService.id, lastService.tab))
+    const url = routeUrl({ view: v })
+    if (location.pathname !== url) navigate(url)
+  }, [go, lastService, location.pathname, navigate])
+
+  const setServiceSubTab = useCallback((tab) => {
+    go(serviceUrl(serviceId, tab))
+  }, [go, serviceId])
+
   const openTrace = useCallback((id) => {
-    setTraceId(id)
-    setView('trace')
+    go(traceUrl(id))
     setSettingsOpen(false)
-  }, [])
+  }, [go])
 
   // Kept in App because a link may cross pages: a record in Logs can send you
   // to a trace, a service or an infrastructure resource, and only App knows how
@@ -134,29 +149,27 @@ export default function App() {
       // rather than on every span in the window with the filter lost on the way.
       const chips = filtersToChips(link.filters)
       if (chips.length) setTracesQuery({ chips })
-      setView('traces')
+      showView('traces')
       return
     }
     if (link.view === 'errors') {
       // Applied once per nonce, as Explore's payload is: the page reads its
       // scope from this when it arrives, not from the URL it is about to get.
       setErrorsIncoming({ ...link, nonce: ++errorsNonce })
-      setView('errors')
+      showView('errors')
       setSettingsOpen(false)
       return
     }
     if (link.view === 'service') {
-      setServiceId(link.serviceId)
-      setServiceSubTab(link.subTab ?? 'overview')
       setServiceEndpoint(link.endpoint ?? '')
       setServiceErrorsSide(link.errorsSide === 'client' ? 'client' : 'server')
-      setView('service')
+      go(serviceUrl(link.serviceId, link.subTab))
       return
     }
     if (link.view === 'explore') {
       // The payload travels whole; Explore reads it once and says so.
       setExploreIncoming({ ...link, nonce: ++exploreNonce })
-      setView('explore')
+      showView('explore')
       setSettingsOpen(false)
       return
     }
@@ -170,29 +183,29 @@ export default function App() {
       const known = infraHosts.some(h => h.host === link.resource)
       setInfraHost(known ? link.resource : null)
       setInfraResource(link.resource ?? null)
-      setView('infra')
+      showView('infra')
     }
-  }, [openTrace])
+  }, [openTrace, go, showView])
 
   const openLogsForTrace = useCallback((id) => {
     setLogsQuery({ concept: 'traceId', field: 'trace_id', value: id })
-    setView('logs')
-  }, [])
+    showView('logs')
+  }, [showView])
 
+  // Picking another service keeps the tab you are on, as the production app does.
   const selectService = useCallback((id) => {
-    setServiceId(id)
     setServiceErrorsSide('server')
-    setView('service')
+    go(serviceUrl(id, serviceSubTab))
     setSettingsOpen(false)
     setSettingsTab(null)
-  }, [])
+  }, [go, serviceSubTab])
 
   const goHome = useCallback(() => {
     setServiceErrorsSide('server')
-    setView('home')
+    showView('home')
     setSettingsOpen(false)
     setSettingsTab(null)
-  }, [])
+  }, [showView])
 
   const openHelp = useCallback(() => {
     setToast('Help Center is not built yet. This was only a preview of the user journey.')
@@ -202,9 +215,10 @@ export default function App() {
     const target = returnTo ?? '/home'
     setReturnTo(null)
     setLoadingIn(true)
-    setView(viewForPath(target.split('?')[0]))
     setLoggedIn(true)
-    navigate(target)
+    // Replace rather than push: Back from here should not return to the
+    // sign-in address, which would only bounce straight back.
+    navigate(target, { replace: true })
     setTimeout(() => {
       setLoadingIn(false)
       if (firstTime) setWalkthroughOpen(true)
@@ -219,34 +233,16 @@ export default function App() {
     }
   }, [loggedIn])
 
+  // Signed out, every URL is the sign-in page at /. Signed in, the address is
+  // corrected in place to its one spelling - / becomes /home, an unknown
+  // service the first one - so Back never lands on a URL that redirects.
+  // Nothing here follows a copy of the page held anywhere else: that is what
+  // used to push you back to the page Back had just left.
+  const targetUrl = loggedIn ? canonicalUrl(location.pathname, location.search) : '/'
   useEffect(() => {
     if (isDesignSystem) return
-    if (!loggedIn) {
-      navigate('/')
-      return
-    }
-    const path = location.pathname
-    if (path === '/') {
-      navigate('/home')
-    }
-  }, [loggedIn, navigate, location.pathname, isDesignSystem])
-
-  useEffect(() => {
-    // Signed out, the sign-in screen owns the address: following the view here
-    // too sent the two effects pushing '/' and '/logs' at each other forever.
-    if (isDesignSystem || !loggedIn) return
-    // A deep link's query string belongs to the page it addresses; navigating
-    // to the path we are already on would throw it away on mount.
-    const at = (p) => { if (location.pathname !== p) navigate(p) }
-    if (view === 'home') at('/home')
-    else if (view === 'logs') at('/logs')
-    else if (view === 'traces') at('/traces')
-    else if (view === 'explore') at('/explore')
-    else if (view === 'errors') at('/errors')
-    else if (view === 'infra') at('/infrastructure')
-    else if (view === 'service' && serviceId) at(`/service/${serviceId}`)
-    else if (view === 'trace' && traceId) at(`/trace/${traceId}`)
-  }, [view, serviceId, traceId, navigate, isDesignSystem, loggedIn, location.pathname])
+    if (currentUrl !== targetUrl) navigate(targetUrl, { replace: true })
+  }, [isDesignSystem, currentUrl, targetUrl, navigate])
 
   if (isDesignSystem) {
     return <DesignSystemPage theme={theme} setTheme={setTheme} />
@@ -271,7 +267,7 @@ export default function App() {
         setNavCollapsed={setNavCollapsed}
         view={view}
         goHome={goHome}
-        setView={setView}
+        setView={showView}
         onOpenHelp={openHelp}
         onLogout={() => setLoggedIn(false)}
         theme={theme}
@@ -356,7 +352,7 @@ export default function App() {
                 key={traceId}
                 traceId={traceId}
                 goHome={goHome}
-                goTraces={() => setView('traces')}
+                goTraces={() => showView('traces')}
                 goLogs={openLogsForTrace}
                 timeRange={timeRange}
                 setTimeRange={setTimeRange}
