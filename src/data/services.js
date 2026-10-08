@@ -573,6 +573,42 @@ export function redEndpointSeriesForWindow(win, key) {
 }
 
 /**
+ * The calibrated request-rate and error-rate profiles behind one of the derived
+ * tables — 'red', 'db' or 'external' — one entry per row, unrounded.
+ *
+ * For the Errors page, which counts an endpoint's errors as its rate times its
+ * error rate, bucket by bucket. It reads the very profiles these tables average
+ * rather than calibrating its own beside them, so "6.1% of 64.2 rpm" here and
+ * "235 errors" there are the same incident and the same traffic at every range,
+ * not two curves that agree at Last 1 hour and drift apart after it. The table
+ * outputs themselves are rounded to a decimal — fine for a rate, far too coarse
+ * to multiply out over a week.
+ *
+ * All three are built, in the order the service page builds them, before one
+ * is read. A derived profile's jitter seed is handed out in the order tables
+ * are first built, so a session that opened the Errors page first and asked
+ * for 'db' before 'external' would draw the DB and External tables — and every
+ * error count off them — with each other's noise, and a week would read
+ * differently depending on which page was opened first.
+ */
+export function errorRateProfiles(table) {
+  // Inside the function: the DB and External rows are declared further down.
+  const tables = {
+    red: [redEndpoints, RED_SPEC],
+    external: [externalEndpoints, EXT_SPEC],
+    db: [dbEndpoints, EXT_SPEC],
+  }
+  if (!tables[table]) return []
+  for (const [rows, spec] of Object.values(tables)) derivedTable(rows, spec)
+  const [rows, spec] = tables[table]
+  return derivedTable(rows, spec).map(({ row, profiles }) => ({
+    endpoint: row.endpoint,
+    rpm: profiles.rpm,
+    err: profiles.errPct,
+  }))
+}
+
+/**
  * Each external call's / DB operation's metric sampled across the window, for
  * the External and DB tabs' charts, keyed like their tables: 'rpm', 'avg',
  * 'errPct'.
@@ -833,58 +869,6 @@ export const slowQueries = [
   { time: 'Jul 15, 22:34pm', query: 'SETEX redis.session:usr_1f04b9a EX 900', duration: 655 },
   { time: 'Jul 15, 22:33pm', query: 'SELECT COUNT(*) FROM `payments`.`transactions` WHERE `status` = ?', duration: 601 },
 ]
-
-export const errorGroups = {
-  server: [
-    { endpoint: 'PATCH /v1/payments/:id', exception: 'java.lang.RuntimeException', message: '500 Internal Server Error', count: 8 },
-    { endpoint: 'POST /v1/payments', exception: 'java.lang.RuntimeException', message: '500 Internal Server Error', count: 3 },
-    { endpoint: 'GET /v1/payments', exception: 'redis.clients.jedis.exceptions.JedisPoolException', message: 'Could not get a resource from the pool', count: 2 },
-    { endpoint: 'GET /v1/payments/:id', exception: 'java.lang.RuntimeException', message: '500 Internal Server Error', count: 1 },
-  ],
-  client: [
-    { endpoint: 'POST redis.set', exception: 'redis.clients.jedis.exceptions.JedisConnectionException', message: 'Failed connecting to host redis.0:6379', count: 14 },
-    { endpoint: 'POST twilio.messages.send', exception: 'com.twilio.exception.ApiException', message: '429 Too Many Requests', count: 3 },
-  ],
-}
-
-function generateErrorSpark(count, seed) {
-  let s = seed
-  const rnd = () => { s = (s * 9301 + 49297) % 233280; return s / 233280 }
-  return Array.from({ length: 30 }, (_, i) => ({
-    m: 29 - i,
-    value: i > 21 ? Math.max(0, Math.round(count / 3 * rnd())) : (rnd() < 0.08 ? 1 : 0),
-  }))
-}
-errorGroups.server = errorGroups.server.map((e, i) => ({ ...e, series: generateErrorSpark(e.count, 71 + i * 7) }))
-errorGroups.client = errorGroups.client.map((e, i) => ({ ...e, series: generateErrorSpark(e.count, 91 + i * 7) }))
-
-/**
- * Error-group series resampled across the active time window so the sparklines
- * respond to the time range the same way every other chart on the page does
- * (wider ranges dilute the incident, the window's own labels drive the x-axis).
- * The count field tracks total errors in the window — the sum of the samples.
- */
-export function errorGroupsForWindow(win, side = 'server') {
-  const groups = errorGroups[side] || []
-  return groups.map((e, i) => {
-    const baseSeed = (side === 'client' ? 91 : 71) + i * 7
-    let s = baseSeed
-    const rnd = () => { s = (s * 9301 + 49297) % 233280; return s / 233280 }
-    const peak = Math.max(1, e.count / 3)
-    const buckets = win.buckets
-    const incidentFrac = 0.73
-    let total = 0
-    const series = buckets.map(b => {
-      if (b.future) return { m: b.m, t: b.t, label: b.label, exactTime: b.exactTime, value: null }
-      const i0 = buckets.indexOf(b) / Math.max(1, buckets.length - 1)
-      const inIncident = i0 >= incidentFrac
-      const v = inIncident ? Math.max(0, Math.round(peak * rnd())) : (rnd() < 0.08 ? 1 : 0)
-      total += v
-      return { m: b.m, t: b.t, label: b.label, exactTime: b.exactTime, value: v }
-    })
-    return { ...e, series, count: total }
-  })
-}
 
 export const tracesList = [
   { id: '97ce4645fe10f574e053bf91729f4750', endpoint: 'POST /v1/payments/:id/capture', durationMs: 812, time: 'Jul 15, 22:40pm', status: 'critical', service: 'payment-service' },

@@ -137,6 +137,7 @@ Decisions worth not re-deriving. Read the relevant one before reworking that are
 - `docs/decisions/facet-interaction-datadog.md` — split-row facet control; facet admission tests value shape, not a cardinality ratio
 - `docs/decisions/query-builder-phase8.md` — what has shipped on the Logs query builder, and the one piece that hasn't (URL state sync)
 - `docs/decisions/time-range-windowing.md` — how the time range drives the data: one incident profile, the one-hour calibration, and why a percentile behaves differently from a mean as the window widens
+- `docs/decisions/errors-page.md` — the `/errors` page: filter series then group, the errors variant of the query builder, the URL dialects it reads, and how it hands off to Traces and the service page
 
 `docs/HANDOFF.md` describes where the project stands overall.
 

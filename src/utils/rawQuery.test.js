@@ -178,12 +178,175 @@ for (const [input, normalized] of NORMALIZES) {
   })
 }
 
+// ---------- Every builder spelling reads back ----------
+// The other direction, from chips. The builder's query text is how a query
+// travels (recents, Copy, a pasted query, the Errors page URL), and each of
+// those reads it back here, so every spelling chipsToString writes has to come
+// back as the chip it came from: the same op and the same value. The values are
+// the awkward ones, each of which would end, open or escape something if it
+// were written bare.
+
+const leaf = (field, op, value, connector) => (
+  connector ? { field, op, value, connector } : { field, op, value }
+)
+
+const AWKWARD_VALUES = [
+  'timed out',                                          // a space
+  'Could not get a resource from the pool',
+  'say "hi" \\o/',                                      // quotes and a backslash
+  'C:\\temp\\new',                                      // backslashes, a colon
+  "it's",
+  '"status":500',                                       // opens with a quote...
+  '"a',                                                 // ...that never closes
+  'a|b',                                                // a pipe
+  'x | limit 5',
+  '[WARN',                                              // unbalanced brackets
+  'done]',
+  '[WARN] pool (3/8), {retry}',                         // every bracket, a comma
+  'GET redis.session:* timed out',                      // a wildcard, then a space
+  'POST /v1/payments/:id/capture',
+  'redis.clients.jedis.exceptions.JedisPoolException',  // dotted
+  'naïve café 日本語 🚀',                                 // unicode
+  '* x',                                                // operator characters up front
+  '=x',
+]
+
+const VALUE_OPS = ['eq', 'neq', 'contains', 'prefix', 'phrase', 'regex', 'nregex']
+
+function readsBack(chips) {
+  const text = chipsToString(chips)
+  const back = tryParseConditions(text)
+  assert.equal(back.ok, true, `"${text}" did not parse: ${back.error}`)
+  assert.deepEqual(back.chips, chips, `"${text}" read back as something else`)
+  // And it is all conditions, whole, when pipes follow it.
+  assert.deepEqual(splitQuery(`${text} | limit 5`).conditions, text, `"${text}" lost its pipe boundary`)
+  assert.deepEqual(splitQuery(`${text} | limit 5`).pipes, ['limit 5'], `"${text}" lost its pipes`)
+  return text
+}
+
+for (const v of AWKWARD_VALUES) {
+  test(`builder spelling: every op reads back with ${JSON.stringify(v)}`, () => {
+    for (const op of VALUE_OPS) readsBack([leaf('exception.type', op, v)])
+    readsBack([leaf('http.route', 'in', [v, 'GET /v1/search'])])
+    readsBack([leaf('http.route', 'not_in', [v])])
+    // Promoted into the {} block.
+    readsBack([leaf('service', 'eq', v)])
+    readsBack([leaf('service', 'in', [v, 'order-service'])])
+    // All of them in one query, so each term has to end where it should with
+    // another after it, inside a group and out.
+    const [first, ...rest] = VALUE_OPS
+    readsBack([
+      leaf('_msg', first, v),
+      ...rest.map((op, i) => leaf('_msg', op, v, i % 2 ? 'OR' : 'AND')),
+      { kind: 'group', connector: 'AND', children: [leaf('_msg', 'contains', v), leaf('http.route', 'prefix', v, 'OR')] },
+    ])
+  })
+}
+
+test('builder spelling: a word that reads bare comes back as a word', () => {
+  for (const v of ['java.lang.RuntimeException', 'http://x/y?z=1', 'a\\b', '[WARN', 'done]', 'ünïcödé', '!x']) {
+    readsBack([leaf('_msg', 'word', v)])
+  }
+})
+
+test('builder spelling: the no-value ops, and starts-with or contains on nothing', () => {
+  readsBack([leaf('log.exception.type', 'exists', '')])
+  readsBack([leaf('log.exception.type', 'empty', '')])
+  assert.equal(readsBack([leaf('_msg', 'prefix', '')]), '_msg:""*')
+  assert.equal(readsBack([leaf('_msg', 'contains', '')]), '_msg:**')
+})
+
+test('builder spelling: a word it has to quote is written, and read, as the phrase', () => {
+  // Not a loss in the parser: `f:"a b"` is the one spelling of both, and LogsQL
+  // reads a quoted word as a phrase, the same tokens in order.
+  const text = chipsToString([leaf('span_name', 'word', 'GET /v1/search')])
+  assert.deepEqual(parseConditions(text), [leaf('span_name', 'phrase', 'GET /v1/search')])
+})
+
+test('parse: quoted contains and starts-with, the LogsQL spelling for a value with a space', () => {
+  assert.deepEqual(parseConditions('_msg:*"timed out"*'), [leaf('_msg', 'contains', 'timed out')])
+  assert.deepEqual(parseConditions('_msg:"Could not"*'), [leaf('_msg', 'prefix', 'Could not')])
+  assert.deepEqual(parseConditions("_msg:*'timed out'*"), [leaf('_msg', 'contains', 'timed out')])
+})
+
+test('parse: a | inside a quoted contains is part of the value, not the pipes', () => {
+  // The bug: this read back as a contains on `"a`, and the rest went unread.
+  assert.deepEqual(parseConditions('f:*"a|b"*'), [leaf('f', 'contains', 'a|b')])
+  assert.deepEqual(splitQuery('f:*"a|b"* | limit 5'), { conditions: 'f:*"a|b"*', pipeText: 'limit 5', pipes: ['limit 5'] })
+})
+
+test('parse: a bare contains that opens with a quote still reads bare', () => {
+  assert.deepEqual(parseConditions('f:*"status":500*'), [leaf('f', 'contains', '"status":500')])
+  assert.deepEqual(parseConditions('f:*"a"*'), [leaf('f', 'contains', '"a"')])
+  assert.deepEqual(parseConditions('f:*"a*'), [leaf('f', 'contains', '"a')])
+})
+
+test('parse: when a later quote closes a bare contains, the query is read again with it bare', () => {
+  // `"a* OR g:` looks like a whole quoted contains until ` x"` fails to parse.
+  const chips = [leaf('f', 'contains', '"a'), leaf('g', 'phrase', '* x', 'OR')]
+  assert.deepEqual(parseConditions('f:*"a* OR g:"* x"'), chips)
+  readsBack(chips)
+})
+
+test('parse: a quoted contains may open with a quote, which is what keeps it apart from two bare ones', () => {
+  // Bare, `f:*"a* AND g:*x"*` is two contains, on `"a` and on `x"`, and also,
+  // character for character, one on `a* AND g:*x`; the parser takes the second.
+  // Quoting the value that opens with a quote leaves only the first reading.
+  assert.deepEqual(parseConditions('f:*"a* AND g:*x"*'), [leaf('f', 'contains', 'a* AND g:*x')])
+  assert.deepEqual(parseConditions('f:*"\\"a"* AND g:*x"*'), [leaf('f', 'contains', '"a'), leaf('g', 'contains', 'x"', 'AND')])
+  assert.deepEqual(parseConditions('_msg:*"\\"status\\":500"*'), [leaf('_msg', 'contains', '"status":500')])
+  assert.deepEqual(parseConditions(`f:*"'a"*`), [leaf('f', 'contains', "'a")])
+})
+
+test('split: a quote inside a bare value opens nothing', () => {
+  assert.deepEqual(splitQuery("f:*it's* | limit 5").pipes, ['limit 5'])
+  // The bug: the scan opened a quote at `a"b` and closed it at g's opening one,
+  // so the `|` inside g's value split the query.
+  assert.deepEqual(splitQuery('f:*a"b* AND g:"x|y"'), { conditions: 'f:*a"b* AND g:"x|y"', pipeText: '', pipes: [] })
+})
+
+test('split: a bracket inside a bare value nests nothing', () => {
+  assert.deepEqual(splitQuery('f:*[WARN* | limit 5').pipes, ['limit 5'])
+  assert.deepEqual(splitQuery('f:*done]* | limit 5').pipes, ['limit 5'])
+})
+
+test('split: text the parser cannot read still splits on the character scan', () => {
+  assert.deepEqual(splitQuery('* | stats count()'), { conditions: '*', pipeText: 'stats count()', pipes: ['stats count()'] })
+  assert.deepEqual(splitQuery('_time:[a, b) | limit 5').pipes, ['limit 5'])
+})
+
 // ---------- Errors ----------
 
 test('error: unterminated quote', () => {
   const r = tryParseConditions('path:~"^/api')
   assert.equal(r.ok, false)
   assert.match(r.error, /Unterminated/i)
+})
+
+test('error: an unterminated quote is reported wherever it opens', () => {
+  for (const q of ['_msg:"Could not', '_msg:"Could not*', 'f:="a b', 'service in ("a", "b', '{env="prod'])
+    assert.match(tryParseConditions(q).error ?? '', /Unterminated/i, q)
+})
+
+test('error: a mistake after a quoted contains holding a | is the error, not a pipe', () => {
+  // The bug: re-reading `"a|b"` bare stopped at its `|`, so `f:*"a` came back
+  // as the whole query and the stray `)` went into a pipe `b"* )`.
+  const r = tryParseConditions('f:*"a|b"* )')
+  assert.equal(r.ok, false)
+  assert.match(r.error, /Unmatched/i)
+  assert.equal(splitQuery('f:*"a|b"* )').conditions, 'f:*"a|b"* )')
+})
+
+test('error: a mistake at the end of a long query is found without re-reading it once per contains', () => {
+  // The bug: each quoted contains before the stray `)` cost a re-read of the
+  // whole text, so the time grew with the square of the length: 2.7s here.
+  const text = `${'_msg:*"timed out"* AND '.repeat(4000)})`
+  const t0 = performance.now()
+  const r = tryParseConditions(text)
+  const ms = performance.now() - t0
+  assert.ok(ms < 500, `took ${Math.round(ms)}ms`)
+  assert.equal(r.ok, false)
+  assert.match(r.error, /Unmatched/i)
 })
 
 test('error: unclosed value list', () => {

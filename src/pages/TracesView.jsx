@@ -1,6 +1,7 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { spanRowsForWindow, spanVolumeForWindow, buildSpanFacets, spanFacetFieldsFor } from '@/data/tracesExplorer'
+import { errorSamplesFor, mergeErrorSpans } from '@/utils/tracesHandoff'
 import { BASE_TIME } from '@/data/observability'
 import { resolveWindow, bucketIndexOf } from '@/data/timeWindow'
 import PageBar from '@/components/layout/PageBar'
@@ -231,12 +232,12 @@ function SpanCell({ col, row, onOpenTrace }) {
 export default function TracesView({ goHome, timeRange, setTimeRange, setToast, onOpenLink, onOpenTrace, incomingChip, onIncomingChipApplied }) {
   // The span stream is read for the selected range, the same way the log stream
   // is — see LogsView. Facets count over the window's rows, so the number
-  // beside each value describes what is actually on screen.
+  // beside each value describes what is actually on screen. The error samples
+  // a link from Errors needs are merged in further down, once the applied
+  // query they depend on exists.
   const win = useMemo(() => resolveWindow(timeRange), [timeRange])
-  const spanRows = useMemo(() => spanRowsForWindow(win), [win])
+  const seededRows = useMemo(() => spanRowsForWindow(win), [win])
   const volume = useMemo(() => spanVolumeForWindow(win), [win])
-  const spanFacets = useMemo(() => buildSpanFacets(spanRows), [spanRows])
-  const spanFacetFields = useMemo(() => spanFacetFieldsFor(spanFacets), [spanFacets])
 
   const [filters, setFilters] = useState({})
   const [selectedId, setSelectedId] = useState(null)
@@ -267,6 +268,17 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
   const [appliedPipes, setAppliedPipes] = useState([])
   const [queryState, setQueryState] = useState({ status: 'idle', error: null })
   const runSeq = useRef(0)
+
+  // The window's error samples join the stream only for an applied query that
+  // names their exception — see `errorSamplesFor` — so a link from the Errors
+  // page lands on rows, while every other query, and no query at all, reads
+  // the seeded stream the histogram draws. They are merged here, once, so every
+  // reader downstream (facets, filters, columns, the drawer, the aggregations,
+  // the CSV) sees one stream rather than two that disagree.
+  const errorSamples = useMemo(() => errorSamplesFor(win, appliedChips), [win, appliedChips])
+  const spanRows = useMemo(() => mergeErrorSpans(seededRows, errorSamples), [seededRows, errorSamples])
+  const spanFacets = useMemo(() => buildSpanFacets(spanRows), [spanRows])
+  const spanFacetFields = useMemo(() => spanFacetFieldsFor(spanFacets), [spanFacets])
 
   const runQuery = useCallback(() => {
     const nextChips = effectiveChips
@@ -467,8 +479,19 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
   // on Logs: arriving with someone else's filters still applied is not what the
   // button promised, and a filter that lands unapplied looks like nothing
   // happened.
+  //
+  // Two shapes arrive. `{ chips }` is a whole query, already in the bar's own
+  // vocabulary — an error group's "these spans" is five filters, not one — and
+  // lands as it is. `{ concept, field, value }` is a single value that may be
+  // spelled several ways, and becomes an OR across those spellings.
   useEffect(() => {
     if (!incomingChip) return
+    if (Array.isArray(incomingChip.chips)) {
+      setChips(incomingChip.chips)
+      setRunRequested(true)
+      onIncomingChipApplied?.()
+      return
+    }
     const spellings = ALIASES[incomingChip.concept] ?? [incomingChip.field]
     const leaves = spellings.map((field, i) => ({
       field, op: 'eq', value: incomingChip.value,
@@ -1064,7 +1087,7 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
                 </div>
               </div>
               <div className="logs-controls-right">
-                <span className="span-count">{filtered.length.toLocaleString()} spans</span>
+                <span className="span-count">{filtered.length.toLocaleString()} span{filtered.length === 1 ? '' : 's'}</span>
                 <button className="hbtn small" onClick={() => downloadCSV(filtered)} title="Download as CSV">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                   CSV

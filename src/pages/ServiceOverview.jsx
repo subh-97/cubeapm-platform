@@ -6,7 +6,7 @@ import {
   latencyDrilldownSeriesForWindow, latencyDrilldownTotalForWindow, redEndpointsForWindow, redEndpointSeriesForWindow,
   infraCorrelationForWindow, infraSeriesForWindow, INFRA_AVG_OF_P90, slowRequestsForWindow, errorRequestsForWindow,
   externalEndpointsForWindow, dbEndpointsForWindow, externalEndpointSeriesForWindow, dbEndpointSeriesForWindow, runtimeMetricsForWindow,
-  externalEndpointCallers, dbEndpointCallers, slowQueries, errorGroupsForWindow, tracesList, traceDetail,
+  externalEndpointCallers, dbEndpointCallers, slowQueries, tracesList, traceDetail,
   FILTER_OPTS,
 } from '@/data/services'
 import { runtimeRoster } from '@/data/runtimeHosts'
@@ -20,11 +20,20 @@ import { explorePayloadForCard } from '@/utils/explore/editorState'
 import InfoTip from '@/components/shared/InfoTip'
 import Waterfall from '@/components/trace/Waterfall'
 import { buildTrace } from '@/data/traceDetail'
-import { Gauge, Crosshair, ChartLine, Globe, Database, TriangleAlert, Cpu } from 'lucide-react'
+import { errorGroupsForWindow, tracesFiltersFor } from '@/data/errors'
+import { previousPeriodText, deltaChip } from '@/utils/errorsPage'
+import { Gauge, Crosshair, ChartLine, Globe, Database, TriangleAlert, Cpu, ArrowUpRight } from 'lucide-react'
 import { GRID_PROPS, NO_ANIM, AREA_PROPS, LINE_PROPS, valueAxisProps, maxOf, niceAxis, formatDecimals, fmtCompact, fmtBytes, fmtCount } from '@/components/charts/chartDefaults'
 import { buildTimeAxis, withX } from '@/components/charts/timeAxis'
-import { useTimeFocus, useMeasuredWidth, useSeriesHover } from '@/components/charts/useTimeFocus'
+import { useMeasuredWidth, useSeriesHover } from '@/components/charts/useTimeFocus'
 import ChartTooltip from '@/components/charts/ChartTooltip'
+import { TimeChart, SvcTooltip, rowInstant } from '@/components/charts/TimeChart'
+import ErrorSpark from '@/components/errors/ErrorSpark'
+// For .errp-delta, the Errors page's count chip, so the Errors tab's counts
+// read the same as the page its "Open in Errors" button lands on. Imported
+// here rather than relied on through ErrorsView; every rule in it is
+// errp-scoped, so nothing else on this page changes.
+import '@/components/errors/errors.css'
 import { useSeriesBudget } from '@/components/charts/useSeriesBudget'
 import SeriesBudgetFooter from '@/components/charts/SeriesBudgetFooter'
 import { fixesAxis, TOOLTIP_ROWS } from '@/components/charts/seriesBudget'
@@ -162,44 +171,6 @@ const fmtRedMs = v => `${Math.round(v)} ms`
 const fmtRedRpm = v => v >= 1000 ? `${(v / 1000).toFixed(1)}K` : Math.round(v).toString()
 const fmtRedPct = v => `${v.toFixed(2)}%`
 
-// The instant a hovered row was read at, in ms.
-//
-// It comes off the hovered ROW rather than off Recharts' `label`, because on a
-// time axis `label` is the raw x in milliseconds and on a category axis it is a
-// bucket string — neither is something a tooltip can date itself from. `t` is
-// the bucket's own opening instant; `x` is only a fallback, and it carries the
-// half-step the band scale needs, so it is used only when `t` is missing.
-const rowInstant = p => {
-  const row = p?.payload
-  if (row?.t != null) return row.t * 1000
-  return row?.x ?? null
-}
-
-// `suppressed` runs through every tooltip on this page, and it is always the
-// same thing: the charts share a syncId, so hovering one makes ALL of them
-// active, and without this each one opens its own panel — six overlays
-// answering one question. Only the chart the pointer is actually in reads
-// `focus.hovered` as true, so only that one renders a panel. Recharts draws the
-// tooltip CURSOR independently of this content, so the crosshair still lands on
-// every synced chart, which is the part that carries the link.
-//
-// It defaults to undefined so an unsynced chart (the floating HoverChartPopover)
-// passes nothing and keeps its tooltip unconditionally.
-function SvcTooltip({ active, payload, color, unit, formatVal, nowMs, suppressed }) {
-  if (!active || !payload?.length) return null
-  const raw = payload[0]?.value
-  const val = formatVal ? formatVal(raw) : (raw != null ? String(Math.round(raw * 100) / 100) : '')
-  return (
-    <ChartTooltip
-      tMs={rowInstant(payload[0])}
-      nowMs={nowMs ?? Date.now()}
-      items={[{ key: 'value', label: '', value: `${val}${unit}`, color }]}
-      suppressed={suppressed}
-      minWidth={150}
-    />
-  )
-}
-
 function DrilldownTooltip({ active, payload, nowMs, hoverKey, colors, suppressed }) {
   if (!active || !payload?.length) return null
   // No footer: the Total series is already a row here, and a footer summing the
@@ -239,37 +210,6 @@ function RedChartTooltip({ active, payload, eps, fmtFn, nowMs, hoverKey, suppres
       limit={TOOLTIP_ROWS}
       minWidth={180}
     />
-  )
-}
-
-/**
- * The frame every window-derived chart on this page draws in: it measures
- * itself, builds the tick ladder for the width it actually has, and owns the
- * drag that turns a span of the chart into the page's time range.
- *
- * The chart arrives as a function of `(axis, focus)` rather than as a child
- * element because both of those are only knowable here — the ladder needs the
- * measured width, and the drag needs the window.
- *
- * One frame per chart, mounted and unmounted with it. A frame shared between
- * two charts that swap places (the drilldown stack and the p90 line) would go
- * on measuring whichever one left, and the ladder would be sized for a chart
- * that is no longer on screen.
- */
-function TimeChart({ win, onFocus, height, className, onWidth, children }) {
-  const [wrapRef, width] = useMeasuredWidth()
-  // A series budget sizes its cap from the plot it draws into, and only the
-  // frame has measured that. Charts that share one budget all report the same
-  // width, so the owner settles on one value.
-  useEffect(() => { if (width > 0) onWidth?.(width) }, [width, onWidth])
-  const axis = useMemo(() => buildTimeAxis(win, { width }), [win, width])
-  const focus = useTimeFocus(win, { onFocus })
-  return (
-    <div ref={wrapRef} className={className} style={{ width: '100%', ...(height == null ? null : { height }) }}>
-      <ResponsiveContainer width="100%" height="100%">
-        {children(axis, focus)}
-      </ResponsiveContainer>
-    </div>
   )
 }
 
@@ -1778,37 +1718,34 @@ function dbShortLabel(ep) {
   return `${ep.kind.toUpperCase()} ${ep.endpoint}`
 }
 
-function ErrorSpark({ series, color, win, onFocus, syncId }) {
-  const data = useMemo(() => withX(series, win), [series, win])
-  return (
-    <TimeChart win={win} onFocus={onFocus} height={132}>
-      {(axis, focus) => (
-        <AreaChart data={data} margin={{ top: 6, right: 4, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
-          <CartesianGrid {...GRID_PROPS} />
-          <XAxis {...axis.props} />
-          <YAxis {...valueAxisProps({ maxValue: maxOf(data, 'value'), format: fmtCompact })} />
-          {/* One spark per error row, all on the tab's syncId — so hovering one
-              made every other row's spark open a panel too. Same rule as the
-              full-size charts: the hovered spark reads, the rest just line up. */}
-          <Tooltip content={p => <SvcTooltip {...p} color={color} unit="" formatVal={fmtCompact} nowMs={win.end * 1000} suppressed={!focus.hovered} />} {...NO_ANIM} />
-          <Area {...AREA_PROPS} dataKey="value" stroke={color} strokeWidth={1.4} fill={color} dot={false} activeDot={{ r: 3 }} />
-          {focus.overlay}
-        </AreaChart>
-      )}
-    </TimeChart>
-  )
-}
+// The Client side keys a row on the outgoing call, not on the endpoint that
+// made it: the same Redis GET failing under four endpoints is one failing
+// call, and four rows of it would bury the next call down the list.
+const CLIENT_ERRORS_BY = ['side', 'service', 'spanName', 'exception']
 
-function ErrorsTab({ win, onFocus, syncId, onOpenLink }) {
-  const [side, setSide] = useState('server')
+// The side is App's when App passes it, so a link naming a side lands on it
+// even with the tab already mounted; standing alone, the tab keeps its own.
+function ErrorsTab({ win, timeRange, serviceId, onFocus, syncId, onOpenLink, side: sideProp, onSide }) {
+  const [ownSide, setOwnSide] = useState('server')
+  const side = sideProp ?? ownSide
+  const setSide = onSide ?? setOwnSide
+  // What each count's chip compares against, worded from the picked range
+  // ("the previous hour") as the Errors page words it (rule 6).
+  const prevText = previousPeriodText(timeRange)
   const [q, setQ] = useState('')
-  const groups = useMemo(() => errorGroupsForWindow(win, side), [win, side])
+  const groups = useMemo(
+    () => errorGroupsForWindow(win, { side, service: serviceId, by: side === 'client' ? CLIENT_ERRORS_BY : undefined }),
+    [win, side, serviceId],
+  )
+  // What the Endpoint column names: the route on Server, the call on Client.
+  const where = e => (side === 'client' ? e.spanName : e.endpoint)
   const filtered = q
-    ? groups.filter(e => (e.endpoint + ' ' + e.exception + ' ' + e.message).toLowerCase().includes(q.toLowerCase()))
+    ? groups.filter(e => (where(e) + ' ' + e.exception + ' ' + e.message).toLowerCase().includes(q.toLowerCase()))
     : groups
-  // A row click lands the user on the Traces page scoped to the row's endpoint
-  // + exception; the Traces view decides how to interpret those as filters.
-  const openRow = (e) => onOpenLink?.({ view: 'traces', endpoint: e.endpoint, exception: e.exception })
+  // A row click lands on the Traces page filtered to exactly the spans the row
+  // counts: this service, this side, failed, this span, this exception. The
+  // Traces stream carries a span for every error group, so it is never empty.
+  const openRow = (e) => onOpenLink?.({ view: 'traces', filters: tracesFiltersFor(e) })
   return (
     <div className="panel">
       <div className="panel-head">
@@ -1817,6 +1754,17 @@ function ErrorsTab({ win, onFocus, syncId, onOpenLink }) {
             <div className={`seg${side === 'server' ? ' active' : ''}`} onClick={() => setSide('server')}>Server</div>
             <div className={`seg${side === 'client' ? ' active' : ''}`} onClick={() => setSide('client')}>Client</div>
           </div>
+        </div>
+        <div className="panel-head-right">
+          <button
+            type="button"
+            className="hbtn small"
+            title={`Open ${serviceId}'s ${side} errors on the Errors page`}
+            onClick={() => onOpenLink?.({ view: 'errors', service: serviceId, kind: side })}
+          >
+            Open in Errors
+            <ArrowUpRight size={12} strokeWidth={2} aria-hidden="true" />
+          </button>
         </div>
       </div>
       <div className="split-endpoints-search" style={{ borderTop: '1px solid var(--border-subtle)' }}>
@@ -1828,30 +1776,40 @@ function ErrorsTab({ win, onFocus, syncId, onOpenLink }) {
       <div className="err-head">
         <span>Endpoint</span><span>Error</span><span>Count</span><span />
       </div>
-      {filtered.map((e, i) => (
-        <div
-          key={i}
-          className="err-row is-clickable"
-          role="button"
-          tabIndex={0}
-          onClick={() => openRow(e)}
-          onKeyDown={ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openRow(e) } }}
-        >
-          <div className="err-endpoint">{e.endpoint}</div>
-          <div className="err-exc">
-            <span className="err-exc-cls">{e.exception}</span>
-            <span className="err-exc-msg">{e.message}</span>
+      {filtered.map(e => {
+        const delta = deltaChip(e.count, e.prevCount, prevText)
+        return (
+          <div
+            key={e.id}
+            className="err-row is-clickable"
+            role="button"
+            tabIndex={0}
+            onClick={() => openRow(e)}
+            onKeyDown={ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openRow(e) } }}
+          >
+            <div className="err-endpoint" title={where(e)}>{where(e)}</div>
+            <div className="err-exc">
+              <span className="err-exc-cls">{e.exception}</span>
+              <span className="err-exc-msg">{e.message}</span>
+            </div>
+            {/* The chip sits under the number, as on the Errors page, so the
+                count keeps its size in the narrow column. Stacked flush right,
+                anything wider than the column (a 7d "12,239") spills left into
+                the gap rather than right into the spark (errors.css). */}
+            <div className="err-count">
+              <span>{e.count.toLocaleString()}</span>
+              <span className="errp-delta" data-dir={delta.dir} title={delta.title}>{delta.label}</span>
+            </div>
+            <div className="err-spark" onClick={ev => ev.stopPropagation()}>
+              <ErrorSpark series={e.series} win={win} onFocus={onFocus} syncId={syncId} />
+            </div>
           </div>
-          <div className="err-count">{e.count}</div>
-          <div className="err-spark" onClick={ev => ev.stopPropagation()}>
-            <ErrorSpark series={e.series} color="#EF4444" win={win} onFocus={onFocus} syncId={syncId} />
-          </div>
-        </div>
-      ))}
+        )
+      })}
       {filtered.length === 0 && (
         <div className="err-empty">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
-          <div>No errors match "{q || 'this filter'}"</div>
+          <div>{groups.length === 0 ? `No ${side} errors in ${win.label}` : `No errors match "${q}"`}</div>
         </div>
       )}
     </div>
@@ -2417,7 +2375,7 @@ function FilterSelect({ label, value, options, onSelect, className }) {
   )
 }
 
-export default function ServiceOverview({ serviceId, onSelectService, onOpenTrace, goHome, serviceSubTab, setServiceSubTab, serviceEndpoint, setServiceEndpoint, timeRange, setTimeRange, settingsOpen, setSettingsOpen, setToast, onOpenLink }) {
+export default function ServiceOverview({ serviceId, onSelectService, onOpenTrace, goHome, serviceSubTab, setServiceSubTab, serviceEndpoint, setServiceEndpoint, errorsSide, onErrorsSide, timeRange, setTimeRange, settingsOpen, setSettingsOpen, setToast, onOpenLink }) {
   // Everything this page draws comes out of one window, built once. The tables
   // and the charts are the same profiles reduced and sampled, so a headline
   // figure and the chart under it cannot disagree about the range.
@@ -2510,7 +2468,7 @@ export default function ServiceOverview({ serviceId, onSelectService, onOpenTrac
   } else if (serviceSubTab === 'db') {
     body = <DbTab svc={svc} data={data} syncId={syncId} win={win} onFocus={setTimeRange} />
   } else if (serviceSubTab === 'errors') {
-    body = <ErrorsTab win={win} onFocus={setTimeRange} syncId={syncId} onOpenLink={onOpenLink} />
+    body = <ErrorsTab win={win} timeRange={timeRange} serviceId={svc.id} onFocus={setTimeRange} syncId={syncId} onOpenLink={onOpenLink} side={errorsSide} onSide={onErrorsSide} />
   } else if (serviceSubTab === 'runtime') {
     // Keyed on the service so switching services drops the host selection.
     body = <RuntimeTab key={svc.id} syncId={syncId} win={win} onFocus={setTimeRange} />

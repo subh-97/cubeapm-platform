@@ -80,6 +80,15 @@ const STACKTRACE = `java.lang.RuntimeException: Downstream call failed
 \tat com.cubedemo.server.HttpServer.dispatch(HttpServer.java:203)
 \tat java.base/java.lang.Thread.run(Thread.java:840)`
 
+// What a failing span records when its caller names nothing more specific: the
+// one failure the seeded traces have. The Errors page builds its sample traces
+// out of these same primitives and passes the exception it is actually about.
+const DOWNSTREAM_FAILURE = {
+  type: 'java.lang.RuntimeException',
+  message: 'Downstream call failed',
+  stacktrace: STACKTRACE,
+}
+
 // The SDK stamps the same resource block on every span it exports. Kept on the
 // record because the drawer's JSON view is the raw span, and collapsed out of
 // the field list by isNoiseField — it is identical on every row of its kind.
@@ -115,7 +124,15 @@ function timeParts(t, ms) {
 
 let rowSeq = 0
 
-function makeSpan({ time, service, spanName, spanKind, durationNs, statusCode, traceId, spanId, parentId, rootName, host, extra }) {
+/**
+ * One span row. Exported, with the two parameters only the Errors page passes,
+ * so its sample traces are spans of exactly this shape rather than a lookalike
+ * that drifts: `id` replaces the stream counter (a trace decoded from its id
+ * alone has to come back with the same row ids every time, and must not move
+ * the seeded stream's numbering), and `exception` is what an ERROR span at a
+ * process boundary records.
+ */
+export function makeSpan({ time, service, spanName, spanKind, durationNs, statusCode, traceId, spanId, parentId, rootName, host, extra, id, exception = DOWNSTREAM_FAILURE }) {
   const isError = statusCode === 'ERROR'
   const tags = {
     ...resourceTags(service, host),
@@ -141,15 +158,15 @@ function makeSpan({ time, service, spanName, spanKind, durationNs, statusCode, t
     // times and hide which two calls actually saw it.
     tags.error = 'true'
     if (spanKind !== 'internal') {
-      tags.exception = 'java.lang.RuntimeException'
-      tags['exception.type'] = 'java.lang.RuntimeException'
-      tags['exception.message'] = 'Downstream call failed'
-      tags['exception.stacktrace'] = STACKTRACE
+      tags.exception = exception.type
+      tags['exception.type'] = exception.type
+      tags['exception.message'] = exception.message
+      tags['exception.stacktrace'] = exception.stacktrace
     }
   }
   const ms = time.getMilliseconds()
   return {
-    id: `span_${rowSeq++}`,
+    id: id ?? `span_${rowSeq++}`,
     time,
     ...timeParts(time, ms),
     // Spans have no message; `level` is what the shared drawer colours its
@@ -170,8 +187,8 @@ function makeSpan({ time, service, spanName, spanKind, durationNs, statusCode, t
 // A span event is a timestamped point inside a span — an exception being
 // recorded, a retry being logged. It is a row in the same stream with the same
 // ids and no span of its own, which is why span_name, span_kind and status_code
-// are blank on it and duration is zero.
-function makeSpanEvent({ time, service, traceId, spanId, eventName, rootName, host, extra }) {
+// are blank on it and duration is zero. `id` as on makeSpan.
+export function makeSpanEvent({ time, service, traceId, spanId, eventName, rootName, host, extra, id }) {
   const ms = time.getMilliseconds()
   const tags = {
     ...resourceTags(service, host),
@@ -189,7 +206,7 @@ function makeSpanEvent({ time, service, traceId, spanId, eventName, rootName, ho
     ...extra,
   }
   return {
-    id: `span_${rowSeq++}`,
+    id: id ?? `span_${rowSeq++}`,
     time,
     ...timeParts(time, ms),
     level: 'info',
@@ -205,7 +222,7 @@ function makeSpanEvent({ time, service, traceId, spanId, eventName, rootName, ho
   }
 }
 
-function httpServerTags(rnd, { method, route, status, host }) {
+export function httpServerTags(rnd, { method, route, status, host }) {
   return {
     category: 'http',
     'http.method': method,
@@ -231,7 +248,7 @@ function httpServerTags(rnd, { method, route, status, host }) {
   }
 }
 
-function dbTags(t) {
+export function dbTags(t) {
   const out = {
     category: 'db',
     'db.system': t.system,
@@ -274,7 +291,7 @@ function dbTags(t) {
 // Business attributes the demo app stamps on its own spans. They are the
 // reason a span table beats a log line for this question: "which carrier did
 // the failing shipments use" is a column here, not a regex over text.
-const DOMAIN_TAGS = {
+export const DOMAIN_TAGS = {
   'payment-service': (rnd) => ({
     'payment.method': pick(rnd, ['card', 'upi', 'wallet']),
     'payment.processor': pick(rnd, ['stripe', 'adyen', 'razorpay']),

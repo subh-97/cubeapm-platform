@@ -1,0 +1,256 @@
+/* Errors page: src/pages/ErrorsView.jsx and src/components/errors/ErrorGroupTable.jsx.
+   The details drawer and the service page's Errors tab reuse its count chip.
+
+   src/index.css is not edited by this work. The page stands in the Logs/Traces
+   explorer shell (.logs-*), and reuses .seg-toggle, .status-dot, .hbtn and the
+   volume legend from there; what is here is only what the page has of its own.
+   Every colour is a token, so both themes follow. */
+
+/* ── Facet rail ────────────────────────────────────────────────────────── */
+
+/* An exception value in the rail, laid out as the table's Error cell is: the
+   package gives way first, cut from its left (.errp-exc-pkg, below), so the
+   class name always shows and the two Jedis exceptions no longer look the same.
+   It keeps the facet label's own size and colour. */
+.errp-facet-exc { display: flex; min-width: 0; white-space: nowrap; }
+.errp-facet-exc-cls { flex: 0 0 auto; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+
+/* ── Server | Client, in the query bar ─────────────────────────────────── */
+
+/* The same height as the query input beside it, and pinned to the top of the
+   bar, so it does not stretch when chips wrap onto a second line. */
+.seg-toggle.errp-kind {
+  align-self: flex-start;
+  align-items: stretch;
+  height: 32px;
+  padding: 3px;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+/* .seg is written for a <div>; these are buttons, so the browser's own button
+   look is undone first and the platform's .seg rules then apply. */
+.errp-kind button.seg {
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+}
+.errp-kind button.seg.active { background: var(--card); font-weight: 600; }
+.errp-kind button.seg:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+
+/* ── Volume legend ─────────────────────────────────────────────────────── */
+
+/* A little wider than the Logs/Traces legend: it carries a comparison line. */
+.logs-volume-legend.errp-legend { width: 188px; }
+.errp-legend-delta {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 5px;
+  padding: 0 0 4px 15px;
+  font-size: 10px; color: var(--text-muted);
+}
+.errp-legend-new { margin-left: 5px; font-weight: 400; color: var(--text-muted); }
+
+/* ── Comparison chip ───────────────────────────────────────────────────── */
+
+/* Information, never severity: one info colour whichever way the count moved
+   (CLAUDE.md rules 2 and 6) — the same chip Explore's legend uses. The details
+   drawer and the service page's Errors tab reuse it. */
+.errp-delta {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--info-tint);
+  color: var(--info);
+  white-space: nowrap;
+}
+.errp-delta[data-dir="flat"], .errp-delta[data-dir="none"] {
+  background: none; color: var(--text-muted); font-weight: 400;
+}
+
+/* The service page's Errors tab stacks the same chip under its count, flush
+   right, so anything wider than its narrow column spills left into the gap
+   rather than right into the spark. */
+.err-row .err-count { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+
+/* ── The table ─────────────────────────────────────────────────────────── */
+
+.errp-head,
+.errp-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr) 92px minmax(260px, 2.2fr) 84px;
+  gap: 14px;
+}
+
+/* Sticky inside .logs-main-body, the page's one scroll container, so the
+   column names stay put while the groups scroll under them. The rule under it
+   is a shadow rather than a border: it lands on the first row's own top border
+   instead of doubling it. */
+.errp-head {
+  position: sticky; top: 0; z-index: 4;
+  align-items: center;
+  padding: 8px 16px;
+  background: var(--card);
+  box-shadow: 0 1px 0 var(--border-subtle);
+  font-size: 10px; font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: .5px;
+}
+.errp-sort {
+  display: inline-flex; align-items: center; gap: 5px;
+  justify-self: start;
+  padding: 0; border: 0; background: none;
+  font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit;
+  cursor: pointer;
+}
+.errp-sort:hover { color: var(--text-primary); }
+.errp-sort:hover .sortable-th-arrow { opacity: .9; }
+.errp-sort:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 2px; }
+.errp-sort.is-right { justify-self: end; }
+
+/* The hover affordance is a brand bar on the left, not a background, so the
+   charts in the row keep the surface they are drawn on — the same choice as
+   the service page's Errors tab. The open row keeps the bar and takes a fill. */
+.errp-row {
+  position: relative;
+  align-items: center;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-subtle);
+  font-size: 12px;
+  cursor: pointer;
+}
+.errp-row::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: transparent; transition: background .12s;
+}
+.errp-row:hover::before,
+.errp-row:focus-visible::before,
+.errp-row.is-selected::before { background: var(--brand); }
+.errp-row:focus-visible { outline: none; }
+.errp-row.is-selected { background: var(--panel-2); }
+@media (prefers-reduced-motion: reduce) { .errp-row::before { transition: none; } }
+
+/* Endpoint cell: whose, then where. */
+.errp-where { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.errp-svc { display: flex; align-items: center; gap: 7px; min-width: 0; color: var(--text-primary); }
+.errp-svc .status-dot.neutral { background: var(--neutral); }
+.errp-svc-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Indented to sit under the service name rather than under its dot. */
+.errp-ep {
+  padding-left: 16px;
+  font-family: var(--font-mono); font-size: 11.5px;
+  color: var(--text-secondary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* Error cell. The class name is what a reader recognises, so it never gives
+   way: the package in front of it is the part that shrinks, and it is cut from
+   its LEFT end — `…jedis.exceptions.JedisPoolException` — because the segment
+   nearest the class says the most. That is what direction: rtl does to the
+   ellipsis; the <bdi> inside keeps the dotted name itself reading left to right. */
+.errp-err { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.errp-exc {
+  display: flex; min-width: 0; max-width: 100%;
+  font-family: var(--font-mono); font-size: 11.5px;
+  color: var(--critical-fg);
+  white-space: nowrap;
+}
+.errp-exc-pkg {
+  flex: 0 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis;
+  direction: rtl; text-align: left;
+  color: var(--text-muted);
+}
+.errp-exc-cls { flex: 0 0 auto; max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
+.errp-row:hover .errp-exc-cls,
+.errp-row:focus-visible .errp-exc-cls {
+  text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px;
+}
+.errp-msg { font-size: 10.5px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Server: one chip per HTTP code with its reason. Client: the call that failed.
+   The chip itself is index.css's .tw-code, the waterfall's and the drawer's. */
+.errp-codes,
+.errp-call {
+  display: flex; align-items: center; gap: 8px; min-width: 0;
+  overflow: hidden; white-space: nowrap;
+  font-size: 10.5px; color: var(--text-secondary);
+}
+.errp-code-item { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
+.errp-code-reason { overflow: hidden; text-overflow: ellipsis; }
+.errp-none { color: var(--text-muted); }
+.errp-call { gap: 6px; }
+.errp-call-name {
+  min-width: 0;
+  font-family: var(--font-mono);
+  overflow: hidden; text-overflow: ellipsis;
+}
+.errp-cat {
+  flex-shrink: 0;
+  padding: 0 4px; border: 1px solid var(--border-subtle); border-radius: 3px;
+  font-size: 9.5px; line-height: 1.5; letter-spacing: .3px;
+  color: var(--text-muted);
+}
+
+/* Count cell: the number, and under it how it compares with before. */
+.errp-count { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.errp-count-n { font-size: 15px; color: var(--text-primary); }
+
+/* Spark cell. The placeholder holds the row at its final height while the chart
+   waits to scroll into view, so nothing below it jumps when it mounts. */
+.errp-spark { min-width: 0; height: 104px; cursor: default; }
+.errp-spark-ph { height: 100%; border-bottom: 1px solid var(--border-subtle); opacity: .6; }
+
+.errp-actions { display: flex; justify-content: flex-end; }
+.errp-traces-link {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 6px; margin-right: -6px;
+  border: 0; border-radius: var(--radius-sm); background: none;
+  font: inherit; font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap; cursor: pointer;
+}
+.errp-traces-link svg { width: 12px; height: 12px; opacity: .6; }
+.errp-traces-link:hover,
+.errp-traces-link:focus-visible { color: var(--brand); background: var(--panel); }
+.errp-traces-link:hover svg,
+.errp-traces-link:focus-visible svg { opacity: 1; }
+.errp-traces-link:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+
+/* ── Empty states ──────────────────────────────────────────────────────── */
+
+.errp-empty {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 48px 24px;
+  text-align: center;
+  font-size: 12px; color: var(--text-muted);
+}
+.errp-empty > svg { width: 34px; height: 34px; margin-bottom: 2px; color: var(--border-strong); }
+.errp-empty-title { font-size: 12.5px; font-weight: 600; color: var(--text-secondary); }
+.errp-empty-sub { max-width: 360px; font-size: 11.5px; line-height: 1.5; }
+.errp-empty-list {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 6px;
+  max-width: 600px; margin: 4px 0 0; padding: 0;
+  list-style: none;
+}
+.errp-empty-filter {
+  display: inline-flex; align-items: center; gap: 5px; max-width: 100%;
+  padding: 2px 7px; border-radius: 4px;
+  background: var(--panel);
+  font-family: var(--font-mono); font-size: 10.5px;
+  color: var(--text-muted);
+}
+.errp-empty-filter .v { min-width: 0; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.errp-empty-filter .zero { color: var(--text-muted); }
+.errp-empty-notes {
+  max-width: 480px; margin: 2px 0 0; padding: 0;
+  list-style: none;
+  font-size: 11.5px; line-height: 1.5; color: var(--text-secondary);
+}
+.errp-empty-actions { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.errp-empty-actions .search-empty-clear { margin-top: 0; }

@@ -1,0 +1,235 @@
+/* The Error details drawer (ErrorDetailsDrawer.jsx).
+ *
+ * Its shell is the Logs/Traces record drawer: .log-detail and its head, nav and
+ * close button come from src/index.css, which is the platform stylesheet and is
+ * not edited by this work. The rules here only widen that shell and draw what
+ * an error group has and a log record does not: the summary strip, the host
+ * and version breakdown, the occurrence grid, the stack trace and the footer.
+ * The HTTP status chip is index.css's .tw-code, the one the waterfall uses,
+ * and the comparison chip is errors.css's .errp-delta, the one the table row
+ * uses: one chip of each kind across the feature, not a copy per stylesheet.
+ *
+ * Every value is a var(--…) token, so the light theme follows without a second
+ * copy of this file. Red is spent only where the thing shown IS the failure:
+ * the exception name, the message callout, the throw line. The breakdown bars
+ * say which host or version, not how bad, so they are brand blue.
+ *
+ * Class names are prefixed `errd-`.
+ */
+
+/* Wider than a log record: an occurrence carries a 32-character trace id with a
+   button beside it, and stack frames are long by nature. Two classes so it
+   outranks .log-detail whichever stylesheet loads last. */
+.log-detail.errd { width: 600px; max-width: 72%; }
+/* Focus lands on the drawer itself when Prev or Next disables itself at an
+   end. It is a container rather than a control, so it takes no ring. */
+.log-detail.errd:focus { outline: none; }
+
+/* ── Head ── */
+.errd-head { flex-shrink: 0; border-bottom: 1px solid var(--border-subtle); }
+.errd-eyebrow {
+  font-size: 10px; font-weight: 600; letter-spacing: .5px; text-transform: uppercase;
+  color: var(--text-muted);
+}
+/* The short class name: the part a reader recognises. The full name is in the
+   title, and in the first line of the stack below. */
+.errd-title {
+  margin-top: 4px;
+  font-size: 13.5px; font-weight: 600; color: var(--critical-fg);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* Wraps between its parts rather than truncating the line: on Client it ends
+   in the outgoing call, which is the half of the group's identity a cut at
+   the end would take away. */
+.errd-sub {
+  margin-top: 3px; font-size: 11.5px; line-height: 1.5; color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+/* Each part wraps as a unit, so a line break never splits a method from its
+   route; a part too long for a line of its own is cut with an ellipsis (the
+   whole line is in the title) rather than wrapping on, which would let one
+   runaway route push the drawer's body off the screen under a fixed head. */
+.errd-sub .mono {
+  display: inline-block; max-width: 100%; vertical-align: bottom; font-size: 11px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.errd-sep { margin: 0 6px; color: var(--text-muted); }
+.errd-pos {
+  padding: 0 4px; white-space: nowrap;
+  font-size: 11.5px; color: var(--text-secondary);
+}
+
+/* The body scrolls; the head and the footer stay put around it. */
+.errd-body { flex: 1; min-height: 0; overflow-y: auto; }
+
+/* ── Summary strip ── */
+.errd-summary {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 20px;
+  padding: 11px 16px; border-bottom: 1px solid var(--border-subtle);
+  font-size: 12px; color: var(--text-secondary);
+}
+.errd-sum-count { display: inline-flex; align-items: baseline; flex-wrap: wrap; gap: 6px; }
+.errd-count { font-size: 15px; font-weight: 600; color: var(--text-primary); }
+.errd-sum-key { margin-right: 6px; color: var(--text-muted); }
+
+/* The comparison chip is the table row's .errp-delta from errors.css, so the
+   drawer and the row it opened from cannot drift apart. Only its placement is
+   the drawer's: the count line aligns on the baseline, and a padded 9.5px chip
+   beside the 15px count reads as sagging there, so it centres instead. */
+.errd-sum-count .errp-delta { align-self: center; }
+
+/* ── Sections ── */
+.errd-section { padding: 12px 16px 14px; border-bottom: 1px solid var(--border-subtle); }
+.errd-section:last-child { border-bottom: none; }
+.errd-section-head { display: flex; align-items: center; gap: 8px; min-height: 22px; margin-bottom: 8px; }
+.errd-section-title {
+  margin: 0;
+  font-size: 10px; font-weight: 600; letter-spacing: .5px; text-transform: uppercase;
+  color: var(--text-muted);
+}
+.errd-section-meta { font-size: 10.5px; color: var(--text-muted); }
+.errd-none-note { font-size: 11.5px; color: var(--text-muted); }
+
+/* A value that leads somewhere else. Reads as the value first; the arrow says
+   it opens, and brightens when the pointer or focus is on it. */
+.errd-link {
+  display: inline-flex; align-items: center; gap: 3px; max-width: 100%; min-width: 0;
+  padding: 0; border: 0; background: none; cursor: pointer;
+  font: inherit; color: var(--text-primary); text-align: left;
+}
+.errd-link > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.errd-link svg { width: 11px; height: 11px; flex-shrink: 0; opacity: .5; transition: opacity .12s; }
+.errd-link:hover { color: var(--brand); }
+.errd-link:hover svg, .errd-link:focus-visible svg { opacity: 1; }
+.errd-link:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 2px; }
+/* An action rather than a value, so it is in the brand colour from the start. */
+.errd-link.is-action { font-family: var(--font-sans); color: var(--brand); }
+.errd-link.is-action:hover { text-decoration: underline; text-underline-offset: 2px; }
+
+/* ── Where it happens ── */
+/* Side by side while the drawer is wide enough for both, stacked when not. */
+.errd-where { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px 20px; }
+.errd-dist-head {
+  display: flex; align-items: baseline; gap: 6px; margin-bottom: 7px;
+  font-size: 11px; font-weight: 600; color: var(--text-secondary);
+}
+.errd-dist-n { font-size: 10.5px; font-weight: 400; color: var(--text-muted); }
+.errd-dist-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.errd-dist-line { display: flex; align-items: baseline; gap: 8px; font-size: 11.5px; }
+.errd-dist-val { flex: 1; min-width: 0; display: flex; color: var(--text-primary); }
+.errd-dist-val > .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.errd-dist-pct { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-secondary); }
+.errd-dist-count {
+  min-width: 4ch; text-align: right;
+  font-family: var(--font-mono); font-size: 10.5px; color: var(--text-muted);
+}
+.errd-dist-track { margin-top: 4px; height: 3px; border-radius: 2px; background: var(--panel-2); overflow: hidden; }
+.errd-dist-fill { display: block; height: 100%; border-radius: 2px; background: var(--brand); }
+.errd-dist-more { margin-top: 7px; font-size: 10.5px; color: var(--text-muted); }
+
+/* ── Occurrence ── */
+.errd-when { font-size: 12px; color: var(--text-primary); }
+/* In the UI face: an annotation about the timestamp, not part of it. */
+.errd-ago { margin-left: 6px; font-size: 11px; color: var(--text-muted); }
+/* The same callout as the trace page's span panel, in the status tokens so it
+   re-themes. */
+.errd-msg {
+  margin: 9px 0 12px; padding: 7px 10px; border-radius: 5px;
+  background: var(--critical-tint); border-left: 2px solid var(--critical);
+  font-size: 12px; line-height: 1.5; color: var(--text-primary); overflow-wrap: anywhere;
+}
+.errd-grid {
+  display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 6px 12px;
+  margin: 0; font-size: 11.5px; line-height: 1.5;
+}
+.errd-grid dt { color: var(--text-muted); }
+.errd-grid dd { margin: 0; min-width: 0; color: var(--text-primary); overflow-wrap: anywhere; }
+.errd-trace { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px; }
+.errd-status { display: inline-flex; align-items: center; gap: 6px; }
+.errd-none { color: var(--text-muted); }
+.errd-gloss { margin-left: 6px; font-family: var(--font-sans); font-size: 10.5px; color: var(--text-muted); }
+
+/* ── Stack trace ── */
+.errd-copy {
+  margin-left: auto;
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 8px; border-radius: var(--radius-sm); cursor: pointer;
+  background: none; border: 1px solid var(--border-subtle);
+  font-family: inherit; font-size: 11px; color: var(--text-secondary);
+  transition: color .12s, border-color .12s, background-color .12s;
+}
+.errd-copy:hover { color: var(--text-primary); border-color: var(--border-strong); background: var(--panel-2); }
+.errd-copy svg { width: 12px; height: 12px; }
+
+.errd-stack-box {
+  background: var(--panel); border: 1px solid var(--border-subtle);
+  border-radius: 5px; overflow: hidden;
+}
+/* Bounded and scrolling both ways. Frames are not wrapped: a wrapped frame
+   reads as two frames. The bound is just tall enough for a folded trace —
+   the throw, a dozen frames and its Caused by block — to sit whole, so the
+   root cause is on screen without scrolling; an unfolded one scrolls. */
+.errd-stack {
+  margin: 0; padding: 6px 0; max-height: 320px; overflow: auto;
+  font-size: 11px; line-height: 1.55; tab-size: 2;
+}
+.errd-stack:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+/* Each line is as wide as its text, and at least as wide as the box, so a
+   hover band runs the whole line however far it scrolls. */
+.errd-stack-line {
+  display: block; width: max-content; min-width: 100%;
+  padding: 0 10px; white-space: pre; color: var(--text-muted);
+}
+/* The throw and each cause are sentences, not frames: they wrap at the box
+   instead of scrolling out of it. */
+.errd-stack-line.is-head,
+.errd-stack-line.is-cause {
+  width: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-weight: 600;
+}
+.errd-stack-line.is-head { color: var(--critical-fg); padding-bottom: 2px; }
+/* A wrapped exception starts a new section of the document, so it reads as a
+   sub-heading with a rule above it. */
+.errd-stack-line.is-cause {
+  margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--border-panel);
+  color: var(--text-primary);
+}
+/* The application's own frames are where a fix goes: full strength, with the
+   identity bar down their edge so they can be found in a scroll. */
+.errd-stack-line.is-app { color: var(--text-primary); box-shadow: inset 2px 0 0 var(--brand); }
+.errd-stack-line.is-app:hover,
+.errd-stack-line.is-lib:hover { background: var(--panel-2); }
+.errd-stack-line.is-fold {
+  font-family: var(--font-sans); font-size: 10.5px; font-style: italic; color: var(--text-muted);
+}
+.errd-stack-toggle {
+  display: block; width: 100%; padding: 5px 10px;
+  background: none; border: 0; border-top: 1px solid var(--border-subtle); cursor: pointer;
+  font-family: inherit; font-size: 11px; text-align: left; color: var(--text-secondary);
+  transition: color .12s, background-color .12s;
+}
+.errd-stack-toggle:hover { color: var(--text-primary); background: var(--panel-2); }
+
+/* ── Attributes ── */
+.errd-attrs { margin: 0; border: 1px solid var(--border-subtle); border-radius: 5px; overflow: hidden; }
+.errd-attr {
+  display: grid; grid-template-columns: minmax(0, 38%) minmax(0, 1fr); gap: 12px;
+  padding: 5px 10px; font-size: 11px; line-height: 1.5;
+  border-top: 1px solid var(--border-subtle);
+}
+.errd-attr:first-child { border-top: 0; }
+.errd-attr:hover { background: var(--panel); }
+.errd-attr dt { color: var(--text-muted); overflow-wrap: anywhere; }
+.errd-attr dd { margin: 0; color: var(--text-primary); overflow-wrap: anywhere; }
+
+/* ── Empty ── */
+.errd-empty svg { width: 30px; height: 30px; color: var(--border-strong); }
+
+/* ── Footer ── */
+.errd-foot {
+  flex-shrink: 0;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  padding: 10px 16px; border-top: 1px solid var(--border-subtle); background: var(--card);
+}
+/* The arrow follows the label here, so the icon margin .hbtn gives a leading
+   icon would only push the button wider. */
+.errd-foot .hbtn svg { margin-right: 0; }

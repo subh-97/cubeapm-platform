@@ -16,6 +16,7 @@
 
 import { spanRows } from './tracesExplorer'
 import { logRows } from './observability'
+import { errorTraceRows } from './errors'
 import { valueOfConcept } from '@/utils/logFields'
 
 const seedOf = (traceId) => {
@@ -142,6 +143,13 @@ export function buildTrace(traceId) {
   let raw = (BY_TRACE.get(traceId) ?? []).filter(s => s.tags['event.domain'] === 'span')
   const origin = recordForTrace(traceId)
   let rename = null
+
+  // An Errors-page sample carries its whole trace in its id, so it decodes to
+  // the failing request it was taken from — never a borrowed stand-in, which
+  // would usually belong to another service and usually have succeeded.
+  if (raw.length === 0) {
+    raw = (errorTraceRows(traceId) ?? []).filter(s => s.tags['event.domain'] === 'span')
+  }
 
   if (raw.length === 0) {
     // No spans under this id. Borrow a seeded trace's shape, deterministically,
