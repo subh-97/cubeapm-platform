@@ -18,6 +18,7 @@ const ICONS = {
   target: <><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r=".7"/></>,
   bell: <><path d="M6 10a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 20a2 2 0 004 0"/></>,
   bot: <><path d="M12 8V4H8"/><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></>,
+  scanSearch: <><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="12" r="3"/><path d="m16 16-1.9-1.9"/></>,
   help: <><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></>,
   chevLeft: <path d="M15 18l-6-6 6-6"/>,
   chevRight: <path d="M9 6l6 6-6 6"/>,
@@ -39,7 +40,7 @@ const NAV_GROUPS = [
     { id: 'home', label: 'Home', icon: 'home', enabled: true },
     { id: 'services', label: 'APM & Services', icon: 'pulse', enabled: true },
     { id: 'logs', label: 'Logs', icon: 'fileSearch', enabled: true },
-    { id: 'infra', label: 'Infra', title: 'Infrastructure', icon: 'server', enabled: true },
+    { id: 'infra', label: 'Infrastructure', icon: 'server', enabled: true },
     { id: 'rum', label: 'Browser', title: 'Browser (RUM)', icon: 'appWindow' },
     { id: 'traces', label: 'Traces', icon: 'textSearch', enabled: true },
     { id: 'mtraces', label: 'MTraces', title: 'Mobile Traces', icon: 'phoneCode' },
@@ -53,6 +54,7 @@ const NAV_GROUPS = [
     { id: 'slo', label: 'SLO', title: 'SLOs', icon: 'target' },
     { id: 'alerts', label: 'Alerts', icon: 'bell' },
     { id: 'monitors', label: 'Monitors', title: 'Synthetic Monitors', icon: 'bot' },
+    { id: 'investigation', label: 'Investigation', icon: 'scanSearch' },
   ]},
 ]
 

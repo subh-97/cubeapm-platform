@@ -295,6 +295,10 @@ a { color: inherit; }
 .app.nav-collapsed .nav-group-label { text-align: center; padding: 6px 0; }
 .app.nav-collapsed .nav-group-label span { display: none; }
 .app.nav-collapsed .nav-group-label::after { content: "···"; letter-spacing: 1px; }
+/* A section after the first starts 4px further from the items above it, open
+   or collapsed; the second selector outranks the collapsed padding above. */
+.nav-scroll > div + div > .nav-group-label,
+.app.nav-collapsed .nav-scroll > div + div > .nav-group-label { padding-top: 10px; }
 .nav-item {
   position: relative; display: flex; align-items: center; gap: 12px; padding: 6px 11px;
   border-radius: var(--radius-sm); color: var(--text-secondary); cursor: pointer;
@@ -504,7 +508,10 @@ a { color: inherit; }
 .svc-sidebar-item.disabled:hover { background: none; color: var(--text-secondary); }
 .svc-sidebar-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .svc-sidebar-count { font-size: 10px; color: var(--text-muted); background: var(--panel); padding: 1px 6px; border-radius: 99px; flex-shrink: 0; }
-.svc-sidebar-item.active .svc-sidebar-count { background: rgba(207,224,255,.15); color: var(--brand-on-muted); }
+/* On a hovered or selected row the count sits on a white key, so it stays a
+   pill against the row's own fill instead of melting into it. */
+.svc-sidebar-item:hover .svc-sidebar-count { background: var(--card); }
+.svc-sidebar-item.active .svc-sidebar-count { background: var(--card); color: var(--brand-on-muted); }
 .svc-sidebar-icon { flex-shrink: 0; color: var(--text-muted); }
 .svc-sidebar-item:hover .svc-sidebar-icon, .svc-sidebar-item.active .svc-sidebar-icon { color: inherit; }
 /* Endpoint selector strip that sits at the top of the scrollable body on the
@@ -3545,7 +3552,7 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 .infra-source-row { display: flex; align-items: center; gap: 8px; padding: 8px 14px; font-size: 11.5px; cursor: pointer; transition: background .08s; color: var(--text-secondary); }
 .infra-source-row:hover { background: var(--panel-2); color: var(--text-primary); }
 .infra-source-icon-svg { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
-.infra-source-icon-svg svg { display: block; width: 100%; height: 100%; }
+.infra-source-icon-svg :is(svg, img) { display: block; width: 100%; height: 100%; }
 .infra-source-icon-fallback { border-radius: 3px; background: var(--border-panel); flex-shrink: 0; }
 
 .infra-main { min-width: 0; }

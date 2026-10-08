@@ -79,13 +79,14 @@
    and its answer, and drags the editor's height — the editor is the half that
    varies, since an Advanced query with several operation cards is tall enough
    to push the chart off the screen. */
-/* 15px of grab area, then 16px of air before the row below — the rule should
-   not sit tight against the controls it divides from the query. Everything is
-   border-box, so the height carries the padding rather than being reduced by
-   it: 31 - 16 leaves the 15px the grip is centred in. */
+/* 20px of air under the query, 15px of grab area, then 16px before the row
+   below — the rule should not sit tight against either side it divides.
+   Everything is border-box, so the height carries the padding rather than being
+   reduced by it: 51 - 20 - 16 leaves the 15px the grip is centred in. */
 .ex-split {
   flex-shrink: 0;
-  height: 31px;
+  height: 51px;
+  padding-top: 20px;
   padding-bottom: 16px;
   display: flex;
   align-items: center;
@@ -103,7 +104,7 @@
   position: absolute;
   left: 0;
   right: 0;
-  top: 7px;
+  top: 27px;
   height: 1px;
   background: var(--border-subtle);
 }
