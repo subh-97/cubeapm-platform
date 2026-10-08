@@ -19,6 +19,8 @@ import ServicePicker from '@/components/ServicePicker'
 import CardMenu, { CardActionContext } from '@/components/CardMenu'
 import { explorePayloadForCard } from '@/utils/explore/editorState'
 import InfoTip from '@/components/shared/InfoTip'
+import { SortableTh, CellBar } from '@/components/shared/SortableTable'
+import { useSortedRows } from '@/hooks/useSortedRows'
 import Waterfall from '@/components/trace/Waterfall'
 import { buildTrace } from '@/data/traceDetail'
 import { errorGroupsForWindow, tracesFiltersFor } from '@/data/errors'
@@ -62,60 +64,6 @@ const RED_EP_COLORS = ['#3B82F6', '#34D399', '#F472B6', '#A78BFA', '#06B6D4', '#
 // (see cycledColor), and it is never `undefined`, which is what indexing the
 // six colours directly gave the RED charts once more than six could draw.
 const epColor = i => cycledColor(RED_EP_COLORS, i)
-
-// Column sort state for a table. Clicking the header toggles asc → desc →
-// unsorted. `rows` are returned already ordered. A `defaultKey` is used when
-// nothing is picked.
-function useSortedRows(rows, defaultKey = null, defaultDir = 'desc') {
-  const [sort, setSort] = useState(defaultKey ? { key: defaultKey, dir: defaultDir } : null)
-  const sorted = useMemo(() => {
-    if (!sort) return rows
-    const list = [...rows]
-    list.sort((a, b) => {
-      const av = a[sort.key], bv = b[sort.key]
-      if (av == null && bv == null) return 0
-      if (av == null) return 1
-      if (bv == null) return -1
-      if (typeof av === 'number' && typeof bv === 'number') return sort.dir === 'asc' ? av - bv : bv - av
-      return sort.dir === 'asc'
-        ? String(av).localeCompare(String(bv))
-        : String(bv).localeCompare(String(av))
-    })
-    return list
-  }, [rows, sort])
-  const toggle = useCallback(key => setSort(cur => {
-    if (!cur || cur.key !== key) return { key, dir: 'desc' }
-    if (cur.dir === 'desc') return { key, dir: 'asc' }
-    return null
-  }), [])
-  return { rows: sorted, sort, toggle }
-}
-
-// A header cell that participates in column sorting. The arrow follows the
-// active direction, and inactive columns show a faint arrow so the control is
-// discoverable before the first click.
-function SortableTh({ sortKey, sort, onToggle, children, align = 'right', style }) {
-  const active = sort?.key === sortKey
-  const dir = active ? sort.dir : null
-  return (
-    <th
-      className="sortable-th"
-      style={{ textAlign: align, cursor: 'pointer', userSelect: 'none', ...style }}
-      onClick={() => onToggle(sortKey)}
-      aria-sort={active ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}
-    >
-      <span className={`sortable-th-inner${align === 'left' ? ' align-left' : ''}`}>
-        <span>{children}</span>
-        <svg className={`sortable-th-arrow${active ? ' active' : ''}${dir === 'asc' ? ' asc' : ''}`}
-          viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor"
-          strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <circle cx="12" cy="12" r="9" />
-          <path d="M12 8v8M9 13l3 3 3-3" />
-        </svg>
-      </span>
-    </th>
-  )
-}
 
 // The magnifier every search box on this page carries. Its size comes from the
 // box it sits in (13px in all of them), so one glyph serves every variant.
@@ -798,17 +746,13 @@ const PCT_METRICS = { errorRatePct: true, cpuUsedPct: true, memUsedPct: true }
 function InfraCell({ host, metric, value, onEnter, onLeave }) {
   const m = INFRA_METRICS[metric]
   const isPct = PCT_METRICS[metric]
-  const barColor = 'var(--brand)'
   return (
     <td className="hoverable-cell"
       onMouseEnter={e => onEnter(e, host, metric)}
       onMouseLeave={onLeave}
     >
       {isPct ? (
-        <span className="cell-bar">
-          <span className="track"><span className="fill" style={{ width: `${Math.min(100, value)}%`, background: barColor }} /></span>
-          <span>{m.fmt(value)}{m.unit}</span>
-        </span>
+        <CellBar fill={value}>{m.fmt(value)}{m.unit}</CellBar>
       ) : (
         <>{m.fmt(value)}{m.unit}</>
       )}
@@ -1168,21 +1112,11 @@ function RedEndpointsTable({ rows: input }) {
               <tr key={e.endpoint}>
                 <td className="mono" style={{ textAlign: 'left' }}>{e.endpoint}</td>
                 <td>{e.totalReq}</td>
-                <td>
-                  <span className="cell-bar">
-                    <span className="track"><span className="fill" style={{ width: `${Math.min(100, e.timeConsumedPct)}%`, background: 'var(--brand)' }} /></span>
-                    <span>{e.timeConsumedPct}%</span>
-                  </span>
-                </td>
+                <td><CellBar fill={e.timeConsumedPct}>{e.timeConsumedPct}%</CellBar></td>
                 <td>{e.rpm}</td>
                 <td className="val-critical">{e.p90} ms</td>
                 <td>{e.avg} ms</td>
-                <td>
-                  <span className="cell-bar">
-                    <span className="track"><span className="fill" style={{ width: `${Math.min(100, e.errPct * 12)}%`, background: 'var(--brand)' }} /></span>
-                    <span>{e.errPct}%</span>
-                  </span>
-                </td>
+                <td><CellBar fill={e.errPct * 12}>{e.errPct}%</CellBar></td>
               </tr>
             )
           })}

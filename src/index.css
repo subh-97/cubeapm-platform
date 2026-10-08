@@ -450,12 +450,14 @@ a { color: inherit; }
 .crumb-select svg { width: 13px; height: 13px; color: var(--text-muted); transition: transform .12s; }
 .crumb-select.open svg { transform: rotate(180deg); color: var(--text-secondary); }
 /* When no tab-strip follows, the crumbs themselves provide the header/content divider */
-.card-crumbs:not(:has(+ .card-tab-strip)):not(:has(+ .logs-layout-stitched)):not(:has(+ .tw-main)) { border-bottom: 1px solid var(--border-subtle); margin-bottom: 16px; }
-/* The trace view keeps the rule but not the gap under it: its own head follows
-   immediately and carries the spacing, so the 16px was being paid twice. Listed
-   as an exemption above rather than overridden below, because the chained
-   :not(:has()) there outweighs a plain .card-crumbs:has() on specificity. */
-.card-crumbs:has(+ .tw-main) { border-bottom: 1px solid var(--border-subtle); }
+.card-crumbs:not(:has(+ .card-tab-strip)):not(:has(+ .logs-layout-stitched)):not(:has(+ .tw-main)):not(:has(+ .svc-main)) { border-bottom: 1px solid var(--border-subtle); margin-bottom: 16px; }
+/* The trace view and Infrastructure keep the rule but not the gap under it:
+   what follows carries its own top spacing (the trace head, .svc-main's
+   padding), so the 16px was being paid twice. Listed as exemptions above rather
+   than overridden below, because the chained :not(:has()) there outweighs a
+   plain .card-crumbs:has() on specificity. */
+.card-crumbs:has(+ .tw-main),
+.card-crumbs:has(+ .svc-main) { border-bottom: 1px solid var(--border-subtle); }
 /* Stitched variant — crumbs act as the header of the logs body, no visual gap */
 .card-crumbs:has(+ .logs-layout-stitched) {
   border-bottom: none;
@@ -709,12 +711,6 @@ tr.svc-empty-row td {
   margin-top: 5px; font-size: 10.5px; color: var(--critical-fg); font-weight: 400;
 }
 
-.pod-empty-row {
-  padding: 28px 16px; text-align: center;
-  color: var(--text-muted); font-size: 12px;
-  border-top: 1px solid var(--border-subtle);
-}
-
 table { width: 100%; border-collapse: collapse; }
 thead th { border-top: 1px solid var(--border-subtle); }
 th {
@@ -746,15 +742,13 @@ td { padding: 11px 16px; border-top: 1px solid var(--border-subtle); text-align:
    height meaning the content, so no column or chart changes size. The log and
    span tables do the same next to the .span-cell rules. */
 :is(.split-ep-head, .split-ep-row, .slowq-row, .err-head, .err-row,
-    .infra-summary-head, .infra-summary-row, .appdb-summary-head, .appdb-summary-row,
-    .infra-empty-table-head, .ds-theme-row, .errp-head, .errp-row) > * {
+    .ds-theme-row, .errp-head, .errp-row) > * {
   box-sizing: content-box; align-self: stretch; align-content: center;
   margin-top: calc(var(--row-py) * -1); margin-bottom: calc(var(--row-py) * -1);
   padding-top: var(--row-py); padding-bottom: var(--row-py);
 }
 :is(.split-ep-head, .split-ep-row, .slowq-row, .err-head, .err-row,
-    .infra-summary-head, .infra-summary-row, .appdb-summary-head, .appdb-summary-row,
-    .infra-empty-table-head, .ds-theme-row, .errp-head, .errp-row) > * + * {
+    .ds-theme-row, .errp-head, .errp-row) > * + * {
   margin-left: calc(var(--col-gap) / -2 - 1px); padding-left: calc(var(--col-gap) / 2);
   border-left: 1px solid var(--border-subtle);
 }
@@ -847,8 +841,8 @@ tbody tr:hover { background: var(--panel-2); }
  * sizes to its columns (and never narrower than the panel): held to the panel's
  * 100% it is over-constrained, and the browser squeezes every column, the
  * Endpoint column's set width included, down to its content. */
-.red-table-scroll { overflow-x: auto; }
-.red-table-scroll > table { width: max-content; min-width: 100%; }
+.red-table-scroll, .table-scroll { overflow-x: auto; }
+.red-table-scroll > table, .table-scroll > table { width: max-content; min-width: 100%; }
 .badge { font-size: 9.5px; font-weight: 600; padding: 2px 7px; border-radius: 99px; text-transform: uppercase; letter-spacing: .3px; }
 .badge.critical { background: rgba(239,68,68,.15); color: var(--critical-fg); }
 .badge.warning { background: rgba(245,158,11,.15); color: var(--warning-fg); }
@@ -3560,17 +3554,6 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
   padding: 12px var(--card-pad-x) var(--card-pad-b); }
 .infra-chart-card .clbl { font-size: 12px; font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; color: var(--text-primary); }
 .infra-chart-card .cval { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: var(--text-muted); font-weight: 500; }
-.infra-summary-head { --row-py: 8px; --col-gap: 12px; display: grid; grid-template-columns: 190px 170px 1fr 1fr 1fr 84px 84px; gap: var(--col-gap); padding: var(--row-py) 16px; font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; border-top: 1px solid var(--border-subtle); }
-.infra-summary-head span { text-align: right; }
-.infra-summary-head span:nth-child(-n+2) { text-align: left; }
-.infra-summary-row { --row-py: 11px; --col-gap: 12px; display: grid; grid-template-columns: 190px 170px 1fr 1fr 1fr 84px 84px; gap: var(--col-gap); padding: var(--row-py) 16px; align-items: center; font-size: 11.5px; border-top: 1px solid var(--border-subtle); cursor: pointer; transition: background .08s; }
-.infra-summary-row:hover { background: var(--panel-2); }
-.isr-host { display: flex; align-items: center; gap: 8px; }
-.isr-host .status-dot { width: 8px; height: 8px; }
-.isr-bar { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
-.isr-bar .track { display: block; flex: 1; height: 4px; background: var(--border-panel); border-radius: 2px; overflow: hidden; min-width: 40px; }
-.isr-bar .fill { display: block; height: 100%; border-radius: 2px; }
-.isr-val { font-family: 'JetBrains Mono', monospace; font-weight: 600; color: var(--text-primary); font-size: 11.5px; text-align: right; }
 
 /* Host detail */
 .infra-host-detail { }
@@ -3625,9 +3608,13 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 /* generic infra empty-state (AWS / GCP / disconnected KBs resources) */
 .infra-empty-charts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
 .infra-empty-table { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); overflow: hidden; }
-.infra-empty-table-head { --row-py: 9px; --col-gap: 20px; display: flex; gap: var(--col-gap); padding: var(--row-py) 16px; border-bottom: 1px solid var(--border-subtle); font-size: 10.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
-.infra-empty-table-head span:first-child { flex: 1; text-align: left; }
-.infra-empty-table-head span { flex-shrink: 0; width: 120px; text-align: right; }
+/* These cards already draw a line above their table, or are its top edge, so
+   the header row's own top border would double it. */
+:is(.k8s-events, .k8s-containers-table, .infra-empty-table) thead th { border-top: 0; }
+/* A pod's name and its label chips, side by side in one cell. */
+.infra-name-cell .svc-tag { margin-left: 6px; }
+/* A long name capped to its column (InfraTable's `clip`), ending in an ellipsis. */
+.cell-clip { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* namespace select step (PVC-style journeys) */
 .infra-namespace-select { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); padding: 16px 18px; max-width: 420px; }
@@ -3673,14 +3660,6 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 .k8s-containers-table { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); overflow: hidden; margin-bottom: 20px; }
 .k8s-containers-head { padding: 12px 16px; font-size: 13px; font-weight: 600; border-bottom: 1px solid var(--border-subtle); }
 
-/* app/db integration summary (MySQL / Redis) */
-.appdb-summary-head { --row-py: 8px; --col-gap: 14px; display: grid; grid-template-columns: 1fr 100px 100px 100px 100px 110px; gap: var(--col-gap); padding: var(--row-py) 16px; font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; border-top: 1px solid var(--border-subtle); }
-.appdb-summary-head span { text-align: right; }
-.appdb-summary-head span:first-child { text-align: left; }
-.appdb-summary-row { --row-py: 11px; --col-gap: 14px; display: grid; grid-template-columns: 1fr 100px 100px 100px 100px 110px; gap: var(--col-gap); padding: var(--row-py) 16px; align-items: center; font-size: 11.5px; border-top: 1px solid var(--border-subtle); }
-.appdb-summary-row .host-cell { font-family: 'JetBrains Mono', monospace; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: 8px; }
-.appdb-summary-row .host-cell-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.appdb-summary-row .num-cell { font-family: 'JetBrains Mono', monospace; font-weight: 600; color: var(--text-primary); text-align: right; }
 
 /* ============ Runtime tab ============ */
 /* The host rail is part of the one surface card, not a card on it: flush on
@@ -4722,10 +4701,6 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 .ep-hits td { padding: 8px 12px; border-bottom: 1px solid var(--border-subtle); color: var(--text-primary); }
 .ep-hits tr:last-child td { border-bottom: none; }
 .ep-hits .num { text-align: right; color: var(--text-secondary); }
-
-/* A summary row that drills in says so on hover; one that does not, does not. */
-.appdb-summary-row.is-clickable { cursor: pointer; }
-.appdb-summary-row.is-clickable:hover { background: var(--panel-2); }
 
 /* ══ Health history: drag to focus ═════════════════════════════════════ */
 /* Every block on the strip is an exact instant range, so a drag across it is
