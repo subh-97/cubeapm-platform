@@ -3,20 +3,20 @@ import { createPortal } from 'react-dom'
 import { LogoIcon, LogoWordmark } from './Logo'
 
 const ICONS = {
-  home: <><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></>,
   pulse: <path d="M3 12h4l2 8 4-16 2 8h6"/>,
-  logs: <><path d="M4 5h16M4 9h16M4 13h10M4 17h7"/></>,
+  fileSearch: <><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M4.268 21a2 2 0 0 0 1.727 1H18a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v3"/><path d="m9 18-1.5-1.5"/><circle cx="5" cy="14" r="3"/></>,
   server: <><rect x="3" y="4" width="18" height="6" rx="1"/><rect x="3" y="14" width="18" height="6" rx="1"/><circle cx="7" cy="7" r=".7"/><circle cx="7" cy="17" r=".7"/></>,
-  monitor: <><rect x="3" y="4" width="18" height="12" rx="1"/><path d="M8 20h8M12 16v4"/></>,
-  branch: <><circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="9" r="2"/><path d="M6 8v8M6 8c0 5 6 3 12 1"/></>,
-  triangle: <><path d="M12 3l9 17H3z"/><path d="M12 10v4M12 17v.01"/></>,
+  appWindow: <><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M10 4v4"/><path d="M2 8h20"/><path d="M6 4v4"/></>,
+  textSearch: <><path d="M21 6H3"/><path d="M10 12H3"/><path d="M10 18H3"/><circle cx="17" cy="15" r="3"/><path d="m21 19-1.9-1.9"/></>,
+  phoneCode: <><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M10 9.5 8 12l2 2.5"/><path d="M14 9.5 16 12l-2 2.5"/></>,
+  flame: <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>,
+  bug: <><path d="m8 2 1.88 1.88"/><path d="M14.12 3.88 16 2"/><path d="M9 7.13v-1a3.003 3.003 0 1 1 6 0v1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6"/><path d="M12 20v-9"/><path d="M6.53 9C4.6 8.8 3 7.1 3 5"/><path d="M6 13H2"/><path d="M3 21c0-2.1 1.7-3.9 3.8-4"/><path d="M20.97 5c0 2.1-1.6 3.8-3.5 4"/><path d="M22 13h-4"/><path d="M17.2 17c2.1.1 3.8 1.9 3.8 4"/></>,
+  phone: <><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></>,
   dashboard: <><rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="5" rx="1"/><rect x="13" y="10" width="8" height="11" rx="1"/><rect x="3" y="13" width="8" height="8" rx="1"/></>,
   compass: <><circle cx="12" cy="12" r="9"/><path d="M15 9l-2 6-6 2 2-6z"/></>,
   target: <><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r=".7"/></>,
   bell: <><path d="M6 10a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 20a2 2 0 004 0"/></>,
-  radio: <><circle cx="12" cy="12" r="2.2"/><path d="M7 9a6.5 6.5 0 000 6M17 9a6.5 6.5 0 010 6M4 5a11 11 0 000 14M20 5a11 11 0 010 14"/></>,
-  shield: <path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/>,
-  sliders: <><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></>,
+  bot: <><path d="M12 8V4H8"/><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></>,
   help: <><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></>,
   chevLeft: <path d="M15 18l-6-6 6-6"/>,
   chevRight: <path d="M9 6l6 6-6 6"/>,
@@ -30,33 +30,33 @@ function Icon({ name, className }) {
   )
 }
 
+// The production app's list, in its order and with its short labels. `title`
+// spells out the short ones in the hover text, where there is room for it.
 const NAV_GROUPS = [
   { label: 'Workspace', items: [
-    { id: 'home', label: 'Home', icon: 'home', enabled: true },
-    { id: 'apm', label: 'APM & Services', icon: 'pulse', enabled: true },
-    { id: 'logs', label: 'Logs', icon: 'logs', enabled: true },
-    { id: 'infra', label: 'Infrastructure', icon: 'server', enabled: true },
-    { id: 'rum', label: 'Browser (RUM)', icon: 'monitor' },
-    { id: 'traces', label: 'Traces', icon: 'branch', enabled: true },
-    { id: 'errors', label: 'Errors', icon: 'triangle', enabled: true },
-    { id: 'dash', label: 'Dashboards', icon: 'dashboard' },
+    { id: 'services', label: 'Services', icon: 'pulse', enabled: true },
+    { id: 'logs', label: 'Logs', icon: 'fileSearch', enabled: true },
+    { id: 'infra', label: 'Infra', title: 'Infrastructure', icon: 'server', enabled: true },
+    { id: 'rum', label: 'Browser', title: 'Browser (RUM)', icon: 'appWindow' },
+    { id: 'traces', label: 'Traces', icon: 'textSearch', enabled: true },
+    { id: 'mtraces', label: 'MTraces', title: 'Mobile Traces', icon: 'phoneCode' },
+    { id: 'profiles', label: 'Profiles', icon: 'flame' },
+    { id: 'errors', label: 'Errors', icon: 'bug', enabled: true },
+    { id: 'mobile', label: 'Mobile', icon: 'phone' },
+    { id: 'dash', label: 'Dash', title: 'Dashboards', icon: 'dashboard' },
   ]},
   { label: 'Analyze', items: [
     { id: 'explore', label: 'Explore', icon: 'compass', enabled: true },
-    { id: 'slo', label: 'SLOs', icon: 'target' },
+    { id: 'slo', label: 'SLO', title: 'SLOs', icon: 'target' },
     { id: 'alerts', label: 'Alerts', icon: 'bell' },
-    { id: 'synthetic', label: 'Synthetic', icon: 'radio' },
-  ]},
-  { label: 'Manage', items: [
-    { id: 'admin', label: 'Admin', icon: 'shield' },
-    { id: 'settings', label: 'Controls', icon: 'sliders' },
+    { id: 'monitors', label: 'Monitors', title: 'Synthetic Monitors', icon: 'bot' },
   ]},
 ]
 
-// The view each enabled item opens. Home is the exception: it goes through
-// goHome, which also closes the settings drawer.
+// The view each enabled item opens. Services is the exception: it is the Home
+// page's list of services, reached through goHome, which also closes the
+// settings drawer.
 const NAV_VIEWS = {
-  apm: 'service',
   logs: 'logs',
   infra: 'infra',
   traces: 'traces',
@@ -64,14 +64,17 @@ const NAV_VIEWS = {
   explore: 'explore',
 }
 
+const ACTIVE_ITEM = {
+  home: 'services', service: 'services',
+  logs: 'logs', infra: 'infra', traces: 'traces', trace: 'traces',
+  errors: 'errors', explore: 'explore',
+}
+
 export default function Sidebar({ navCollapsed, setNavCollapsed, view, goHome, setView, onOpenHelp, onLogout, theme, setTheme }) {
-  // A single trace's waterfall belongs to Traces, so the nav keeps that item lit
-  // while you are inside one rather than jumping the highlight to APM.
-  const activeId = view === 'home' ? 'home' : view === 'logs' ? 'logs'
-    : view === 'traces' || view === 'trace' ? 'traces'
-    : view === 'explore' ? 'explore'
-    : view === 'errors' ? 'errors'
-    : view === 'infra' ? 'infra' : 'apm'
+  // A single trace's waterfall belongs to Traces, and one service's page to
+  // Services (the list it was opened from), so the nav keeps those items lit
+  // while you are inside one.
+  const activeId = ACTIVE_ITEM[view] ?? 'services'
   const [profileOpen, setProfileOpen] = useState(false)
   const [popPos, setPopPos] = useState({ left: 0, bottom: 0 })
   const btnRef = useRef(null)
@@ -110,14 +113,14 @@ export default function Sidebar({ navCollapsed, setNavCollapsed, view, goHome, s
               const on = it.id === activeId
               const enabled = !!it.enabled
               const open = !enabled ? undefined
-                : it.id === 'home' ? goHome
+                : it.id === 'services' ? goHome
                 : NAV_VIEWS[it.id] ? () => setView(NAV_VIEWS[it.id])
                 : undefined
               return (
                 <div
                   key={it.id}
                   className={`nav-item${on ? ' active' : ''}${enabled ? '' : ' disabled'}`}
-                  title={enabled ? it.label : `${it.label} - later redesign phase`}
+                  title={enabled ? (it.title ?? it.label) : `${it.title ?? it.label} - later redesign phase`}
                   onClick={open}
                   // Focusable already, so it has to answer the keys a focused
                   // control answers; without this Tab reached an item that
@@ -170,8 +173,9 @@ export default function Sidebar({ navCollapsed, setNavCollapsed, view, goHome, s
                   <div className="pop-email">tech@cubeapm.com</div>
                 </div>
                 <div className="pop-sec">
-                  <div className="pop-sec-lbl">Settings</div>
+                  <div className="pop-sec-lbl">Profile</div>
                   <div className="pop-item">User preferences</div>
+                  <div className="pop-item">Settings</div>
                   <div className="pop-item">Theme <span className="theme-seg">
                     {['light', 'dark', 'auto'].map(t => (
                       <span
