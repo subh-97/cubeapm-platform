@@ -345,7 +345,7 @@ function EndpointTab({ data, endpoint, onOpenUpstream, onOpenTrace, syncId, win,
 
 function LatencyDrilldown({ layers, layerSeries, callerTotal, onOpenUpstream, p90Series, p90EndpointLabel, syncId, win, onFocus }) {
   // Two different totals, on purpose. `consumed` is what the layers add up to —
-  // the time spent across every call, which the shares below are taken of.
+  // the time spent across every call, which is the top of the stacked chart.
   // `callerTotal` is the latency the caller actually waited, measured on its own:
   // calls that overlap count once there and twice in `consumed`, which is why
   // the Total line runs below the top of the stack.
@@ -507,7 +507,6 @@ function LatencyDrilldown({ layers, layerSeries, callerTotal, onOpenUpstream, p9
             />
           </div>
           {shown.map(d => {
-            const pct = ((d.ms / consumed) * 100).toFixed(1)
             const dimmed = selected && selected !== d.label
             return (
               <div
@@ -520,7 +519,6 @@ function LatencyDrilldown({ layers, layerSeries, callerTotal, onOpenUpstream, p9
                 <div className="drill2-row">
                   <span className="drill2-swatch" style={{ background: d.color }} />
                   <span className="drill2-label">{d.label}</span>
-                  <span className="drill2-pct">{pct}%</span>
                   <span className="drill2-val">{d.ms}<span className="drill2-unit"> ms</span></span>
                   <button
                     type="button"
@@ -533,7 +531,6 @@ function LatencyDrilldown({ layers, layerSeries, callerTotal, onOpenUpstream, p9
                     </svg>
                   </button>
                 </div>
-                <div className="drill2-bartrack"><div className="drill2-barfill" style={{ width: `${pct}%`, background: d.color, opacity: 0.75 }} /></div>
               </div>
             )
           })}

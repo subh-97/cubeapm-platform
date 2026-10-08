@@ -104,10 +104,10 @@ function PlotSkeleton({ ghost, top, right, xTicks }) {
 const DRILL_GHOST = ghostMask('stack', 34, 0.4)
 // Label and bar widths vary row to row, as upstream names and shares do.
 const DRILL_ROWS = [
-  { label: '58%', bar: '52%' },
-  { label: '74%', bar: '30%' },
-  { label: '46%', bar: '12%' },
-  { label: '64%', bar: '8%' },
+  { label: '58%' },
+  { label: '74%' },
+  { label: '46%' },
+  { label: '64%' },
 ]
 
 export function LatencyDrilldownSkeleton() {
@@ -135,10 +135,8 @@ export function LatencyDrilldownSkeleton() {
               <div className="drill2-row">
                 <Bone className="drill2-swatch" />
                 <span className="drill2-label"><Bone inline w={r.label} h={7} /></span>
-                <span className="drill2-pct"><Bone inline w={26} h={6} /></span>
                 <span className="drill2-val"><Bone inline w={40} h={8} /></span>
               </div>
-              <div className="drill2-bartrack"><Bone w={r.bar} h="100%" /></div>
             </div>
           ))}
           <div className="drill2-total">
