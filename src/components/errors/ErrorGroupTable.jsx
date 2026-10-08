@@ -30,12 +30,12 @@ const SORT_WORDS = {
   error: { asc: 'class name A to Z', desc: 'class name Z to A' },
 }
 
-function SortHead({ id, label, sort, onSort, right = false }) {
+function SortHead({ id, label, sort, onSort }) {
   const active = sort.key === id
   return (
     <button
       type="button"
-      className={`errp-sort${right ? ' is-right' : ''}`}
+      className="errp-sort"
       onClick={() => onSort(id)}
       title={active ? `Sorted by ${label.toLowerCase()}, ${SORT_WORDS[id][sort.dir]}. Click to reverse.` : `Sort by ${label.toLowerCase()}`}
     >
@@ -202,7 +202,7 @@ export default function ErrorGroupTable({
       <div className="errp-head">
         <SortHead id="endpoint" label="Endpoint" sort={sort} onSort={onSort} />
         <SortHead id="error" label="Error" sort={sort} onSort={onSort} />
-        <SortHead id="count" label="Count" sort={sort} onSort={onSort} right />
+        <SortHead id="count" label="Count" sort={sort} onSort={onSort} />
         <span>Errors over time</span>
         {/* A real cell holding the hidden label: .sr-only is positioned out of
             the grid, which left the header a column short of its rows and the
