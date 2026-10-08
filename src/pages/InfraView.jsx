@@ -19,6 +19,8 @@ import { useSeriesBudget } from '@/components/charts/useSeriesBudget'
 import SeriesBudgetFooter from '@/components/charts/SeriesBudgetFooter'
 import { fixesAxis, TOOLTIP_ROWS } from '@/components/charts/seriesBudget'
 import { cycledColor } from '@/utils/chartPalette'
+import { SortableTh, CellBar } from '@/components/shared/SortableTable'
+import { useSortedRows } from '@/hooks/useSortedRows'
 
 // The window every chart on this page draws, the setter a drag commits to, and
 // the syncId that lines the charts of one view up on the same instant.
@@ -38,6 +40,155 @@ const InfraTime = createContext({ win: null, setTimeRange: () => {}, syncId: und
  * delivers move events to those, so a crosshair there would advertise a gesture
  * that can be started and never finished.
  */
+/* ============ Tables ============ */
+
+// Every list on this page is this one table, built the way the service page's
+// are (components/shared/SortableTable): a plain <table> whose headers sort,
+// names and identifiers in mono on the left, figures right-aligned in the body
+// face, a percentage as its figure over a brand bar, and nothing that colours
+// or marks a row by how bad its values are. A column is
+//   { key, label, render?, align?: 'left', mono?, sortKey?, sortable?, clip?, title? }
+// `sortKey` names the field to order by when what is shown is formatted (bytes,
+// a rate with its unit); `sortable: false` marks a column with nothing to order
+// by. `clip` caps a long name at that many px and ends it in an ellipsis, with
+// `title` giving the whole of it on hover, as the service page's Endpoint
+// column does. A table of one record, or of none, passes sortable={false}.
+function InfraTable({ columns, rows, rowKey, defaultSort = null, onRowClick, empty, sortable = true }) {
+  const { rows: sorted, sort, toggle } = useSortedRows(rows, defaultSort, 'desc')
+  return (
+    <div className="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            {columns.map(c => (sortable && c.sortable !== false
+              ? <SortableTh key={c.key} sortKey={c.sortKey ?? c.key} sort={sort} onToggle={toggle} align={c.align ?? 'right'}>{c.label}</SortableTh>
+              : <th key={c.key} style={c.align === 'left' ? { textAlign: 'left' } : undefined}>{c.label}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map(r => (
+            <tr key={rowKey(r)} onClick={onRowClick ? () => onRowClick(r) : undefined}>
+              {columns.map(c => (
+                <td key={c.key} className={c.mono ? 'mono' : undefined} style={c.align === 'left' ? { textAlign: 'left' } : undefined}>
+                  {c.clip
+                    ? <span className="cell-clip" style={{ maxWidth: c.clip }} title={c.title?.(r)}>{c.render ? c.render(r) : r[c.key]}</span>
+                    : (c.render ? c.render(r) : r[c.key])}
+                </td>
+              ))}
+            </tr>
+          ))}
+          {sorted.length === 0 && (
+            <tr className="svc-empty-row"><td colSpan={columns.length}>{empty}</td></tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+// A host's or node's network figure is printed in its own unit (K or M); the
+// rate behind it is what a column of them is ordered by.
+const netRate = (value, unit) => value * (unit === 'K' ? 1e3 : unit === 'M' ? 1e6 : 1)
+const withNetRates = r => ({ ...r, netInRate: netRate(r.netIn, r.unit), netOutRate: netRate(r.netOut, r.unit) })
+
+// A pod's name with its labels, each highlighted where the search matched. It
+// runs inline, so a cell that clips it ends in an ellipsis rather than a cut.
+function PodName({ pod, hits, tagHits }) {
+  return (
+    <span className="infra-name-cell">
+      <span>{highlightTerms(pod.name, hits.pod, 'svc-hit')}</span>
+      {Object.entries(pod.labels ?? {}).map(([k, v]) => (
+        <span key={k} className="svc-tag" title={`${k}: ${v} — search as pod.${k}:${v}`}>
+          <span className="svc-tag-k">{k}</span>
+          <span className="svc-tag-v">{highlightTerms(v, tagTerms(tagHits, 'pod', k), 'svc-hit')}</span>
+        </span>
+      ))}
+    </span>
+  )
+}
+
+const HOST_COLUMNS = [
+  { key: 'host', label: 'Host', align: 'left', mono: true },
+  { key: 'service', label: 'Service', align: 'left', mono: true, render: h => <span title={h.service ? undefined : 'No APM service reports from this host'}>{h.service ?? '—'}</span> },
+  { key: 'cpu', label: 'CPU %', render: h => <CellBar fill={h.cpu}>{h.cpu.toFixed(2)}</CellBar> },
+  { key: 'mem', label: 'Mem %', render: h => <CellBar fill={h.mem}>{h.mem.toFixed(2)}</CellBar> },
+  { key: 'disk', label: 'Disk %', render: h => <CellBar fill={h.disk}>{h.disk.toFixed(1)}</CellBar> },
+  { key: 'netIn', label: 'Net In', sortKey: 'netInRate', render: h => `${h.netIn.toFixed(2)}${h.unit}` },
+  { key: 'netOut', label: 'Net Out', sortKey: 'netOutRate', render: h => `${h.netOut.toFixed(2)}${h.unit}` },
+]
+
+const NODE_COLUMNS = [
+  { key: 'name', label: 'Node', align: 'left', mono: true },
+  { key: 'cpu', label: 'CPU Used %', render: n => <CellBar fill={n.cpu}>{n.cpu.toFixed(2)}</CellBar> },
+  { key: 'mem', label: 'Memory Used %', render: n => <CellBar fill={n.mem}>{n.mem.toFixed(2)}</CellBar> },
+  { key: 'disk', label: 'Disk Used %', render: n => <CellBar fill={n.disk}>{n.disk.toFixed(2)}</CellBar> },
+  { key: 'netIn', label: 'Network In', sortKey: 'netInRate', render: n => `${n.netIn.toFixed(2)}${n.unit}` },
+  { key: 'netOut', label: 'Network Out', sortKey: 'netOutRate', render: n => `${n.netOut.toFixed(2)}${n.unit}` },
+  { key: 'pods', label: 'Pods' },
+]
+
+const NAMESPACE_COLUMNS = [
+  { key: 'namespace', label: 'Namespace', align: 'left', mono: true },
+  { key: 'cpuUsed', label: 'CPU Used' },
+  { key: 'cpuRequest', label: 'CPU Request' },
+  { key: 'cpuLimit', label: 'CPU Limit', render: n => n.cpuLimit ?? '-' },
+  { key: 'memUsed', label: 'Memory Used', render: n => fmtBytes(n.memUsed) },
+  { key: 'memRequest', label: 'Memory Request', render: n => fmtBytes(n.memRequest) },
+  { key: 'memLimit', label: 'Memory Limit', render: n => fmtBytes(n.memLimit) },
+  { key: 'containers', label: 'Containers' },
+]
+
+const NAMESPACE_POD_COLUMNS = [
+  { key: 'name', label: 'Pod', align: 'left', mono: true },
+  { key: 'node', label: 'Node', align: 'left', mono: true },
+  { key: 'cpuUsed', label: 'CPU Used' },
+  { key: 'memUsed', label: 'Memory Used', render: p => fmtBytes(p.memUsed) },
+  { key: 'memLimit', label: 'Memory Limit', render: p => (p.memLimit ? fmtBytes(p.memLimit) : '-') },
+]
+
+const EVENT_COLUMNS = ['Time', 'Type', 'Namespace', 'Name', 'Kind', 'Note'].map(label => ({ key: label, label, align: 'left' }))
+
+const DEPLOYMENT_COLUMNS = [
+  { key: 'namespace', label: 'Namespace', align: 'left', mono: true },
+  { key: 'deployments', label: 'Deployments' },
+  { key: 'podsDesired', label: 'Pods Desired' },
+  { key: 'podsAvailable', label: 'Pods Available' },
+]
+
+const CONTAINER_COLUMNS = [
+  { key: 'containerName', label: 'Container', align: 'left', mono: true },
+  { key: 'cpuUsed', label: 'CPU Used' },
+  { key: 'cpuRequest', label: 'CPU Request' },
+  { key: 'cpuLimit', label: 'CPU Limit' },
+  { key: 'memUsed', label: 'Memory Used', render: p => fmtBytes(p.memUsed) },
+  { key: 'memRequest', label: 'Memory Request', render: p => fmtBytes(p.memRequest) },
+  { key: 'memLimit', label: 'Memory Limit', render: p => fmtBytes(p.memLimit) },
+]
+
+const MYSQL_COLUMNS = [
+  { key: 'host', label: 'Host', align: 'left', mono: true, clip: 220, title: s => s.host },
+  { key: 'connections', label: 'Connections' },
+  { key: 'opsPerMin', label: 'Operations / min' },
+  { key: 'connErrPerMin', label: 'Connection Errors / min' },
+  { key: 'slowQueriesPerMin', label: 'Slow Queries / min' },
+  { key: 'replicationLag', label: 'Replication Lag', render: s => s.replicationLag ?? '-' },
+  { key: 'dbSizeBytes', label: 'Database Size', render: s => fmtBytes(s.dbSizeBytes) },
+]
+
+const REDIS_COLUMNS = [
+  { key: 'host', label: 'Host', align: 'left', mono: true },
+  { key: 'connections', label: 'Connections' },
+  { key: 'connPerMin', label: 'Connections / min' },
+  { key: 'cmdPerMin', label: 'Commands / min' },
+  { key: 'memUsedBytes', label: 'Memory Used', render: s => fmtBytes(s.memUsedBytes) },
+  { key: 'cacheHitPct', label: 'Cache Hit %', render: s => <CellBar fill={s.cacheHitPct}>{s.cacheHitPct}%</CellBar> },
+]
+
+// A header-only table: the columns a source would list, over the reason it
+// lists nothing.
+const emptyColumns = labels => labels.map((label, i) => ({ key: label, label, align: i === 0 ? 'left' : undefined }))
+
 function useChartTime({ kind = 'time', focusable = true } = {}) {
   const { win, setTimeRange, syncId } = useContext(InfraTime)
   const [wrapRef, width] = useMeasuredWidth()
@@ -588,42 +739,12 @@ function K8sClusterView({ namespace, setNamespace }) {
       {detail ? (
         <div className="panel">
           <div className="panel-head">Pods <span className="hint">{detail.podsTotal} in {namespace}</span></div>
-          <div className="appdb-summary-head" style={{ gridTemplateColumns: '1fr 160px 110px 130px 110px' }}>
-            <span>Pod</span><span style={{ textAlign: 'left' }}>Node</span><span>CPU Used</span><span>Memory Used</span><span>Memory Limit</span>
-          </div>
-          {detail.pods.map(pod => (
-            <div key={pod.name} className="appdb-summary-row" style={{ gridTemplateColumns: '1fr 160px 110px 130px 110px' }}>
-              <span className="host-cell mono">{pod.name}</span>
-              <span className="host-cell mono" style={{ textAlign: 'left' }}>{pod.node}</span>
-              <span className="num-cell">{pod.cpuUsed}</span>
-              <span className="num-cell">{fmtBytes(pod.memUsed)}</span>
-              <span className="num-cell">{pod.memLimit ? fmtBytes(pod.memLimit) : '-'}</span>
-            </div>
-          ))}
+          <InfraTable columns={NAMESPACE_POD_COLUMNS} rows={detail.pods} rowKey={p => p.name} />
         </div>
       ) : (
         <div className="panel">
           <div className="panel-head">Summary <span className="hint">Resource usage by namespace &middot; click a row to scope</span></div>
-          <div className="appdb-summary-head" style={{ gridTemplateColumns: '1fr 110px 110px 110px 120px 120px 120px 90px' }}>
-            <span>Namespace</span><span>CPU Used</span><span>CPU Request</span><span>CPU Limit</span><span>Memory Used</span><span>Memory Request</span><span>Memory Limit</span><span>Containers</span>
-          </div>
-          {k8sNamespaceSummary.map(n => (
-            <div
-              key={n.namespace}
-              className="appdb-summary-row is-clickable"
-              style={{ gridTemplateColumns: '1fr 110px 110px 110px 120px 120px 120px 90px' }}
-              onClick={() => setNamespace(n.namespace)}
-            >
-              <span className="host-cell mono">{n.namespace}</span>
-              <span className="num-cell">{n.cpuUsed}</span>
-              <span className="num-cell">{n.cpuRequest}</span>
-              <span className="num-cell">{n.cpuLimit ?? '-'}</span>
-              <span className="num-cell">{fmtBytes(n.memUsed)}</span>
-              <span className="num-cell">{fmtBytes(n.memRequest)}</span>
-              <span className="num-cell">{fmtBytes(n.memLimit)}</span>
-              <span className="num-cell">{n.containers}</span>
-            </div>
-          ))}
+          <InfraTable columns={NAMESPACE_COLUMNS} rows={k8sNamespaceSummary} rowKey={n => n.namespace} onRowClick={n => setNamespace(n.namespace)} />
         </div>
       )}
 
@@ -640,13 +761,7 @@ function K8sClusterView({ namespace, setNamespace }) {
             Search in Logs
           </a>
         </div>
-        <div className="err-head" style={{ gridTemplateColumns: '130px 100px 140px 1fr 100px 1fr' }}>
-          <span>Time</span><span>Type</span><span>Namespace</span><span>Name</span><span>Kind</span><span>Note</span>
-        </div>
-        <div className="err-empty">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 12l2 2 4-4" /><circle cx="12" cy="12" r="10" /></svg>
-          <div>No abnormal events in the selected time range</div>
-        </div>
+        <InfraTable columns={EVENT_COLUMNS} rows={[]} rowKey={e => e.id} sortable={false} empty="No abnormal events in the selected time range" />
       </div>
     </>
   )
@@ -676,17 +791,7 @@ function K8sDeploymentView() {
       </div>
       <div className="panel">
         <div className="panel-head">Summary <span className="hint">Deployments by namespace</span></div>
-        <div className="appdb-summary-head" style={{ gridTemplateColumns: '1fr 130px 130px 130px' }}>
-          <span>Namespace</span><span>Deployments</span><span>Pods Desired</span><span>Pods Available</span>
-        </div>
-        {k8sDeploymentSummary.map(n => (
-          <div key={n.namespace} className="appdb-summary-row" style={{ gridTemplateColumns: '1fr 130px 130px 130px' }}>
-            <span className="host-cell mono">{n.namespace}</span>
-            <span className="num-cell">{n.deployments}</span>
-            <span className="num-cell">{n.podsDesired}</span>
-            <span className="num-cell">{n.podsAvailable}</span>
-          </div>
-        ))}
+        <InfraTable columns={DEPLOYMENT_COLUMNS} rows={k8sDeploymentSummary} rowKey={n => n.namespace} />
       </div>
     </>
   )
@@ -703,18 +808,7 @@ function K8sPodDetail({ pod }) {
 
       <div className="k8s-containers-table">
         <div className="k8s-containers-head">Containers</div>
-        <div className="appdb-summary-head" style={{ gridTemplateColumns: '1fr 110px 120px 110px 120px 130px 120px' }}>
-          <span>Container</span><span>CPU Used</span><span>CPU Request</span><span>CPU Limit</span><span>Memory Used</span><span>Memory Request</span><span>Memory Limit</span>
-        </div>
-        <div className="appdb-summary-row" style={{ gridTemplateColumns: '1fr 110px 120px 110px 120px 130px 120px' }}>
-          <span className="host-cell mono">{pod.containerName}</span>
-          <span className="num-cell">{pod.cpuUsed}</span>
-          <span className="num-cell">{pod.cpuRequest}</span>
-          <span className="num-cell">{pod.cpuLimit}</span>
-          <span className="num-cell">{fmtBytes(pod.memUsed)}</span>
-          <span className="num-cell">{fmtBytes(pod.memRequest)}</span>
-          <span className="num-cell">{fmtBytes(pod.memLimit)}</span>
-        </div>
+        <InfraTable columns={CONTAINER_COLUMNS} rows={[pod]} rowKey={p => p.containerName} sortable={false} />
       </div>
 
       <div className="infra-detail-grid">
@@ -806,31 +900,21 @@ function K8sNodeDetail({ node, pods, onSelectPod }) {
           </div>
           <TableQuerySearch onApply={setPodQuery} fields={POD_FIELDS} />
         </div>
-        <div className="appdb-summary-head" style={{ gridTemplateColumns: '1fr 120px 110px 130px 130px 110px 110px' }}>
-          <span>Pod</span><span style={{ textAlign: 'left' }}>Namespace</span><span>CPU Used</span><span>Memory Used</span><span>Memory Remaining</span><span>Network In</span><span>Network Out</span>
-        </div>
-        {shown.length === 0 && (
-          <div className="pod-empty-row">No data matches “{podQuery.trim()}”.</div>
-        )}
-        {shown.map(p => (
-          <div key={p.name} className="appdb-summary-row" style={{ gridTemplateColumns: '1fr 120px 110px 130px 130px 110px 110px', cursor: 'pointer' }} onClick={() => onSelectPod(p.name)}>
-            <span className="host-cell mono">
-              <span className="host-cell-name">{highlightTerms(p.name, hits.pod, 'svc-hit')}</span>
-              {Object.entries(p.labels ?? {}).map(([k, v]) => (
-                <span key={k} className="svc-tag" title={`${k}: ${v} — search as pod.${k}:${v}`}>
-                  <span className="svc-tag-k">{k}</span>
-                  <span className="svc-tag-v">{highlightTerms(v, tagTerms(tagHits, 'pod', k), 'svc-hit')}</span>
-                </span>
-              ))}
-            </span>
-            <span className="num-cell" style={{ textAlign: 'left', fontFamily: "'JetBrains Mono',monospace", color: 'var(--text-secondary)' }}>{highlightTerms(p.namespace, hits.namespace, 'svc-hit')}</span>
-            <span className="num-cell">{p.cpuUsed}</span>
-            <span className="num-cell">{fmtBytes(p.memUsed)}</span>
-            <span className="num-cell">{p.memRequest ? fmtBytes(p.memRequest - p.memUsed) : '-'}</span>
-            <span className="num-cell">-</span>
-            <span className="num-cell">-</span>
-          </div>
-        ))}
+        <InfraTable
+          columns={[
+            { key: 'name', label: 'Pod', align: 'left', mono: true, clip: 300, title: p => p.name, render: p => <PodName pod={p} hits={hits} tagHits={tagHits} /> },
+            { key: 'namespace', label: 'Namespace', align: 'left', mono: true, render: p => highlightTerms(p.namespace, hits.namespace, 'svc-hit') },
+            { key: 'cpuUsed', label: 'CPU Used' },
+            { key: 'memUsed', label: 'Memory Used', render: p => fmtBytes(p.memUsed) },
+            { key: 'memRemaining', label: 'Memory Remaining', render: p => (p.memRemaining == null ? '-' : fmtBytes(p.memRemaining)) },
+            { key: 'netIn', label: 'Network In', sortable: false, render: () => '-' },
+            { key: 'netOut', label: 'Network Out', sortable: false, render: () => '-' },
+          ]}
+          rows={shown.map(p => ({ ...p, memRemaining: p.memRequest ? p.memRequest - p.memUsed : null }))}
+          rowKey={p => p.name}
+          onRowClick={p => onSelectPod(p.name)}
+          empty={`No data matches “${podQuery.trim()}”.`}
+        />
       </div>
     </div>
   )
@@ -861,20 +945,7 @@ function K8sNodeView({ nodes, pods, selectedNode, setSelectedNode, selectedPod, 
       </div>
       <div className="panel">
         <div className="panel-head">Summary <span className="hint">{nodes.length} nodes · click a row to drill in</span></div>
-        <div className="appdb-summary-head" style={{ gridTemplateColumns: '1fr 110px 110px 110px 110px 110px 80px' }}>
-          <span>Node</span><span>CPU Used %</span><span>Memory Used %</span><span>Disk Used %</span><span>Network In</span><span>Network Out</span><span>Pods</span>
-        </div>
-        {nodes.map(n => (
-          <div key={n.name} className="appdb-summary-row" style={{ gridTemplateColumns: '1fr 110px 110px 110px 110px 110px 80px', cursor: 'pointer' }} onClick={() => setSelectedNode(n.name)}>
-            <span className="host-cell mono"><span className={`status-dot ${n.status}`} style={{ marginRight: 8 }} />{n.name}</span>
-            <span className="num-cell">{n.cpu.toFixed(2)}</span>
-            <span className="num-cell">{n.mem.toFixed(2)}</span>
-            <span className="num-cell">{n.disk.toFixed(2)}</span>
-            <span className="num-cell">{n.netIn.toFixed(2)}{n.unit}</span>
-            <span className="num-cell">{n.netOut.toFixed(2)}{n.unit}</span>
-            <span className="num-cell">{n.pods}</span>
-          </div>
-        ))}
+        <InfraTable columns={NODE_COLUMNS} rows={nodes.map(withNetRates)} rowKey={n => n.name} onRowClick={n => setSelectedNode(n.name)} />
       </div>
     </>
   )
@@ -908,30 +979,20 @@ function K8sPodListView({ nodes, pods, selectedPod, setSelectedPod }) {
         </div>
         <TableQuerySearch onApply={setQuery} fields={POD_NODE_FIELDS} />
       </div>
-      <div className="appdb-summary-head" style={{ gridTemplateColumns: '1fr 120px 150px 110px 130px 110px' }}>
-        <span>Pod</span><span style={{ textAlign: 'left' }}>Namespace</span><span style={{ textAlign: 'left' }}>Node</span><span>CPU Used</span><span>Memory Used</span><span>Restarts</span>
-      </div>
-      {shown.length === 0 && (
-        <div className="pod-empty-row">No data matches “{query.trim()}”.</div>
-      )}
-      {shown.map(p => (
-        <div key={p.name} className="appdb-summary-row" style={{ gridTemplateColumns: '1fr 120px 150px 110px 130px 110px', cursor: 'pointer' }} onClick={() => setSelectedPod(p.name)}>
-          <span className="host-cell mono">
-            <span className="host-cell-name">{highlightTerms(p.name, hits.pod, 'svc-hit')}</span>
-            {Object.entries(p.labels ?? {}).map(([k, v]) => (
-              <span key={k} className="svc-tag" title={`${k}: ${v} — search as pod.${k}:${v}`}>
-                <span className="svc-tag-k">{k}</span>
-                <span className="svc-tag-v">{highlightTerms(v, tagTerms(tagHits, 'pod', k), 'svc-hit')}</span>
-              </span>
-            ))}
-          </span>
-          <span className="num-cell" style={{ textAlign: 'left', fontFamily: "'JetBrains Mono',monospace", color: 'var(--text-secondary)' }}>{highlightTerms(p.namespace, hits.namespace, 'svc-hit')}</span>
-          <span className="num-cell" style={{ textAlign: 'left', fontFamily: "'JetBrains Mono',monospace", color: 'var(--text-secondary)' }}>{highlightTerms(p.node, hits.node, 'svc-hit')}</span>
-          <span className="num-cell">{p.cpuUsed}</span>
-          <span className="num-cell">{fmtBytes(p.memUsed)}</span>
-          <span className="num-cell">0</span>
-        </div>
-      ))}
+      <InfraTable
+        columns={[
+          { key: 'name', label: 'Pod', align: 'left', mono: true, clip: 300, title: p => p.name, render: p => <PodName pod={p} hits={hits} tagHits={tagHits} /> },
+          { key: 'namespace', label: 'Namespace', align: 'left', mono: true, render: p => highlightTerms(p.namespace, hits.namespace, 'svc-hit') },
+          { key: 'node', label: 'Node', align: 'left', mono: true, render: p => highlightTerms(p.node, hits.node, 'svc-hit') },
+          { key: 'cpuUsed', label: 'CPU Used' },
+          { key: 'memUsed', label: 'Memory Used', render: p => fmtBytes(p.memUsed) },
+          { key: 'restarts', label: 'Restarts', sortable: false, render: () => 0 },
+        ]}
+        rows={shown}
+        rowKey={p => p.name}
+        onRowClick={p => setSelectedPod(p.name)}
+        empty={`No data matches “${query.trim()}”.`}
+      />
     </div>
   )
 }
@@ -953,11 +1014,7 @@ function K8sNamespaceGateView({ resourceLabel }) {
           <div className="k8s-selector"><span className="k8s-selector-lbl">Namespace</span><span className="k8s-selector-val">{namespace}</span></div>
         </div>
         <div className="infra-empty-table">
-          <div className="infra-empty-table-head"><span>{resourceLabel}</span><span>Used</span><span>Capacity</span></div>
-          <div className="err-empty">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 12l2 2 4-4" /><circle cx="12" cy="12" r="10" /></svg>
-            <div>No {resourceLabel.toLowerCase()} resources in "{namespace}"</div>
-          </div>
+          <InfraTable columns={emptyColumns([resourceLabel, 'Used', 'Capacity'])} rows={[]} rowKey={r => r.name} sortable={false} empty={`No ${resourceLabel.toLowerCase()} resources in "${namespace}"`} />
         </div>
       </div>
     )
@@ -1017,14 +1074,7 @@ function InfraEmptyView({ columns }) {
         {['Requests per Minute', 'Errors', 'Latency'].map(t => <NoDataChart key={t} title={t} />)}
       </div>
       <div className="infra-empty-table">
-        <div className="infra-empty-table-head">
-          <span>{columns[0]}</span>
-          {columns.slice(1).map(c => <span key={c}>{c}</span>)}
-        </div>
-        <div className="err-empty">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 12l2 2 4-4" /><circle cx="12" cy="12" r="10" /></svg>
-          <div>No data</div>
-        </div>
+        <InfraTable columns={emptyColumns(columns)} rows={[]} rowKey={r => r.name} sortable={false} empty="No data" />
       </div>
     </>
   )
@@ -1045,18 +1095,7 @@ function MySQLView() {
       </div>
       <div className="panel">
         <div className="panel-head">Summary</div>
-        <div className="appdb-summary-head" style={{ gridTemplateColumns: '1fr 110px 120px 150px 120px 130px 130px' }}>
-          <span>Host</span><span>Connections</span><span>Operations / min</span><span>Connection Errors / min</span><span>Slow Queries / min</span><span>Replication Lag</span><span>Database Size</span>
-        </div>
-        <div className="appdb-summary-row" style={{ gridTemplateColumns: '1fr 110px 120px 150px 120px 130px 130px' }}>
-          <span className="host-cell">{s.host}</span>
-          <span className="num-cell">{s.connections}</span>
-          <span className="num-cell">{s.opsPerMin}</span>
-          <span className="num-cell">{s.connErrPerMin}</span>
-          <span className="num-cell">{s.slowQueriesPerMin}</span>
-          <span className="num-cell">{s.replicationLag ?? '-'}</span>
-          <span className="num-cell">{fmtBytes(s.dbSizeBytes)}</span>
-        </div>
+        <InfraTable columns={MYSQL_COLUMNS} rows={[s]} rowKey={r => r.host} sortable={false} />
       </div>
     </>
   )
@@ -1075,17 +1114,7 @@ function RedisView() {
       </div>
       <div className="panel">
         <div className="panel-head">Summary <span className="hint">{s.status === 'critical' ? 'Connection pool under pressure - see payment-service incident' : ''}</span></div>
-        <div className="appdb-summary-head" style={{ gridTemplateColumns: '1fr 110px 120px 110px 130px 100px' }}>
-          <span>Host</span><span>Connections</span><span>Connections / min</span><span>Commands / min</span><span>Memory Used</span><span>Cache Hit %</span>
-        </div>
-        <div className="appdb-summary-row" style={{ gridTemplateColumns: '1fr 110px 120px 110px 130px 100px' }}>
-          <span className="host-cell mono"><span className={`status-dot ${s.status}`} style={{ marginRight: 8 }} />{s.host}</span>
-          <span className="num-cell">{s.connections}</span>
-          <span className="num-cell">{s.connPerMin}</span>
-          <span className="num-cell">{s.cmdPerMin}</span>
-          <span className="num-cell">{fmtBytes(s.memUsedBytes)}</span>
-          <span className={`num-cell ${s.cacheHitPct < 80 ? 'val-warning' : ''}`}>{s.cacheHitPct}%</span>
-        </div>
+        <InfraTable columns={REDIS_COLUMNS} rows={[s]} rowKey={r => r.host} sortable={false} />
       </div>
     </>
   )
@@ -1218,57 +1247,28 @@ export default function InfraView({ goHome, source, resource, selectedHost, setS
       <>
         <div className="infra-row-charts">
           <div className="infra-chart-card">
-            <div className="clbl">CPU Used % <span className="cval">per host</span></div>
+            <div className="clbl">CPU Used %</div>
             <MultiHostChart metric="cpuSeries" unit="%" formatVal={v => Math.round(v)} palette={PALETTE} hosts={hosts} />
           </div>
           <div className="infra-chart-card">
-            <div className="clbl">Memory Used % <span className="cval">per host</span></div>
+            <div className="clbl">Memory Used %</div>
             <MultiHostChart metric="memSeries" unit="%" formatVal={v => Math.round(v)} palette={PALETTE} hosts={hosts} />
           </div>
           <div className="infra-chart-card">
-            <div className="clbl">Disk Used % <span className="cval">per host</span></div>
+            <div className="clbl">Disk Used %</div>
             <MultiHostChart metric="diskSeries" unit="%" formatVal={v => Math.round(v)} palette={PALETTE} hosts={hosts} />
           </div>
         </div>
 
         <div className="panel">
           <div className="panel-head">Summary <span className="hint">{hosts.length} hosts · sortable · click a row to drill in</span></div>
-          <div className="infra-summary-head">
-            <span>Host</span>
-            <span>Service</span>
-            <span>CPU %</span>
-            <span>Mem %</span>
-            <span>Disk %</span>
-            <span>Net In</span>
-            <span>Net Out</span>
-          </div>
-          {[...hosts].sort((a, b) => (a.status === 'critical' ? -2 : a.status === 'warning' ? -1 : 0) - (b.status === 'critical' ? -2 : b.status === 'warning' ? -1 : 0) || b.cpu - a.cpu).map(h => {
-            const cpuCls = h.cpu >= 85 ? 'val-critical' : h.cpu >= 70 ? 'val-warning' : ''
-            const memCls = h.mem >= 85 ? 'val-critical' : h.mem >= 70 ? 'val-warning' : ''
-            return (
-              <div key={h.host} className="infra-summary-row" onClick={() => setSelectedHost(h.host)}>
-                <span className="isr-host">
-                  <span className={`status-dot ${h.status}`} />
-                  <span className="mono">{h.host}</span>
-                </span>
-                <span className="mono" style={{ color: 'var(--text-secondary)', fontSize: 11 }} title={h.service ? undefined : 'No APM service reports from this host'}>{h.service ?? '—'}</span>
-                <span className="isr-bar">
-                  <span className="track"><span className="fill" style={{ width: `${h.cpu}%`, background: h.cpu >= 85 ? 'var(--critical)' : h.cpu >= 70 ? 'var(--warning)' : 'var(--brand)' }} /></span>
-                  <span className={`isr-val ${cpuCls}`}>{h.cpu.toFixed(2)}</span>
-                </span>
-                <span className="isr-bar">
-                  <span className="track"><span className="fill" style={{ width: `${h.mem}%`, background: h.mem >= 85 ? 'var(--critical)' : h.mem >= 70 ? 'var(--warning)' : 'var(--brand)' }} /></span>
-                  <span className={`isr-val ${memCls}`}>{h.mem.toFixed(2)}</span>
-                </span>
-                <span className="isr-bar">
-                  <span className="track"><span className="fill" style={{ width: `${h.disk}%`, background: 'var(--brand)' }} /></span>
-                  <span className="isr-val">{h.disk.toFixed(1)}</span>
-                </span>
-                <span className="isr-val mono">{h.netIn.toFixed(2)}{h.unit}</span>
-                <span className="isr-val mono">{h.netOut.toFixed(2)}{h.unit}</span>
-              </div>
-            )
-          })}
+          <InfraTable
+            columns={HOST_COLUMNS}
+            rows={hosts.map(withNetRates)}
+            rowKey={h => h.host}
+            defaultSort="cpu"
+            onRowClick={h => setSelectedHost(h.host)}
+          />
         </div>
       </>
     )

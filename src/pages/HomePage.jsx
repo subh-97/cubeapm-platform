@@ -8,6 +8,7 @@ import PageBar from '@/components/layout/PageBar'
 import { highlightTerms } from '@/utils/highlight'
 import TableSearch from '@/components/TableSearch'
 import TabBar from '@/components/shared/TabBar'
+import { CellBar } from '@/components/shared/SortableTable'
 import { parsePodQuery, matchesPod, highlightsFor, tagHighlightsFor, tagTerms, SERVICE_FIELDS } from '@/utils/tableQuery'
 
 function SummaryStrip({ summary: s }) {
@@ -133,14 +134,7 @@ function DetailTable({ services, onServiceClick }) {
                 <td>{s.rpm >= 1000 ? (s.rpm / 1000).toFixed(2) + 'K' : s.rpm.toFixed(2)}</td>
                 <td className={latS === 'critical' ? 'val-critical' : latS === 'warning' ? 'val-warning' : ''}>{s.latencyP90} ms</td>
                 <td>{s.latencyAvg} ms</td>
-                <td>
-                  <span className="cell-bar">
-                    <span className="track">
-                      <span className="fill" style={{ width: `${Math.min(100, s.errorRatePct * 12)}%`, background: 'var(--brand)' }} />
-                    </span>
-                    <span>{s.errorRatePct}%</span>
-                  </span>
-                </td>
+                <td><CellBar fill={s.errorRatePct * 12}>{s.errorRatePct}%</CellBar></td>
               </tr>
             )
           })}
