@@ -6,7 +6,7 @@
 // anything the builder itself can produce. Anything outside that subset parses
 // to an error, which the UI surfaces rather than silently dropping filters.
 
-import { FIELD_CATALOG, getFieldValue } from '@/components/QueryBuilder'
+import { FIELD_CATALOG, getFieldValue, needsQuotedContains } from '@/components/QueryBuilder'
 import { STAT_FUNCTIONS, PIPE_NAMES, BUILDER_PIPES } from '@/utils/pipes'
 import { logRows } from '@/data/observability'
 
@@ -25,7 +25,8 @@ export const BOOLEAN_KEYWORDS = ['AND', 'OR', 'NOT']
 // ---------- Top-level splitting ----------
 
 // Scans for a delimiter that isn't inside quotes, parens, or braces. Returns
-// -1 when there is none. Used to find the conditions|pipes boundary without
+// -1 when there is none. Used to split pipe stages, and to find the
+// conditions|pipes boundary in text the parser can't read (pipeIndex), without
 // tripping over a `|` inside a regex literal.
 function indexOfTopLevel(s, ch, from = 0) {
   let quote = null
@@ -45,11 +46,29 @@ function indexOfTopLevel(s, ch, from = 0) {
   return -1
 }
 
+// Where the conditions end and the pipes begin. The parser decides when it can
+// read the conditions: only it knows that the quote in `f:*it's*` is part of a
+// bare value and opens nothing, and that the bracket in `f:*[WARN*` nests
+// nothing. The character scan took both for openings, so the ` | pipes` after
+// them, or a `|` inside a later quoted value, landed on the wrong side. Text the
+// parser can't read (mid-edit, or outside its subset, like `* | stats …`) falls
+// back to the scan.
+function pipeIndex(s) {
+  let end
+  try {
+    end = readHead(s).end
+  } catch {
+    return indexOfTopLevel(s, '|')
+  }
+  // The head stops only at the end of the text or at a top-level `|`.
+  return end < s.length ? end : -1
+}
+
 // Splits a full query into its conditions head and its pipe tail.
 // `pipes` keeps the raw text of each pipe stage, unparsed.
 export function splitQuery(raw) {
   const s = raw ?? ''
-  const at = indexOfTopLevel(s, '|')
+  const at = pipeIndex(s)
   if (at === -1) return { conditions: s.trim(), pipeText: '', pipes: [] }
   const conditions = s.slice(0, at).trim()
   const pipeText = s.slice(at + 1).trim()
@@ -75,8 +94,11 @@ export function replacePipeSection(raw, pipeStr) {
 
 // ---------- Conditions parser ----------
 
+// `bareAt` holds the positions of `*"` that are to be read as a bare contains
+// on a retry, and `quotedAt` records the stretch of each quoted one this pass
+// read ({ from, to }); see readHead.
 class Cursor {
-  constructor(s) { this.s = s; this.i = 0 }
+  constructor(s, bareAt = new Set()) { this.s = s; this.i = 0; this.bareAt = bareAt; this.quotedAt = [] }
   get eof() { return this.i >= this.s.length }
   peek(n = 0) { return this.s[this.i + n] }
   ws() { while (!this.eof && /\s/.test(this.s[this.i])) this.i++ }
@@ -110,10 +132,45 @@ function parseFieldName(cur) {
 
 // Values are permissive by comparison: `*` (wildcards) and `:` (URLs, durations)
 // are legitimate inside one, so only whitespace and structure terminate them.
+const BARE_ENDS = /[\s(){},|]/
+
 function parseBare(cur) {
   let out = ''
-  while (!cur.eof && !/[\s(){},|]/.test(cur.peek())) { out += cur.peek(); cur.i++ }
+  while (!cur.eof && !BARE_ENDS.test(cur.peek())) { out += cur.peek(); cur.i++ }
   return out
+}
+
+// The values a bare contains can't carry are written quoted: one with a
+// character that would end a bare value (BARE_ENDS), and one that opens with a
+// quote. Bare, that quote is ambiguous: `f:*"a* AND g:*x"*` is two contains, on
+// `"a` and on `x"`, but it is also, character for character, one contains on
+// `a* AND g:*x`. Quoted, `f:*"\"a"* AND g:*x"*` is only the first. Which values
+// those are is QueryBuilder's needsQuotedContains, the test its own spelling
+// (opQueryText's `contains`) uses, so the writer and this reader share one.
+
+// The quoted spelling of "contains", `*"timed out"*`. A bare value may begin
+// with a quote too, though: `*"status":500*` is a contains on `"status":500`,
+// and `*"a"*` one on `"a"`. So the quoted reading is taken only when it is
+// whole: the quotes close, a `*` and the end of the term follow, and the value
+// inside is one a bare value can't carry (above). Otherwise the cursor goes
+// back for the bare reading.
+function parseQuotedContains(cur) {
+  const q = cur.peek()
+  const start = cur.i
+  if ((q !== '"' && q !== "'") || cur.bareAt.has(start)) return null
+  try {
+    const value = parseQuoted(cur)
+    const after = cur.peek(1)
+    if (cur.peek() === '*' && (after == null || /[\s)|]/.test(after)) && needsQuotedContains(value)) {
+      cur.i++ // the closing '*'
+      cur.quotedAt.push({ from: start, to: cur.i })
+      return value
+    }
+  } catch {
+    // An unclosed quote: the bare reading takes it as a character.
+  }
+  cur.i = start
+  return null
 }
 
 function parseValueToken(cur) {
@@ -182,12 +239,19 @@ function parseOpAndValue(cur, field) {
   }
   if (cur.peek() === '"' || cur.peek() === "'") {
     const value = parseQuoted(cur)
+    // `field:"Could not"*` = starts with, quoted for a space or an awkward
+    // character, the way LogsQL spells a phrase prefix. `field:""*` is a
+    // starts-with on nothing, not an empty check.
+    if (cur.peek() === '*') { cur.i++; return { op: 'prefix', value } }
     if (value === '') return { op: 'empty', value: '' }
     return { op: 'phrase', value }
   }
   if (cur.peek() === '*') {
     cur.i++
-    // `field:*` = exists; `field:*text*` = contains
+    // `field:*` = exists; `field:*text*` = contains; `field:*"two words"*` =
+    // contains, quoted
+    const inQuotes = parseQuotedContains(cur)
+    if (inQuotes != null) return { op: 'contains', value: inQuotes }
     const body = parseBare(cur)
     if (body === '') return { op: 'exists', value: '' }
     if (body.endsWith('*')) return { op: 'contains', value: body.slice(0, -1) }
@@ -291,13 +355,9 @@ function parseTermList(cur, depth) {
   return nodes
 }
 
-// Parses the conditions head into chips. Throws QueryError on anything the
-// chip model can't represent, so callers can show the reason.
-export function parseConditions(input) {
-  const s = (input ?? '').trim()
-  if (!s || s === '*') return []
-
-  const cur = new Cursor(s)
+// Reads the conditions head from the cursor: an optional stream selector, then
+// terms, up to the end of the text or the top-level `|` that opens the pipes.
+function parseHead(cur) {
   const chips = []
 
   cur.ws()
@@ -314,6 +374,53 @@ export function parseConditions(input) {
   }
 
   return chips
+}
+
+// A misread `*"` is a bare contains that opens with a quote, and one or two
+// re-reads settle it. A query that is simply wrong would otherwise be re-read
+// once for every quoted contains before the mistake, the whole text each time:
+// a stray `)` after a thousand of them took 170ms, and grew with the square.
+const MAX_REREADS = 8
+
+// Reads the head of `s`, and when that fails after a quoted contains, reads it
+// again with the last one taken bare. One local check can't settle every `*"`:
+// in `f:*"a* OR g:"* x"` the f value is the bare `"a`, but the quote it opens is
+// closed by g's, and a `*` and a space follow, so the quoted reading looks whole
+// until the text after it fails to parse. The retry costs nothing on a query
+// that parses, and each one reads one more `*"` bare, so it ends.
+// Returns { chips, end }, `end` being where the head stopped.
+function readHead(s) {
+  const bareAt = new Set()
+  const takenBare = []
+  let firstError = null
+  for (let rereads = 0; ; rereads++) {
+    const cur = new Cursor(s, bareAt)
+    let chips
+    try {
+      chips = parseHead(cur)
+    } catch (e) {
+      if (!firstError) firstError = e
+      if (!(e instanceof QueryError) || cur.quotedAt.length === 0 || rereads === MAX_REREADS) throw firstError
+      const last = cur.quotedAt[cur.quotedAt.length - 1]
+      bareAt.add(last.from)
+      takenBare.push(last)
+      continue
+    }
+    // A re-read that stops at a `|` the quoted reading held inside its value
+    // hasn't explained the error, it has only cut the query short: the stray
+    // `)` in `f:*"a|b"* )` would come back as a contains on `"a` and a pipe
+    // `b"* )`. The first error is the one to show.
+    if (cur.i < s.length && takenBare.some(q => q.from < cur.i && cur.i < q.to)) throw firstError
+    return { chips, end: cur.i }
+  }
+}
+
+// Parses the conditions head into chips. Throws QueryError on anything the
+// chip model can't represent, so callers can show the reason.
+export function parseConditions(input) {
+  const s = (input ?? '').trim()
+  if (!s || s === '*') return []
+  return readHead(s).chips
 }
 
 // Non-throwing wrapper. `{ ok, chips, error }`.

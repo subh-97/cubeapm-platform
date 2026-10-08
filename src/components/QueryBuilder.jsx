@@ -102,23 +102,50 @@ const OPERATORS = {
   ],
 }
 
+// ---------- What `field:value` means ----------
+// The one place the pages' grammars differ. On Logs and Traces `:` is LogsQL's
+// word match. The Errors page mirrors the original CubeAPM Errors search, where
+// it is a case-insensitive contains, and it has to be: the matcher's words keep
+// their dots and hyphens, so a word match reads a full exception class or
+// `payment-service` as one word, and the searches people actually type,
+// `exception:JedisPoolException` or `service:payment`, matched nothing.
+//
+// The chip and its text stay `field:value` on every page — only the evaluator
+// (applyChipsToLog's `colonMatch`) and the words describing `:` change — so a
+// query copied between pages still parses, and reads as each page reads it.
+// `:=` is exact and case-sensitive everywhere, as it is in the original.
+
+// The operator tables a page gets when `:` is a contains. Its row says so, and
+// keeps its place at the head of the list, since `:` is still the operator the
+// page's own grammar leads with. The `:*_*` row leaves the picker, since it
+// would offer the same match twice; typed, `field:*value*` still works, and its
+// chips still edit as before.
+const COLON_CONTAINS_OPERATORS = Object.fromEntries(Object.entries(OPERATORS).map(([set, ops]) => [
+  set,
+  ops.map(o => {
+    if (o.op === 'word') return { ...o, label: 'contains', hint: 'field:value  — anywhere in the value, any case' }
+    if (o.op === 'contains') return { ...o, inPicker: false }
+    return o
+  }),
+]))
+
 const CATEGORY_ORDER = ['Equality', 'List', 'Text', 'Pattern', 'Presence']
 
 // The operator set a field gets is decided by its entry in the ACTIVE catalog,
 // which differs per dataset — `duration` is nanoseconds on a span and has no
 // entry at all on some log shapes. Callers inside the component pass the map
-// they resolved from their own dataset; the default keeps the module-level
-// helpers usable on their own.
-function opSetFor(field, byName = FIELD_BY_NAME) {
+// they resolved from their own dataset, and the operator tables their `:`
+// reading uses; the defaults keep the module-level helpers usable on their own.
+function opSetFor(field, byName = FIELD_BY_NAME, operators = OPERATORS) {
   const meta = byName[field]
-  if (!meta) return OPERATORS.string
-  if (meta.highCard) return OPERATORS.highCard
-  if (meta.type === 'keyword') return OPERATORS.keyword
-  return OPERATORS.string
+  if (!meta) return operators.string
+  if (meta.highCard) return operators.highCard
+  if (meta.type === 'keyword') return operators.keyword
+  return operators.string
 }
 
-function opMetaFor(field, op, byName = FIELD_BY_NAME) {
-  return opSetFor(field, byName).find(o => o.op === op)
+function opMetaFor(field, op, byName = FIELD_BY_NAME, operators = OPERATORS) {
+  return opSetFor(field, byName, operators).find(o => o.op === op)
 }
 
 // Renders the op+value portion of a chip using CubeAPM's canonical syntax.
@@ -132,7 +159,11 @@ function asArray(v) {
 // Splits the op+value tail into separately addressable pieces, so each part of a
 // chip can be clicked to edit just that part. The punctuation (prefix/suffix) is
 // the operator; whatever sits between them is the value.
-function chipSegments(op, value) {
+//
+// This is what the chip SHOWS, values raw. The query text is spelled separately
+// (opQueryText below), because the two need different things from a value.
+// eslint-disable-next-line react-refresh/only-export-components -- exported for the tests
+export function chipSegments(op, value) {
   const v = String(value ?? '')
   const list = () => asArray(value).map(x => `"${x}"`).join(', ')
   switch (op) {
@@ -152,11 +183,93 @@ function chipSegments(op, value) {
   }
 }
 
-// Canonical CubeAPM syntax for a chip's tail — derived from the segments so the
-// rendered chip and the generated query can never drift apart.
+// A chip's tail as the chip reads — derived from the segments so every label,
+// preview and aria text describing a chip says exactly what the chip shows.
 function opValueText(op, value) {
   const s = chipSegments(op, value)
   return s.prefix + s.value + s.suffix
+}
+
+// ---------- Query text ----------
+// A pill can print `span_name:=POST /v1/payments/:id/capture` raw and still read
+// as one filter. As text it cannot: a space ends a value, and quotes, brackets
+// and commas are syntax. Written raw, that chip came back from the parser
+// (rawQuery.tryParseConditions) as a broken term, and every place the text
+// travels — recents, the copied query, a pasted query, the Errors page URL —
+// lost the filter. So values are quoted in the text whenever the bare spelling
+// would read back as something else, and left bare whenever it would not. The
+// one deliberate exception is an exact match (`:=` / `!=`): a value with `:`,
+// `[` or `]` is quoted even though it would read back bare (EXACT_NEEDS_QUOTES
+// below), so text once written `redis.key:=cubedemo:search` is now written
+// `redis.key:="cubedemo:search"`. Both spellings parse to the same chip, and no
+// query text is stored, only chips; every other query is written as before.
+
+// Inside quotes the parser takes a backslash as "the next character is literal",
+// so the quote and the backslash itself are the two characters to escape. The
+// Explore converter (utils/explore/builders.js) honours the same two escapes.
+function quoted(v) {
+  return `"${String(v ?? '').replace(/[\\"]/g, '\\$&')}"`
+}
+
+// Ends a bare value in the raw grammar, or is syntax inside one. `:` reads fine
+// bare but is quoted anyway for an exact match, where quoting changes nothing
+// and a URL or `redis.session:*` reads more plainly as one value. `[` and `]`
+// are quoted for the same reason: bare they parse, but the character scan
+// splitQuery falls back to for text the parser cannot read (mid-edit) counts
+// brackets as nesting, and quoted they cannot hide the ` | pipes` after them.
+const EXACT_NEEDS_QUOTES = /[\s(){}[\],|"':]/
+// What a bare value after `:` cannot carry: whitespace and structure end it, and
+// a leading `=`, `~`, `*` or quote turns the `:` into a different operator.
+const BARE_BREAKS = /[\s(){},|"']/
+const BARE_LEADS = /^[=~*]/
+
+function exactText(v) {
+  const s = String(v ?? '')
+  return EXACT_NEEDS_QUOTES.test(s) ? quoted(s) : s
+}
+
+function bareAfterColon(s) {
+  return s !== '' && !BARE_BREAKS.test(s) && !BARE_LEADS.test(s)
+}
+
+// When a contains is written `f:*"…"*` rather than `f:*…*`: when the value has
+// a character that ends a bare value (whitespace or structure), or opens with a
+// quote, which bare would read as the start of the quoted spelling. The raw
+// parser's quoted-contains reading (rawQuery.js) has to take exactly these
+// values: if the two disagree, a written contains stops reading back, or a
+// hand-typed one reads as something else. Exported so the parser can ask this
+// rather than keep a copy of the test in step by hand.
+// eslint-disable-next-line react-refresh/only-export-components -- shared with the raw parser
+export function needsQuotedContains(v) {
+  return /[\s(){},|]/.test(v) || /^["']/.test(v)
+}
+
+// The op+value tail as query text. Same grammar as the chip, quoted where needed.
+// A word with a space or bracket in it has no quoted form of its own, so it is
+// written as a phrase, `f:"a b"`, which is how LogsQL reads a quoted word too
+// (the Explore converter makes the same call): it parses back as `phrase`, the
+// same tokens in order. A starts-with or contains that needs quotes is written
+// the LogsQL way, `f:"a b"*` / `f:*"a b"*`, and reads back whole. A contains
+// that merely starts with a quote is quoted too: bare, a later filter ending in
+// the same quote would close it, and the two would read back as one.
+function opQueryText(op, value) {
+  const s = String(value ?? '')
+  const list = () => asArray(value).map(quoted).join(', ')
+  switch (op) {
+    case 'exists':   return ':*'
+    case 'empty':    return ':""'
+    case 'word':     return bareAfterColon(s) && !s.endsWith('*') ? `:${s}` : `:${quoted(s)}`
+    case 'eq':       return `:=${exactText(s)}`
+    case 'neq':      return `!=${exactText(s)}`
+    case 'in':       return ` in (${list()})`
+    case 'not_in':   return ` not_in (${list()})`
+    case 'contains': return needsQuotedContains(s) ? `:*${quoted(s)}*` : `:*${s}*`
+    case 'prefix':   return bareAfterColon(s) ? `:${s}*` : `:${quoted(s)}*`
+    case 'phrase':   return `:${quoted(s)}`
+    case 'regex':    return `:~${quoted(s)}`
+    case 'nregex':   return `!~${quoted(s)}`
+    default:         return bareAfterColon(s) ? `:${s}` : `:${quoted(s)}`
+  }
 }
 
 // Renders just the operator prefix for the composing chip (before user picks a value).
@@ -182,8 +295,13 @@ function opStartText(op) {
 // operator set the field path exposes, so "search the message" gets the same
 // substring / prefix / exact-phrase choice a field filter would.
 // Ordered narrowest reading first: the exact phrase, then that run of
-// characters at the start of the message, then anywhere in it. The first row is
-// also the Enter default, so the tightest match is what you get for free.
+// characters at the start of the message, then anywhere in it. That is the
+// order for a single bare word. A quoted or starred term leads with the
+// reading its decoration spells; unquoted input with a space leads with the
+// per-word split (see buildFreeTextOptions); and a page can put its own reading
+// of a bare term first (`freeTextLead` — Errors leads with contains, as a bare
+// term on the original page was a substring match). The first row is also
+// what Enter commits where a page opts into that (`enterCommitsFreeText`).
 const FREE_TEXT_OPS = [
   { op: 'phrase',   label: 'matching the exact phrase' },  // "text"
   { op: 'prefix',   label: 'starting with' },              // text*
@@ -193,7 +311,10 @@ const FREE_TEXT_OPS = [
 // Builds the free-text rows for a typed string. Multi-word input gets one extra
 // option that splits on whitespace into a chip per word (AND-ed), which reads as
 // "all of these words appear" rather than "this exact run of characters appears".
-function buildFreeTextOptions(typed) {
+// `lead` is the reading undecorated input starts with ('phrase', the narrowest,
+// unless the page says otherwise).
+// eslint-disable-next-line react-refresh/only-export-components -- exported for the tests
+export function buildFreeTextOptions(typed, { lead = 'phrase' } = {}) {
   // Quotes and stars the user typed are syntax, so they are stripped off the
   // value and used to pick which reading leads — otherwise `"text"` would search
   // for a string that literally includes the quote characters.
@@ -208,6 +329,9 @@ function buildFreeTextOptions(typed) {
       ...opts.filter(o => o.op !== writtenOp),
     ]
   }
+  // The page's reading of a bare term goes first; the rest keep their order.
+  const at = opts.findIndex(o => o.op === lead)
+  if (at > 0) opts.unshift(...opts.splice(at, 1))
   if (words.length > 1) {
     // Several words are far more often "find these words" than "find this exact
     // run of characters", so the split reading leads once there is a space.
@@ -255,7 +379,11 @@ export function getFieldValue(log, field) {
 // short enough that a deliberate stop feels immediate.
 const VALUE_DEBOUNCE_MS = 180
 
-function computeTopValues(field, k = 24, { rows = logRows, byName = FIELD_BY_NAME, getValue = getFieldValue } = {}) {
+// `weight` is how many occurrences one row stands for. A log line is one, which
+// is the default; a pre-aggregated row (an error series carrying `count`) is
+// many, and counting it once would rank a one-off exception level with the one
+// failing every request.
+function computeTopValues(field, k = 24, { rows = logRows, byName = FIELD_BY_NAME, getValue = getFieldValue, weight = null } = {}) {
   const meta = byName[field]
   if (meta?.highCard) return null
   const counts = {}
@@ -263,7 +391,7 @@ function computeTopValues(field, k = 24, { rows = logRows, byName = FIELD_BY_NAM
     const v = getValue(l, field)
     if (v != null && v !== '') {
       const key = String(v)
-      counts[key] = (counts[key] || 0) + 1
+      counts[key] = (counts[key] || 0) + (weight?.(l) ?? 1)
     }
   }
   return Object.entries(counts)
@@ -272,17 +400,77 @@ function computeTopValues(field, k = 24, { rows = logRows, byName = FIELD_BY_NAM
     .map(([value, count]) => ({ value, count }))
 }
 
+// ---------- Matching values ----------
+// On a page whose values are what people remember — an exception class, an
+// endpoint — typing a fragment of one (`Jedis`, `capture`) is a more common
+// start than naming the field. With `valueSuggestFields` the field phase also
+// lists values containing the text, each committing as an exact match on its
+// own field, so the fragment lands as a precise filter rather than a free-text
+// search left to guess what it was part of.
+
+// Typing one character matches nearly every value, which is noise, not help.
+const MATCHING_MIN_CHARS = 2
+const MATCHING_LIMIT = 8
+
+// Every (field, value) pair across the rows, with its count. No top-k cut and
+// no length cap, unlike the picklist and the facet rail: the typed text decides
+// what shows, and a rare or long value (a 55-character exception class) is
+// exactly the one someone types a fragment of to find.
+// eslint-disable-next-line react-refresh/only-export-components -- exported for the tests
+export function buildValueIndex(rows, fields, { getValue = getFieldValue, weight = null } = {}) {
+  const out = []
+  for (const field of fields ?? []) {
+    const counts = new Map()
+    for (const row of rows ?? []) {
+      const v = getValue(row, field)
+      if (v == null || v === '') continue
+      const key = String(v)
+      counts.set(key, (counts.get(key) || 0) + (weight?.(row) ?? 1))
+    }
+    for (const [value, count] of counts) out.push({ field, value, count })
+  }
+  return out
+}
+
+// The entries whose value contains the typed text (case-insensitive), most
+// frequent first, then in field order, then alphabetically.
+//
+// The same value with the same count under two fields is listed once, under the
+// earlier field: on a server span the span name IS the endpoint, so without this
+// every endpoint would spend two of the eight rows.
+// eslint-disable-next-line react-refresh/only-export-components -- exported for the tests
+export function rankMatchingValues(index, typed, limit = MATCHING_LIMIT) {
+  const q = String(typed ?? '').trim().toLowerCase()
+  if (q.length < MATCHING_MIN_CHARS) return []
+  const fieldOrder = new Map()
+  for (const e of index ?? []) if (!fieldOrder.has(e.field)) fieldOrder.set(e.field, fieldOrder.size)
+  const seen = new Set()
+  return (index ?? [])
+    .filter(e => e.value.toLowerCase().includes(q))
+    .sort((a, b) => b.count - a.count
+      || fieldOrder.get(a.field) - fieldOrder.get(b.field)
+      || a.value.localeCompare(b.value))
+    .filter(e => {
+      const key = `${e.count}\u0000${e.value}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    .slice(0, limit)
+}
+
 // Stream selectors have their own syntax (`=`, `!=`, `=~`, `!~`) and only support
 // a limited op set. When a chip qualifies, we promote it into the leading `{}` block.
 const STREAM_FIELDS = new Set(['env', 'service'])
 
+// Stream values are always quoted already; they only needed their escapes.
 const STREAM_OP_MAP = {
-  eq:     (f, v) => `${f}="${v}"`,
-  neq:    (f, v) => `${f}!="${v}"`,
-  in:     (f, v) => `${f} in (${asArray(v).map(x => `"${x}"`).join(', ')})`,
-  not_in: (f, v) => `${f} not_in (${asArray(v).map(x => `"${x}"`).join(', ')})`,
-  regex:  (f, v) => `${f}=~"${v}"`,
-  nregex: (f, v) => `${f}!~"${v}"`,
+  eq:     (f, v) => `${f}=${quoted(v)}`,
+  neq:    (f, v) => `${f}!=${quoted(v)}`,
+  in:     (f, v) => `${f} in (${asArray(v).map(quoted).join(', ')})`,
+  not_in: (f, v) => `${f} not_in (${asArray(v).map(quoted).join(', ')})`,
+  regex:  (f, v) => `${f}=~${quoted(v)}`,
+  nregex: (f, v) => `${f}!~${quoted(v)}`,
 }
 
 function isStreamable(chip) {
@@ -294,7 +482,7 @@ function isStreamable(chip) {
 // no empty or single-child groups reach here, so no redundant parens are emitted.
 function nodeToString(n) {
   if (isGroup(n)) return `(${nodesToString(n.children ?? [])})`
-  return `${n.field}${opValueText(n.op, n.value)}`
+  return `${n.field}${opQueryText(n.op, n.value)}`
 }
 
 function nodesToString(nodes) {
@@ -315,6 +503,11 @@ export function chipsToString(chips) {
     if (!isStreamable(c)) break
     splitAt = i + 1
   }
+  // ...short of the chip an OR joins to what follows. The first term after a
+  // stream block is written with no connector, and the parser reads it as AND
+  // whatever was written, so `service = a OR b` came back as `service = a AND b`.
+  // Left as a term, that chip keeps its OR — and reads back as the same chip.
+  if (splitAt > 0 && chips[splitAt]?.connector === 'OR') splitAt -= 1
   const streams = chips.slice(0, splitAt)
   const rest = chips.slice(splitAt)
 
@@ -357,7 +550,10 @@ function matchesPrefix(haystack, value) {
   return hl.startsWith(vl) || tokenize(haystack).some(t => t.startsWith(vl))
 }
 
-function matchChip(log, c, getValue = getFieldValue) {
+// `colonMatch` is how a `word` chip (`field:value`) matches: 'word' for LogsQL's
+// whole-token match, or 'contains' where a page reads `:` as a case-insensitive
+// substring (see "What `field:value` means" above).
+function matchChip(log, c, getValue = getFieldValue, colonMatch = 'word') {
   const raw = getValue(log, c.field)
   const present = raw != null && raw !== ''
   if (c.op === 'exists') return present
@@ -368,7 +564,7 @@ function matchChip(log, c, getValue = getFieldValue) {
   const v = String(c.value ?? '')
   const vl = v.toLowerCase()
   switch (c.op) {
-    case 'word':     return tokenize(s).includes(vl) || sl === vl
+    case 'word':     return colonMatch === 'contains' ? sl.includes(vl) : tokenize(s).includes(vl) || sl === vl
     case 'eq':       return s === v
     case 'neq':      return s !== v
     case 'in':       return asArray(c.value).map(String).includes(s)
@@ -385,27 +581,52 @@ function matchChip(log, c, getValue = getFieldValue) {
 // Evaluates a sibling list left-to-right, respecting each node's `connector`
 // (default AND). There is still no operator precedence WITHIN a list — groups
 // are what express precedence, and users can reorder chips as before.
-function evalNodes(log, nodes, getValue = getFieldValue) {
+function evalNodes(log, nodes, getValue = getFieldValue, colonMatch = 'word') {
   if (!nodes?.length) return true
-  let result = evalNode(log, nodes[0], getValue)
+  let result = evalNode(log, nodes[0], getValue, colonMatch)
   for (let i = 1; i < nodes.length; i++) {
     const n = nodes[i]
-    const m = evalNode(log, n, getValue)
+    const m = evalNode(log, n, getValue, colonMatch)
     if (n.connector === 'OR') result = result || m
     else result = result && m
   }
   return result
 }
 
-function evalNode(log, n, getValue = getFieldValue) {
-  return isGroup(n) ? evalNodes(log, n.children, getValue) : matchChip(log, n, getValue)
+function evalNode(log, n, getValue = getFieldValue, colonMatch = 'word') {
+  return isGroup(n) ? evalNodes(log, n.children, getValue, colonMatch) : matchChip(log, n, getValue, colonMatch)
 }
 
 // `getValue` is the same dataset seam the builder takes: a span resolves its
 // fields differently from a log line, and the chip semantics above are
 // identical either way. Defaulting it keeps every existing caller unchanged.
-export function applyChipsToLog(log, chips, getValue = getFieldValue) {
-  return evalNodes(log, chips, getValue)
+//
+// `colonMatch: 'contains'` is the Errors page's reading of `field:value`, and
+// the page passes the same value to the builder so the operator picker
+// describes the match this makes.
+export function applyChipsToLog(log, chips, getValue = getFieldValue, { colonMatch = 'word' } = {}) {
+  return evalNodes(log, chips, getValue, colonMatch)
+}
+
+// Where the chips of one multi-chip reading land — the word split, a chip per
+// word, AND-ed — given what the builder is pointed at.
+//
+// AND-ed onto the end, the words read the same loose or bracketed, so they stay
+// loose, as they always have. Anywhere else they must stay one condition. After
+// a pending OR, loose words bound left to right — `x OR a AND b` is
+// `(x OR a) AND b` — and the OR itself stayed pending for the next chip. In
+// place of a chip being edited, they were appended at the end and the edited
+// chip stayed. Both cases now land as one group, joined the way a single chip
+// in that spot would be.
+// eslint-disable-next-line react-refresh/only-export-components -- exported for the tests
+export function landChips(chips, list, { editingPath = null, insertionPath = null, connector = null } = {}) {
+  if (!list?.length) return chips
+  const words = list.map((c, i) => (i === 0 ? c : { connector: 'AND', ...c }))
+  if (editingPath != null) {
+    return replaceAt(chips, editingPath, newGroup(words, getAt(chips, editingPath)?.connector))
+  }
+  if (connector === 'OR') return appendInto(chips, insertionPath, newGroup(words, 'OR'))
+  return words.reduce((next, c) => appendInto(next, insertionPath, { connector: 'AND', ...c }), chips)
 }
 
 // ---------- Component ----------
@@ -419,14 +640,43 @@ export function applyChipsToLog(log, chips, getValue = getFieldValue) {
  * Do not call the accessor `valueOf`: props inherit Object.prototype.valueOf,
  * so an omitted prop never falls back to its default and the builder calls the
  * native method instead — which threw and blanked the Logs page.
+ *
+ * The rest of the seam is opt-in, and every default is what Logs and Traces had
+ * before it existed, so neither page passes any of it:
+ *   `exampleQueries`       the built-in examples listed after `savedQueries`
+ *   `freeTextNoun/Meta`    what the free-text rows say they search
+ *   `enterCommitsFreeText` Enter on typed free text commits its first reading
+ *                          and runs, instead of running without it
+ *   `freeTextLead`         the reading a bare term's free-text rows start
+ *                          with, and so what Enter commits: 'phrase' unless
+ *                          the page says otherwise
+ *   `showValueCounts`      value rows show how often each value occurs
+ *   `valueSuggestFields`   the fields whose values the field phase searches
+ *                          as you type (the "Matching values" section)
+ *   `rowWeight`            occurrences one row stands for, for pre-aggregated
+ *                          rows; counts and value ranking use it
+ *   `colonMatch`           'contains' where the page evaluates `field:value`
+ *                          as a case-insensitive substring (it passes the same
+ *                          to applyChipsToLog); the picker then describes `:`
+ *                          that way. 'word', LogsQL's reading, otherwise
  */
 export default function QueryBuilder({
   chips, setChips, recents = [], addRecent, savedQueries = [], exampleQueries = SAVED_QUERIES, onRun, onBlockedChange,
   onCopyQuery, parsePastedQuery, onApplyPipes, fetchFieldValues, leading,
   fieldCatalog = FIELD_CATALOG, rows = logRows, getValue = getFieldValue,
   placeholder = 'Type a field name (e.g. service, duration_ms) or free text',
+  freeTextNoun = 'logs', freeTextMeta = 'Log message',
+  enterCommitsFreeText = false, showValueCounts = false, valueSuggestFields = null,
+  rowWeight = null, colonMatch = 'word', freeTextLead = 'phrase',
 }) {
   const fieldByName = useMemo(() => Object.fromEntries(fieldCatalog.map(f => [f.field, f])), [fieldCatalog])
+  const operators = colonMatch === 'contains' ? COLON_CONTAINS_OPERATORS : OPERATORS
+  // Built once per dataset, searched per keystroke. Null when the page did not
+  // opt in, which is what keeps the section off Logs and Traces.
+  const valueIndex = useMemo(
+    () => (valueSuggestFields?.length ? buildValueIndex(rows, valueSuggestFields, { getValue, weight: rowWeight }) : null),
+    [rows, valueSuggestFields, getValue, rowWeight],
+  )
   // Names that count as a field when typed. `_msg` is here so `_msg:"a b"` can
   // be written out in full, even though free text normally produces it implicitly.
   const typeableFields = useMemo(() => [...fieldCatalog.map(f => f.field), '_msg', '_time', '_stream'], [fieldCatalog])
@@ -483,7 +733,7 @@ export default function QueryBuilder({
   }, [setChips])
 
   // Whether the value phase needs a typed value instead of a picklist
-  const opMeta = composing?.op ? opMetaFor(composing.field, composing.op, fieldByName) : null
+  const opMeta = composing?.op ? opMetaFor(composing.field, composing.op, fieldByName, operators) : null
   const isMulti = !!opMeta?.multi
   const needsTypedValue = !!(!isMulti && (composing?.highCard || opMeta?.freeText))
 
@@ -530,10 +780,21 @@ export default function QueryBuilder({
   // take typed input instead and must never trigger a fetch.
   const valueField = phase === 'value' && !needsTypedValue ? composing?.field ?? null : null
 
+  // The local index's answer, kept current with the rows behind it. Built only
+  // when the field changed, the list kept the counts of whatever range or side
+  // was showing when the field was picked, on a page whose rows follow both.
+  // Null on the fetch path, so a provider is never re-asked because rows moved.
+  const localValues = useMemo(
+    () => (valueField && !fetchFieldValues
+      ? computeTopValues(valueField, 24, { rows, byName: fieldByName, getValue, weight: rowWeight }) || []
+      : null),
+    [valueField, fetchFieldValues, rows, fieldByName, getValue, rowWeight],
+  )
+
   useEffect(() => {
     if (!valueField) return
-    if (!fetchFieldValues) {
-      setValueSource({ status: 'ready', field: valueField, items: computeTopValues(valueField, 24, { rows, byName: fieldByName, getValue }) || [], error: null })
+    if (localValues) {
+      setValueSource({ status: 'ready', field: valueField, items: localValues, error: null })
       return
     }
     let cancelled = false
@@ -560,13 +821,13 @@ export default function QueryBuilder({
         })
     }, VALUE_DEBOUNCE_MS)
     return () => { cancelled = true; ctl.abort(); clearTimeout(timer) }
-  }, [valueField, fetchFieldValues, valueRetry])
+  }, [valueField, fetchFieldValues, valueRetry, localValues])
 
   const suggestions = useMemo(() => {
     const q = text.trim().toLowerCase()
 
     if (phase === 'operator') {
-      const ops = opSetFor(composing.field, fieldByName)
+      const ops = opSetFor(composing.field, fieldByName, operators).filter(o => o.inPicker !== false)
       const filtered = q
         ? ops.filter(o => o.op.toLowerCase().includes(q) || o.label.toLowerCase().includes(q) || o.sym.toLowerCase().includes(q))
         : ops
@@ -613,10 +874,13 @@ export default function QueryBuilder({
     // Anything typed can also be searched against the log body instead — including
     // a string that happens to spell a field name, since "service" is a plausible
     // thing to grep the message for. When no field matches, that's the only sensible
-    // reading of the input, so the rows lead the list and Enter takes the first by
-    // default; otherwise they sit behind the field matches as a deliberate choice.
+    // reading of the input, so the rows lead the list; otherwise they sit behind
+    // the field matches as a deliberate choice.
     const typed = text.trim()
-    const freeText = typed ? buildFreeTextOptions(typed) : []
+    const freeText = typed ? buildFreeTextOptions(typed, { lead: freeTextLead }) : []
+    // Searched with the decoration stripped, so `Jedis*` still finds the Jedis
+    // classes — the stars say how to match the message, not what the value is.
+    const matches = valueIndex && typed ? rankMatchingValues(valueIndex, deriveFreeText(typed).value) : []
     // AND/OR are offered once there is something for them to join to. Matching
     // is case-insensitive so `an` still surfaces the row, but only an exact
     // uppercase AND/OR ranks it first — otherwise Enter on a lowercase "and"
@@ -629,14 +893,14 @@ export default function QueryBuilder({
     // The group row is an action, not a match — it only makes sense on an empty
     // input, where the user isn't already narrowing towards a field.
     return {
-      mode: 'fields', recents: rec, saved: sav, facets: fac, freeText,
+      mode: 'fields', recents: rec, saved: sav, facets: fac, freeText, matches,
       // With nothing saved and no examples the section is dropped, rather than
       // reporting that nothing matched a list that was never there.
       hasSaved: savedQueries.length + exampleQueries.length > 0,
       freeTextFirst: fac.length === 0, canGroup: !typed,
       connectors: conns, connectorsFirst: CONNECTORS.includes(typed),
     }
-  }, [text, phase, composing, needsTypedValue, recents, savedQueries, exampleQueries, chips.length, insertionPath, valueSource])
+  }, [text, phase, composing, needsTypedValue, isMulti, recents, savedQueries, exampleQueries, valueIndex, fieldCatalog, fieldByName, operators, chips.length, insertionPath, valueSource, freeTextLead])
 
   const flatItems = useMemo(() => {
     if (suggestions.mode === 'fields') {
@@ -644,12 +908,16 @@ export default function QueryBuilder({
       const ft = suggestions.freeText.map((o, i) => ({ kind: 'freetext', payload: o, key: `ft${i}` }))
       const fac = suggestions.facets.map((f, i) => ({ kind: 'facet', payload: f, key: `f${i}` }))
       const conn = suggestions.connectors.map((c, i) => ({ kind: 'connector', payload: c, key: `c${i}` }))
+      const mv = suggestions.matches.map((m, i) => ({ kind: 'match', payload: m, key: `mv${i}` }))
       return [
         // An exact AND/OR leads, so Enter and Tab take the connector rather than
         // a free-text search for the word itself.
         ...(suggestions.connectorsFirst ? conn : []),
-        ...(suggestions.freeTextFirst ? ft : fac),
-        ...(suggestions.freeTextFirst ? fac : ft),
+        // Matching values sit between the fields and free text, and lead the
+        // list, still ahead of free text, when no field matched: a known value
+        // is a more precise reading of the fragment than a message search.
+        ...(suggestions.freeTextFirst ? [...mv, ...ft] : fac),
+        ...(suggestions.freeTextFirst ? fac : [...mv, ...ft]),
         ...(suggestions.connectorsFirst ? [] : conn),
         // Sits behind the field matches so it never steals the Enter target.
         ...(suggestions.canGroup ? [{ kind: 'group', payload: null, key: 'grp' }] : []),
@@ -721,7 +989,7 @@ export default function QueryBuilder({
     const c = getAt(chips, path)
     if (!c || isGroup(c)) return
     const meta = fieldByName[c.field]
-    const om = opMetaFor(c.field, c.op, fieldByName)
+    const om = opMetaFor(c.field, c.op, fieldByName, operators)
     setMenuPath(null)
     setEditingPath(path)
     setHighlight(0)
@@ -771,13 +1039,13 @@ export default function QueryBuilder({
     inputRef.current?.focus()
   }
 
-  // Appends several chips in one go, AND-ed together. Used by the word-split
-  // free-text option; editing is single-chip only, so this always appends.
+  // Lands several chips in one go, AND-ed together. Used by the word-split
+  // free-text option — which Enter commits on a page that opts into that, so a
+  // pending connector and an edit in progress both reach it (see landChips).
   const commitChips = (list) => {
     if (!list.length) return
-    let next = chips
-    for (const chip of list) next = appendInto(next, insertionPath, { connector: 'AND', ...chip })
-    setChips(next)
+    setChips(landChips(chips, list, { editingPath, insertionPath, connector: pendingConnector }))
+    setPendingConnector(null)
     setComposing(null)
     setEditingPath(null)
     setText('')
@@ -804,6 +1072,14 @@ export default function QueryBuilder({
       } else {
         commitChip({ field: '_msg', op: o.op, value: o.value })
       }
+      return
+    }
+    // A matching value is a whole filter already — field, exact match, value —
+    // so it commits like a picked value would, through the same insertion path,
+    // pending connector and edit-in-place handling.
+    if (item.kind === 'match') {
+      const m = item.payload
+      commitChip({ field: m.field, op: 'eq', value: m.value })
       return
     }
     if (item.kind === 'facet') {
@@ -975,6 +1251,19 @@ export default function QueryBuilder({
     return false
   }
 
+  // Enter on typed free text, where the page opts in. Without this the run went
+  // ahead without the text and left it sitting in the input — on a page where
+  // typing an exception name and pressing Enter is the main gesture, that read
+  // as a search that silently did nothing. Commits the first reading offered,
+  // which is what the top free-text row says it will do.
+  const commitFreeTextOnEnter = () => {
+    if (!enterCommitsFreeText || typedView.kind !== 'freetext') return false
+    const first = buildFreeTextOptions(text.trim(), { lead: freeTextLead })[0]
+    if (!first) return false
+    commitItem({ kind: 'freetext', payload: first })
+    return true
+  }
+
   // Decides what a space means where the caret is:
   //   'commit'  — the buffer spells a finished filter
   //   'advance' — already applied (the operator moved on)
@@ -1067,7 +1356,8 @@ export default function QueryBuilder({
     // an error the button would have refused.
     if (!open && e.key === 'Enter') {
       e.preventDefault()
-      if (!blockedReason) { addRecent?.(chips); onRun?.() }
+      if (commitFreeTextOnEnter()) runAfterCommit.current = true
+      else if (!blockedReason) { addRecent?.(chips); onRun?.() }
       return
     }
     if (!open) return
@@ -1105,7 +1395,7 @@ export default function QueryBuilder({
         isMulti && pendingValues.length ? (commitMultiValues(), true)
         : needsTypedValue && text.trim() ? (commitTypedValue(), true)
         : typedView.kind === 'complete' ? commitTyped()
-        : false
+        : commitFreeTextOnEnter()
       if (committed) runAfterCommit.current = true
       else if (!blockedReason) { addRecent?.(chips); onRun?.(); closeOverlay() }
     } else if (e.key === 'Escape') {
@@ -1202,6 +1492,13 @@ export default function QueryBuilder({
     }
   }
 
+  // A picklist value's count, where the page asked for counts — "TypeError" means
+  // more beside "3" or "4,210". A fetched list may carry no counts, and a row
+  // without one shows nothing rather than a misleading 0.
+  const valueCount = (v) => (showValueCounts && v.count != null
+    ? <span className="mono">{Number(v.count).toLocaleString()}</span>
+    : null)
+
   const idlePlaceholder = placeholder
   const inputPlaceholder = phase === 'operator'
     ? `Choose an operator for ${composing.field}…`
@@ -1222,7 +1519,7 @@ export default function QueryBuilder({
   // Rendered either above or below the facet list depending on freeTextFirst, so
   // it's built once here rather than duplicated at both call sites.
   const freeTextSection = suggestions.mode === 'fields' && suggestions.freeText.length ? (
-    <Section label="Free Text Search" meta="Log message">
+    <Section label="Free Text Search" meta={freeTextMeta}>
       {suggestions.freeText.map((o, i) => {
         const idx = flatItems.findIndex(x => x.key === `ft${i}`)
         const preview = o.kind === 'split'
@@ -1233,12 +1530,30 @@ export default function QueryBuilder({
             onHover={() => setHighlight(idx)} onPick={() => commitItem(flatItems[idx])}
             label={<>
               <span className="qb-ov-name">
-                Search logs {o.label} {o.kind === 'split'
+                Search {freeTextNoun} {o.label} {o.kind === 'split'
                   ? o.words.map(w => `“${w}”`).join(', ')
                   : `“${o.value}”`}
               </span>
               <span className="qb-ov-preview mono">{preview}</span>
             </>} />
+        )
+      })}
+    </Section>
+  ) : null
+
+  // Placed like the free-text rows (behind the fields, or first when no field
+  // matched), so it is built once too. The field and count ride in the meta
+  // cell: the value is what was searched for, the field is which filter it
+  // becomes, and the count is how much of the data that filter keeps.
+  const matchingSection = suggestions.mode === 'fields' && suggestions.matches.length ? (
+    <Section label="Matching values" meta="Exact match">
+      {suggestions.matches.map((m, i) => {
+        const idx = flatItems.findIndex(x => x.key === `mv${i}`)
+        return (
+          <Row key={`mv${i}`} icon={<span className="qb-ov-opsym">:=</span>} active={idx === highlight}
+            onHover={() => setHighlight(idx)} onPick={() => commitItem(flatItems[idx])}
+            label={<span className="mono" title={`${m.field}:=${m.value}`}>{m.value}</span>}
+            meta={<span className="mono">{m.field} · {m.count.toLocaleString()}</span>} />
         )
       })}
     </Section>
@@ -1627,6 +1942,7 @@ export default function QueryBuilder({
             {suggestions.mode === 'fields' && (
               <>
                 {suggestions.connectorsFirst && connectorSection}
+                {suggestions.freeTextFirst && matchingSection}
                 {suggestions.freeTextFirst && freeTextSection}
                 <Section label="Top Facets / Keys" meta="Indexed">
                   {suggestions.facets.length === 0 ? (
@@ -1647,6 +1963,7 @@ export default function QueryBuilder({
                   })}
                 </Section>
 
+                {!suggestions.freeTextFirst && matchingSection}
                 {!suggestions.freeTextFirst && freeTextSection}
                 {!suggestions.connectorsFirst && connectorSection}
                 {suggestions.canGroup && (() => {
@@ -1751,13 +2068,18 @@ export default function QueryBuilder({
                     Type one and press <kbd>Enter</kbd> to use it anyway.
                   </Empty>
                 ) : suggestions.items.length === 0 ? (
-                  <Empty>No values match "{text}". Press <kbd>Enter</kbd> to use it as an exact value.</Empty>
+                  <Empty>
+                    No values match "{text}". Press <kbd>Enter</kbd> to {composing.op === 'word' && colonMatch === 'contains'
+                      ? 'search for values containing it'
+                      : 'use it as an exact value'}.
+                  </Empty>
                 ) : suggestions.items.map((v, i) => {
                   const idx = flatItems.findIndex(x => x.key === `v${i}`)
                   return (
                     <Row key={`v${i}`} icon="A" active={idx === highlight}
                       onHover={() => setHighlight(idx)} onPick={() => commitItem(flatItems[idx])}
-                      label={<span className="mono">{v.value}</span>} />
+                      label={<span className="mono">{v.value}</span>}
+                      meta={valueCount(v)} />
                   )
                 })}
               </Section>
@@ -1789,6 +2111,7 @@ export default function QueryBuilder({
                         <span className="mono">{v.value}</span>
                         {v.custom && <span className="qb-ov-meta">custom value</span>}
                       </>}
+                      meta={v.custom ? null : valueCount(v)}
                       />
                   )
                 })}

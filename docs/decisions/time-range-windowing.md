@@ -107,6 +107,16 @@ reason. The window now runs to the end the range asked for and the last bucket
 is however much of a step is left — which is why buckets carry `durMin` and
 every aggregate weights by it.
 
+**The end was still floored to the query step.** `resolveRange` drops the
+trailing partial step from the end it sends, which is fifteen minutes on a day
+or a week, and the window inherited that end. A wide range opened late in a
+quarter hour therefore lost most of an incident that is still running: Last 7
+days could count a quarter of the pool errors the hour did. A trailing preset's window
+now runs to the current minute (the minute, not the second, so the reference
+hour stays sixty whole buckets). An absolute range keeps `resolveRange`'s end,
+and `resolveRange` itself is unchanged, because it mirrors the reference's query
+alignment.
+
 **A profile pinned with one aggregate and read with another.** `pinToReference`
 calibrates against whatever aggregate it is handed, so a p90 pinned as a mean
 and read as a percentile reports the incident plateau as the hour's average
@@ -154,12 +164,37 @@ the app-wide range to an absolute window, and "Reset zoom" restores what it was
 dragged from. One concept instead of two, and the range the rest of the product
 sees is the one that was dragged.
 
+## Errors are counted, not placed
+
+The Errors tab used to draw six fixed groups with a spark that started "the
+incident" 73% of the way through whatever window it was handed — so a window
+that ended last Tuesday still broke in its final quarter, the first bug above
+in a new place. `data/errors.js`, which the Errors page and the service page's
+Errors tab both read, now counts every exception as request rate × error
+rate × minutes, off the same calibrated profiles the RED, DB and External
+tables average, scaled once so Last 1 hour reproduces those tables to the
+error (capture: 64.2 rpm × 6.1% × 60 = 235). Each bucket splits between the
+pool's exceptions and the background ones by the incident's share of that
+bucket, so over an hour JedisPoolException is nearly all of payment-service's
+errors, and over a week it is a minority and the stripe timeout on capture,
+which runs all week, is the service's top Server group. That is p90's lesson again,
+as a count: narrow the range to find the fire.
+
+A window is counted bucket by bucket, with the incident on the minute grid,
+not as the product of its two means. Mean × mean is exact at the reference
+hour and wrong everywhere else: it counted more pool errors over seven days
+than in the one hour that holds the whole outage.
+
+A sample's trace id encodes which series it came from and when, so
+`/trace/<id>` rebuilds the same failing request after a reload. The data layer
+keeps one sample span per error group, and the Traces page merges in the ones
+whose exception the applied query names, so every group's link lands on a row
+while any other query, or none, reads only the seeded stream the histogram
+draws.
+
 ## What is still static
 
-The Errors tab's exception groups and their sparklines, the slow-query list, and
-the per-trace waterfall. The Errors table's "LAST 60 MIN" sparkline column is
-hard-coded to that hour and now says so next to a range control that may read
-"Last 7 days" — it needs the same treatment or an honest label.
+The slow-query list and the per-trace waterfall.
 
 Infrastructure and Trace Detail pass the range through to the picker but do not
 read it; their host and span series are still the fixed hour.

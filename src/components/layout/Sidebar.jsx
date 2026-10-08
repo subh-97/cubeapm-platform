@@ -38,7 +38,7 @@ const NAV_GROUPS = [
     { id: 'infra', label: 'Infrastructure', icon: 'server', enabled: true },
     { id: 'rum', label: 'Browser (RUM)', icon: 'monitor' },
     { id: 'traces', label: 'Traces', icon: 'branch', enabled: true },
-    { id: 'errors', label: 'Errors', icon: 'triangle' },
+    { id: 'errors', label: 'Errors', icon: 'triangle', enabled: true },
     { id: 'dash', label: 'Dashboards', icon: 'dashboard' },
   ]},
   { label: 'Analyze', items: [
@@ -53,12 +53,24 @@ const NAV_GROUPS = [
   ]},
 ]
 
+// The view each enabled item opens. Home is the exception: it goes through
+// goHome, which also closes the settings drawer.
+const NAV_VIEWS = {
+  apm: 'service',
+  logs: 'logs',
+  infra: 'infra',
+  traces: 'traces',
+  errors: 'errors',
+  explore: 'explore',
+}
+
 export default function Sidebar({ navCollapsed, setNavCollapsed, view, goHome, setView, onOpenHelp, onLogout, theme, setTheme }) {
   // A single trace's waterfall belongs to Traces, so the nav keeps that item lit
   // while you are inside one rather than jumping the highlight to APM.
   const activeId = view === 'home' ? 'home' : view === 'logs' ? 'logs'
     : view === 'traces' || view === 'trace' ? 'traces'
     : view === 'explore' ? 'explore'
+    : view === 'errors' ? 'errors'
     : view === 'infra' ? 'infra' : 'apm'
   const [profileOpen, setProfileOpen] = useState(false)
   const [popPos, setPopPos] = useState({ left: 0, bottom: 0 })
@@ -97,12 +109,24 @@ export default function Sidebar({ navCollapsed, setNavCollapsed, view, goHome, s
             {g.items.map(it => {
               const on = it.id === activeId
               const enabled = !!it.enabled
+              const open = !enabled ? undefined
+                : it.id === 'home' ? goHome
+                : NAV_VIEWS[it.id] ? () => setView(NAV_VIEWS[it.id])
+                : undefined
               return (
                 <div
                   key={it.id}
                   className={`nav-item${on ? ' active' : ''}${enabled ? '' : ' disabled'}`}
                   title={enabled ? it.label : `${it.label} - later redesign phase`}
-                  onClick={enabled ? (it.id === 'home' ? goHome : it.id === 'apm' ? () => setView('service') : it.id === 'logs' ? () => setView('logs') : it.id === 'traces' ? () => setView('traces') : it.id === 'explore' ? () => setView('explore') : it.id === 'infra' ? () => setView('infra') : undefined) : undefined}
+                  onClick={open}
+                  // Focusable already, so it has to answer the keys a focused
+                  // control answers; without this Tab reached an item that
+                  // Enter could not open.
+                  onKeyDown={open ? (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open() }
+                  } : undefined}
+                  role={enabled ? 'link' : undefined}
+                  aria-current={on ? 'page' : undefined}
                   tabIndex={enabled ? 0 : undefined}
                 >
                   <Icon name={it.icon} />

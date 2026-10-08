@@ -14,8 +14,12 @@ const FACET_VISIBLE_ROWS = 6
  * selections. One affordance for every facet: log.level used to carry a second,
  * text-link version of the same action, which made the panel's first group the
  * one place the interaction had to be learnt twice.
+ *
+ * `renderLabel` draws a value's label where plain text would hide the part that
+ * matters (Errors' exception classes). Search, selection and the tooltip still
+ * work on the value itself.
  */
-export default function FacetGroup({ title, options = [], selected, onToggle }) {
+export default function FacetGroup({ title, options = [], selected, onToggle, renderLabel }) {
   const [open, setOpen] = useState(true)
   const [q, setQ] = useState('')
   const [onlySelected, setOnlySelected] = useState(false)
@@ -86,7 +90,7 @@ export default function FacetGroup({ title, options = [], selected, onToggle }) 
             {shown.map(o => (
               <label key={o.value} className="facet-opt">
                 <input type="checkbox" checked={selected.has(o.value)} onChange={() => onToggle(title, o.value)} />
-                <span className="facet-opt-label" title={o.value}>{o.value}</span>
+                <span className="facet-opt-label" title={o.value}>{renderLabel ? renderLabel(o.value) : o.value}</span>
                 <span className="facet-opt-count">{o.count.toLocaleString()}</span>
               </label>
             ))}

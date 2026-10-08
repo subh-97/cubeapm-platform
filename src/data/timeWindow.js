@@ -144,11 +144,23 @@ export function resolveWindow(range, nowMs = BASE_TIME.getTime()) {
   // seven-day window is the whole incident — the range would end before the
   // thing you opened it to look at. So the window runs to the end the range
   // actually asked for, and the last bucket is however much of a step is left.
+  //
+  // For a trailing preset that end is NOW, not `r.end`: `resolveRange` floors
+  // its end to the QUERY step, which is fifteen minutes on a day or a week.
+  // Opened at 14:44, Last 7 days stopped at 14:30, saw eight minutes of an
+  // outage that began at 14:22 and is still going, and counted a quarter of
+  // the errors Last 1 hour did. So a trailing window runs on to the current
+  // minute — the minute rather than the second, so the hour every published
+  // figure is calibrated on stays sixty whole buckets; the short presets
+  // already end on a 15 or 30 s boundary past it and keep theirs. Taking the
+  // later of the two leaves Today's end, which is still to come, where it was.
+  // An absolute range ends where it was told to.
   const off = -new Date(nowMs).getTimezoneOffset()
   const floorTo = t => t - ((((t - off * MIN) % step) + step) % step)
   const begin = floorTo(r.start)
-  const end = Math.max(begin + 1, r.end)
   const nowSec = Math.floor(nowMs / 1000)
+  const nowMin = nowSec - ((((nowSec - off * MIN) % MIN) + MIN) % MIN)
+  const end = Math.max(begin + 1, range?.kind === 'absolute' ? r.end : Math.max(r.end, nowMin))
   const spanSec = end - begin
   const stepMin = step / MIN
 

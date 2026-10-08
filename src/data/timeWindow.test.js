@@ -21,6 +21,7 @@ import {
   slowRequests, errorRequests,
 } from './services.js'
 import { logVolumeForWindow, logTotalsForWindow, infraHostsForWindow } from './observability.js'
+import { resolveRange } from '@/utils/timeRange'
 
 const preset = v => resolveWindow({ kind: 'preset', value: v })
 const payment = win => servicesForWindow(win).find(s => s.id === 'payment-service')
@@ -323,10 +324,44 @@ test('the health strip puts the incident where the incident was', () => {
   assert.ok(week.slice(0, -2).every(b => b === 'healthy'), 'and nowhere else')
 })
 
+// The query step floors a wide range's end by up to fifteen minutes, and the
+// window used to inherit that — so this allowed a fifteen-minute gap, which was
+// most of a 22-minute outage that is still running. Within the minute now.
 test('a trailing window actually reaches now', () => {
-  for (const v of ['1h', '6h', '24h', '7d']) {
+  for (const v of ['5m', '30m', '1h', '6h', '12h', '24h', '2d', '7d', 'todayf']) {
     const win = resolveWindow({ kind: 'preset', value: v })
-    const gapMin = (win.nowSec - win.end) / 60
-    assert.ok(gapMin < 15, `${v} ends ${gapMin.toFixed(0)} minutes short of now`)
+    const gapSec = win.nowSec - win.end
+    assert.ok(gapSec >= 0 && gapSec < 60, `${v} ends ${gapSec}s short of now`)
   }
+})
+
+// Against the real clock the gap depended on how far into the quarter hour the
+// page was loaded, so sweep that rather than trust whatever second this runs at.
+// Every trailing range ends at the same minute, so every one of them holds the
+// same share of the outage as the hour — a wider range dilutes it, it does not
+// lose it.
+test('a wide range holds as much of the incident as the hour, wherever in the quarter hour it opened', () => {
+  const quarter = new Date(BASE_TIME)
+  quarter.setMinutes(quarter.getMinutes() - (quarter.getMinutes() % 15), 0, 0)
+  const incidentMin = win => win.pastBuckets.reduce((a, b) => a + b.w * b.durMin, 0)
+  for (const into of [0, 37, 7 * 60, 14 * 60 + 50, 14 * 60 + 59]) {
+    const nowMs = quarter.getTime() + into * 1000
+    const at = v => resolveWindow({ kind: 'preset', value: v }, nowMs)
+    const hour = incidentMin(at('1h'))
+    for (const v of ['3h', '6h', '12h', '24h', '7d']) {
+      const got = incidentMin(at(v))
+      assert.ok(Math.abs(got - hour) < 1e-6,
+        `${v} opened ${into}s into the quarter holds ${got.toFixed(2)} incident-minutes, the hour ${hour.toFixed(2)}`)
+    }
+    // The hour itself is untouched: sixty whole minute buckets, as calibrated.
+    assert.equal(at('1h').buckets.length, 60)
+    assert.ok(at('1h').buckets.every(b => b.durMin === 1))
+  }
+})
+
+// Only a trailing range moves. An absolute one ends where it was told to.
+test('an absolute range keeps the end it was given', () => {
+  const now = BASE_TIME.getTime()
+  const r = { kind: 'absolute', from: now - 3 * 86400000, to: now - 7 * 60000 }
+  assert.equal(resolveWindow(r).end, resolveRange(r, now, 15).end)
 })
