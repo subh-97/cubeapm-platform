@@ -201,6 +201,10 @@ export default function ErrorsView({
   const [facets, setFacets] = useState(initial.facets)
   const [chips, setChips] = useState(initial.chips)
   const [selectedId, setSelectedId] = useState(null)
+  // A link can ask for its group's details drawer as well as its filters (the
+  // service page's Errors tab does, from an exception). Held until the groups
+  // those filters make have been drawn once; see the effect after `selected`.
+  const [openOnArrival, setOpenOnArrival] = useState(() => !!incoming?.open)
   const [sort, setSort] = useState({ key: 'count', dir: 'desc' })
   const [graphVisible, setGraphVisible] = useState(true)
   const [zoomedFrom, setZoomedFrom] = useState(null)
@@ -235,6 +239,7 @@ export default function ErrorsView({
       setFacets(next.facets)
       setChips([])
       setSelectedId(null)
+      setOpenOnArrival(!!incoming.open)
     }
     onIncomingApplied?.()
   }, [incoming, onIncomingApplied])
@@ -329,6 +334,16 @@ export default function ErrorsView({
   useEffect(() => {
     if (selectedId && !selected) setSelectedId(null)
   }, [selectedId, selected])
+
+  // The drawer a link asked for opens once, on the first groups its filters
+  // make — and only when they make exactly one. A Client call can fail the
+  // same way under several endpoints; then the list is the honest answer, and
+  // the reader picks the row.
+  useEffect(() => {
+    if (!openOnArrival) return
+    setOpenOnArrival(false)
+    if (groups.length === 1) setSelectedId(groups[0].id)
+  }, [openOnArrival, groups])
 
   // ---- time: the range control, and drag-to-zoom on any chart ----
 

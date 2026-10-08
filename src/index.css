@@ -1118,7 +1118,18 @@ tbody tr:hover { background: var(--panel-2); }
 .err-endpoint { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-primary);
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .err-exc { display: flex; flex-direction: column; justify-content: center; gap: 2px; min-width: 0; }
-.err-exc-cls { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--critical-fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A button that opens the group's details and stack trace on the Errors page.
+ * Underlined at rest, not just on hover: the row already goes somewhere (the
+ * Traces page), so the exception has to read as its own, second target before
+ * anyone points at it. It hugs its text (flex-start) so the empty end of the
+ * column still belongs to the row. */
+.err-exc-cls { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--critical-fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  display: block; align-self: flex-start; max-width: 100%;
+  background: none; border: 0; padding: 0; cursor: pointer; text-align: left;
+  text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px;
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent); transition: text-decoration-color .12s; }
+.err-exc-cls:hover { text-decoration-color: currentColor; }
+.err-exc-cls:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 2px; }
 .err-exc-msg { font-size: 10.5px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Left-aligned like every other column here, so the count starts at its
  * column rule instead of floating against the sparkline's. */
