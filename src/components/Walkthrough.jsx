@@ -5,7 +5,7 @@ const STEPS = [
     target: '.nav',
     badge: 'Step 1',
     title: 'Navigate the platform',
-    desc: 'Jump between Home, APM & Services, Logs, Infrastructure and more. Hover an icon in the collapsed sidebar to see its name.',
+    desc: 'Jump between Services, Logs, Infra, Traces and more. Hover an icon in the collapsed sidebar to see its name.',
     placement: 'right',
     pad: 6,
   },
