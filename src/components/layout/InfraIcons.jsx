@@ -1,6 +1,7 @@
 import awsLogo from '@/assets/infra/aws.svg'
 import gcpLogo from '@/assets/infra/gcp.svg'
 import kubernetesLogo from '@/assets/infra/kubernetes.svg'
+import aerospikeLogo from '@/assets/infra/aerospike.svg'
 import apacheLogo from '@/assets/infra/apache-httpd.svg'
 import elasticsearchLogo from '@/assets/infra/elasticsearch.svg'
 import haproxyLogo from '@/assets/infra/haproxy.svg'
@@ -33,6 +34,7 @@ const ICONS = {
       <circle cx="7" cy="17" r=".6" fill="#22D3EE" stroke="none" />
     </svg>
   ),
+  aerospike: logo(aerospikeLogo),
   apache: logo(apacheLogo),
   elastic: logo(elasticsearchLogo),
   haproxy: logo(haproxyLogo),
@@ -40,6 +42,8 @@ const ICONS = {
   kafka: logo(kafkaLogo),
   memcached: logo(memcachedLogo),
   mongo: logo(mongodbLogo),
+  // Atlas is MongoDB's own cloud and carries the same leaf.
+  'mongo-atlas': logo(mongodbLogo),
   mysql: logo(mysqlLogo),
   nginx: logo(nginxLogo),
   postgres: logo(postgresqlLogo),
