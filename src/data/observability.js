@@ -401,7 +401,51 @@ const HOST_ROWS = [
   { host: 'ip-10-0-143-40', service: 'shipment-service', cpu: 87.5, mem: 86.7, disk: 71.87, netIn: 2.79, netOut: 1.52, unit: 'M', status: 'critical' },
   { host: 'ip-10-0-144-12', service: 'search-service', cpu: 30.83, mem: 77.43, disk: 68.4, netIn: 1.9, netOut: 0.88, unit: 'K', status: 'healthy' },
   { host: 'minikube', service: 'demo-nodejs-service', cpu: 26.36, mem: 42.49, disk: 73.6, netIn: 1.9, netOut: 0.88, unit: 'K', status: 'healthy' },
+  ...fleetRows(),
 ]
+
+/**
+ * An autoscaling pool of build workers, 57 of them, after the seven hosts above.
+ *
+ * They are here so the per-host charts face a real fleet: 64 hosts is past
+ * every chart's series budget (components/charts/seriesBudget.js), which is the
+ * case that budget exists for. No APM agent runs on them, so they carry no
+ * service — the curated host-to-service links above stay exactly what the
+ * Explore stores and App's links already know — and none of them is on the
+ * incident path. Their status uses the thresholds the hosts table colours its
+ * bars by, so a worker's dot and its bars always agree.
+ *
+ * Seeded, so the same fleet comes back on every load.
+ */
+function fleetRows() {
+  let s = 4242
+  const rnd = () => { s = (s * 9301 + 49297) % 233280; return s / 233280 }
+  // `status` is fixed at the reference hour, but the table's bars and numbers
+  // are coloured from each range's own mean, which the ±6% noise moves. A
+  // worker published 0.04 under 70% read healthy beside an amber bar on most
+  // ranges, so every figure is kept clear of the 70 and 85 lines by more than
+  // the noise can move it.
+  const clearOfThresholds = v => {
+    for (const t of [70, 85]) {
+      if (v > t - 4.5 && v < t + 4.5) return round2(v < t ? t - 4.5 : t + 4.5)
+    }
+    return v
+  }
+  return Array.from({ length: 57 }, (_, i) => {
+    const cpu = clearOfThresholds(round2(18 + rnd() * 48))
+    const mem = clearOfThresholds(round2(34 + rnd() * 38))
+    const disk = round2(42 + rnd() * 34)
+    const netIn = round2(0.4 + rnd() * 2.2)
+    const netOut = round2(netIn * (0.4 + rnd() * 0.3))
+    return {
+      // Two subnets, one per availability zone, as an autoscaling group spreads.
+      host: `ip-10-0-${160 + (i % 2)}-${11 + Math.floor(i / 2) * 7}`,
+      service: null,
+      cpu, mem, disk, netIn, netOut, unit: 'M',
+      status: cpu >= 85 || mem >= 85 ? 'critical' : cpu >= 70 || mem >= 70 ? 'warning' : 'healthy',
+    }
+  })
+}
 
 // The host charts read bytes per second while the table reads MB or KB, and the
 // old code carried that as a literal multiplier on the series base. Kept.

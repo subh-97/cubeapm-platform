@@ -808,6 +808,13 @@ tbody tr:hover { background: var(--panel-2); }
 .red-table-search { width: 100%; background: transparent; border: 1px solid var(--border-subtle); color: var(--text-primary); font-family: inherit; font-size: 11.5px; border-radius: var(--radius-sm); padding: 7px 11px; outline: none; }
 .red-table-search::placeholder { color: var(--text-muted); }
 .red-table-search:focus { border-color: var(--brand); }
+/* The RED table is wider than a narrow panel, and .panel clips, so the table
+ * scrolls sideways here instead of losing its last columns. Inside it the table
+ * sizes to its columns (and never narrower than the panel): held to the panel's
+ * 100% it is over-constrained, and the browser squeezes every column, the
+ * Endpoint column's set width included, down to its content. */
+.red-table-scroll { overflow-x: auto; }
+.red-table-scroll > table { width: max-content; min-width: 100%; }
 .badge { font-size: 9.5px; font-weight: 600; padding: 2px 7px; border-radius: 99px; text-transform: uppercase; letter-spacing: .3px; }
 .badge.critical { background: rgba(239,68,68,.15); color: var(--critical-fg); }
 .badge.warning { background: rgba(245,158,11,.15); color: var(--warning-fg); }
@@ -1001,6 +1008,16 @@ tbody tr:hover { background: var(--panel-2); }
 .split-endpoints-search input { width: 100%; background: transparent; border: 1px solid var(--border-subtle); color: var(--text-primary); font-family: inherit; font-size: 11.5px; border-radius: var(--radius-sm); padding: 6px 10px; outline: none; }
 .split-endpoints-search input::placeholder { color: var(--text-muted); }
 .split-endpoints-search input:focus { border-color: var(--brand); }
+/* A magnifier inside a search box whose border is on the <input> itself (the RED
+ * table, External/DB endpoint lists, Errors). Same 13px muted glyph, and the
+ * same 7px gap before the text, as the boxed searches (.drill2-search,
+ * .dd-search); it sits over the input, so the input keeps its own border and
+ * focus colour. (Not `.search-input`: that name is the design system's own
+ * standalone search field.) */
+.search-with-icon { position: relative; }
+.search-with-icon > svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+  width: 13px; height: 13px; color: var(--text-muted); pointer-events: none; }
+.search-with-icon > input { display: block; padding-left: 29px; }
 .split-ep-row { display: grid; grid-template-columns: 1fr 88px 60px 66px 72px; gap: 10px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--border-subtle); font-size: 11.5px; cursor: pointer; transition: background .1s; }
 .split-ep-row:hover { background: var(--panel-2); }
 .split-ep-row.selected { background: var(--brand-muted); }
@@ -3457,7 +3474,8 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 
 .infra-main { min-width: 0; }
 .infra-row-charts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
-.infra-chart-card { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); padding: 12px 14px 8px; }
+.infra-chart-card { --card-pad-x: 14px; --card-pad-b: 8px; background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg);
+  padding: 12px var(--card-pad-x) var(--card-pad-b); }
 .infra-chart-card .clbl { font-size: 12px; font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; color: var(--text-primary); }
 .infra-chart-card .cval { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: var(--text-muted); font-weight: 500; }
 .infra-summary-head { display: grid; grid-template-columns: 190px 170px 1fr 1fr 1fr 84px 84px; gap: 12px; padding: 8px 16px; font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; border-top: 1px solid var(--border-subtle); }
@@ -3494,6 +3512,33 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 .ilegend-showall-count { font-size: 10px; color: var(--text-muted); }
 .ilegend-showall-btn { background: none; border: none; color: var(--brand); font-family: inherit; font-size: 10.5px; font-weight: 600; cursor: pointer; padding: 0; }
 .ilegend-showall-btn:hover { color: var(--brand-active); }
+
+/* Under a multi-series chart that is holding series back (components/charts/
+ * SeriesBudgetFooter.jsx). Same rule, size and brand link as the process legend's
+ * "6 of 12 · Show all" above, so the two read as one pattern.
+ *
+ * It closes off the card it sits in, so its rule runs the card's full width
+ * rather than stopping at the card's padding: it cancels the padding with
+ * negative margins and puts the same amount back inside. A container opts in by
+ * declaring its own padding as --card-pad-x / --card-pad-b; anywhere else the
+ * two default to 0 and the footer sits flush in the content box as before. */
+.series-budget { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 22px;
+  margin: 6px calc(-1 * var(--card-pad-x, 0px)) calc(-1 * var(--card-pad-b, 0px));
+  padding: 7px var(--card-pad-x, 0px) var(--card-pad-b, 0px);
+  border-top: 1px solid var(--border-subtle); font-size: 10.5px; color: var(--text-muted); }
+/* Two containers carry their inset on their children rather than on themselves:
+ * a RED chart section (16px, like its head and chart) and the External/DB chart
+ * column (14px, like its cards and legend). There the footer is already full
+ * width as a direct child, so it takes the inset as padding and no bleed. The
+ * section's footer meets the legend column's divider in a T. */
+.red-chart-section > .series-budget { margin: 0; padding: 7px 16px 8px; }
+.split-charts > .series-budget { margin: 0; padding: 7px 14px 8px; }
+.series-budget-btn { background: none; border: none; padding: 0; color: var(--brand); font-family: inherit; font-size: 10.5px;
+  font-weight: 600; cursor: pointer; flex-shrink: 0; }
+.series-budget-btn:hover { color: var(--brand-active); }
+.series-budget-note { text-align: right; }
+.series-budget-progress { flex: 1; max-width: 120px; height: 3px; border-radius: 99px; background: var(--panel); overflow: hidden; }
+.series-budget-progress > span { display: block; height: 100%; background: var(--brand); transition: width 80ms linear; }
 
 /* generic infra empty-state (AWS / GCP / disconnected KBs resources) */
 .infra-empty-charts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
@@ -3568,8 +3613,10 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 .rt-rail { position: relative; width: 232px; flex-shrink: 0; display: flex; flex-direction: column; min-height: 0;
   background: var(--card); border-right: 1px solid var(--border-subtle); }
 .rt-head { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  padding: 12px 14px 10px; line-height: 16px; font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600;
-  border-bottom: 1px solid var(--border-head); }
+  padding: 12px 14px 8px; line-height: 16px; font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
+/* Sits directly under the title with no rule on either side; the box itself is
+ * the Latency Drilldown's `.drill2-search`. */
+.rt-search { flex-shrink: 0; padding: 0 14px 6px; }
 .rt-list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px 0; }
 .rt-empty { padding: 14px; font-size: 11.5px; color: var(--text-muted); }
 

@@ -98,6 +98,49 @@ export function valueAxisProps({ format = fmtCompact, domain, allowDecimals = tr
   }
 }
 
+// Tick steps that read as round numbers at every magnitude.
+const NICE_STEPS = [1, 2, 2.5, 5, 10]
+
+/**
+ * How many decimals a tick formatter prints, read off a value that has many.
+ * `v => Math.round(v)` and `v => \`${Math.round(v)} ms\`` print 0; `toFixed(2)`
+ * prints 2.
+ */
+export function formatDecimals(format) {
+  const m = String(format(0.123456)).match(/\d\.(\d+)/)
+  return m ? m[1].length : 0
+}
+
+/**
+ * A y domain of [0, top] with about `count` ticks, both ending on a round
+ * number. For a chart that fixes its own scale rather than letting Recharts
+ * fit it to what is drawn — Explore inverts pointer pixels against it, and a
+ * chart under a series budget sizes it from series it is not drawing yet.
+ *
+ * `decimals` is what the chart's tick formatter can print (formatDecimals).
+ * A step it cannot print exactly is skipped: a 2.5 step under a formatter that
+ * rounds to whole numbers labels its gridlines 0, 3, 5, 8, 10 — two of those
+ * five labels then sit on lines that are not at the value they name.
+ */
+export function niceAxis(max, count = 4, { decimals = Infinity } = {}) {
+  if (!(max > 0)) return decimals === 0 ? { top: 1, ticks: [0, 1] } : { top: 1, ticks: [0, 0.25, 0.5, 0.75, 1] }
+  const raw = max / count
+  const scale = 10 ** Math.min(decimals, 12)
+  const printable = s => !Number.isFinite(decimals) || Math.abs(Math.round(s * scale) - s * scale) < 1e-6
+  let mag = 10 ** Math.floor(Math.log10(raw))
+  let step = null
+  // Walk up a magnitude at a time: at a whole-number formatter a raw step of
+  // 0.3 skips 0.5 and lands on 1.
+  for (let tries = 0; step == null && tries < 4; tries++, mag *= 10) {
+    step = NICE_STEPS.map(n => n * mag).find(s => s >= raw && printable(s)) ?? null
+  }
+  step ??= 10 * mag
+  const top = Math.ceil(max / step) * step
+  const ticks = []
+  for (let t = 0; t <= top + step / 2; t += step) ticks.push(Number(t.toPrecision(12)))
+  return { top, ticks }
+}
+
 // Largest value a series (or a set of stacked keys) reaches, for the gutter.
 export function maxOf(data, keys) {
   if (!Array.isArray(data) || data.length === 0) return undefined
