@@ -1056,7 +1056,7 @@ function SlowQueriesTable() {
         <div className="panel-head-left">Slow Queries</div>
         <CardMenu kind="list" title="Slow Queries" />
       </div>
-      <div className="split-ep-head is-sortable" style={{ gridTemplateColumns: '130px 1fr 84px' }}>
+      <div className="split-ep-head slowq-head is-sortable">
         <Hdr sortKey="time" align="left">Time</Hdr>
         <Hdr sortKey="query" align="left">Query</Hdr>
         <Hdr sortKey="duration">Duration</Hdr>

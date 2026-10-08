@@ -460,7 +460,7 @@ export default function DesignSystemPage({ theme, setTheme }) {
               </div>
               {THEME_DELTAS.map(([token, dark, light]) => (
                 <div key={token} className="ds-theme-row">
-                  <code className="ds-token">{token}</code>
+                  <div className="ds-theme-cell"><code className="ds-token">{token}</code></div>
                   <div className="ds-theme-cell"><span className="ds-theme-chip" style={{ background: dark }} /><span className="ds-theme-hex">{dark}</span></div>
                   <div className="ds-theme-cell"><span className="ds-theme-chip" style={{ background: light }} /><span className="ds-theme-hex">{light}</span></div>
                 </div>

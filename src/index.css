@@ -724,6 +724,38 @@ th.sortable { cursor: pointer; }
 th.sortable:hover { color: var(--text-secondary); }
 th .arrow { opacity: .6; font-size: 9px; margin-left: 3px; }
 td { padding: 11px 16px; border-top: 1px solid var(--border-subtle); text-align: right; white-space: nowrap; font-size: 12.5px; }
+/* Every table rules its columns as well as its rows, so a figure reads
+   against its header without tracking across white space. Each cell after the
+   first draws its left edge and none draws a right one, so there is one rule
+   per boundary and the table never boxes itself in against the panel edge.
+   Tables built from grid or flex rows get the same rules under "Column rules"
+   below. */
+:is(th, td) + :is(th, td) { border-left: 1px solid var(--border-subtle); }
+
+/* ── Column rules for tables built from grid or flex rows ──
+   These have no cells that span the row: each one sits centred inside the
+   row's padding, with a gap between it and the next, so a border on a cell
+   would stop short of the row lines and hug its own text. Each table declares
+   its vertical padding as --row-py and its column gap as --col-gap, and every
+   cell is stretched out to the row's edges by that padding and recentred with
+   align-content. A cell after the first then reaches back into the gap,
+   1px past its middle so the border lands there and the content box ends up
+   exactly where the gap left it. content-box keeps any declared width or
+   height meaning the content, so no column or chart changes size. The log and
+   span tables do the same next to the .span-cell rules. */
+:is(.split-ep-head, .split-ep-row, .slowq-row, .err-head, .err-row,
+    .infra-summary-head, .infra-summary-row, .appdb-summary-head, .appdb-summary-row,
+    .infra-empty-table-head, .ds-theme-row, .errp-head, .errp-row) > * {
+  box-sizing: content-box; align-self: stretch; align-content: center;
+  margin-top: calc(var(--row-py) * -1); margin-bottom: calc(var(--row-py) * -1);
+  padding-top: var(--row-py); padding-bottom: var(--row-py);
+}
+:is(.split-ep-head, .split-ep-row, .slowq-row, .err-head, .err-row,
+    .infra-summary-head, .infra-summary-row, .appdb-summary-head, .appdb-summary-row,
+    .infra-empty-table-head, .ds-theme-row, .errp-head, .errp-row) > * + * {
+  margin-left: calc(var(--col-gap) / -2 - 1px); padding-left: calc(var(--col-gap) / 2);
+  border-left: 1px solid var(--border-subtle);
+}
 tbody tr { cursor: pointer; transition: background .1s; }
 tbody tr:hover { background: var(--panel-2); }
 .svc-name { display: flex; align-items: center; gap: 11px; text-align: left; font-weight: 500; }
@@ -1018,10 +1050,10 @@ tbody tr:hover { background: var(--panel-2); }
 .search-with-icon > svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
   width: 13px; height: 13px; color: var(--text-muted); pointer-events: none; }
 .search-with-icon > input { display: block; padding-left: 29px; }
-.split-ep-row { display: grid; grid-template-columns: 1fr 88px 60px 66px 72px; gap: 10px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--border-subtle); font-size: 11.5px; cursor: pointer; transition: background .1s; }
+.split-ep-row { --row-py: 10px; --col-gap: 10px; display: grid; grid-template-columns: 1fr 88px 60px 66px 72px; gap: var(--col-gap); align-items: center; padding: var(--row-py) 14px; border-top: 1px solid var(--border-subtle); font-size: 11.5px; cursor: pointer; transition: background .1s; }
 .split-ep-row:hover { background: var(--panel-2); }
 .split-ep-row.selected { background: var(--brand-muted); }
-.split-ep-head { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; padding: 8px 14px; display: grid; grid-template-columns: 1fr 88px 60px 66px 72px; gap: 10px; align-items: center; }
+.split-ep-head { --row-py: 8px; --col-gap: 10px; font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; padding: var(--row-py) 14px; display: grid; grid-template-columns: 1fr 88px 60px 66px 72px; gap: var(--col-gap); align-items: center; }
 .split-ep-head span { text-align: right; white-space: nowrap; }
 .split-ep-head span:first-child { text-align: left; }
 .split-ep-head.is-sortable .split-ep-head-cell { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; justify-content: flex-end; }
@@ -1031,7 +1063,9 @@ tbody tr:hover { background: var(--panel-2); }
 .split-ep-kind { font-size: 9px; font-family: 'Rubik', sans-serif; font-weight: 600; color: var(--text-muted); border: 1px solid var(--border-panel); padding: 1px 5px; border-radius: 3px; letter-spacing: .3px; text-transform: uppercase; flex-shrink: 0; }
 .split-ep-cell { text-align: right; color: var(--text-primary); }
 .split-ep-cell.dim { color: var(--text-secondary); }
-.split-ep-bar { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+/* justify-content because align-content cannot centre a column of flex items
+   inside the stretched cell (see "Column rules"). */
+.split-ep-bar { display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: 3px; }
 .split-ep-bar .track { display: block; width: 100%; max-width: 68px; height: 3px; border-radius: 2px; background: var(--border-panel); overflow: hidden; flex-shrink: 0; }
 .split-ep-bar .fill { display: block; height: 100%; border-radius: 2px; background: var(--brand); min-width: 1px; }
 .split-charts { display: flex; flex-direction: column; gap: 0; }
@@ -1059,17 +1093,20 @@ tbody tr:hover { background: var(--panel-2); }
 .title-dropdown-item.active { color: var(--brand); font-weight: 600; }
 
 /* Slow Queries table */
-.slowq-row { display: grid; grid-template-columns: 130px 1fr 84px; gap: 12px; padding: 10px 16px; border-top: 1px solid var(--border-subtle); align-items: center; font-size: 12px; }
+.slowq-row { --row-py: 10px; --col-gap: 12px; display: grid; grid-template-columns: 130px 1fr 84px; gap: var(--col-gap); padding: var(--row-py) 16px; border-top: 1px solid var(--border-subtle); align-items: center; font-size: 12px; }
 .slowq-row .t { color: var(--text-muted); font-size: 10.5px; }
 .slowq-row .q { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .slowq-row .d { text-align: right; font-weight: 400; color: var(--text-primary); }
+/* The header borrows the endpoint lists' sortable head, but its columns have
+   to fall on the rows' grid or the column rules jog where the two meet. */
+.split-ep-head.slowq-head { --col-gap: 12px; grid-template-columns: 130px 1fr 84px; padding-left: 16px; padding-right: 16px; }
 
 /* ============ Errors tab ============ */
 /* Endpoint .6fr (40% narrower than its old 1fr) and Error .875fr (20% narrower
  * than its old 1.4fr share). The space they gave up goes to the sparkline,
  * which keeps its old 320px as a floor. minmax(0, …) lets the text columns go
  * below their longest unbroken path; those cells ellipsize instead. */
-.err-row { display: grid; grid-template-columns: minmax(0, .6fr) minmax(0, .875fr) 68px minmax(320px, 2.49fr); gap: 14px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--border-subtle); font-size: 12px; }
+.err-row { --row-py: 12px; --col-gap: 14px; display: grid; grid-template-columns: minmax(0, .6fr) minmax(0, .875fr) 68px minmax(320px, 2.49fr); gap: var(--col-gap); align-items: center; padding: var(--row-py) 16px; border-top: 1px solid var(--border-subtle); font-size: 12px; }
 /* Clickable row opens the Traces page scoped to the error. The hover affordance
  * is a brand-tinted left bar so the sparkline column keeps a stable chart
  * background underneath. */
@@ -1080,15 +1117,14 @@ tbody tr:hover { background: var(--panel-2); }
 .err-row.is-clickable:focus-visible { outline: none; }
 .err-endpoint { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-primary);
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.err-exc { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.err-exc { display: flex; flex-direction: column; justify-content: center; gap: 2px; min-width: 0; }
 .err-exc-cls { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--critical-fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .err-exc-msg { font-size: 10.5px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Count track is 68px so its 28px right margin leaves the same 40px for the
- * number and the COUNT header; shrinking the text box would clip the header. */
-.err-count { text-align: right; font-weight: 400; font-size: 15px; color: var(--text-primary); margin-right: 28px; }
+/* Left-aligned like every other column here, so the count starts at its
+ * column rule instead of floating against the sparkline's. */
+.err-count { font-weight: 400; font-size: 15px; color: var(--text-primary); }
 .err-spark { height: 132px; }
-.err-head { display: grid; grid-template-columns: minmax(0, .6fr) minmax(0, .875fr) 68px minmax(320px, 2.49fr); gap: 14px; padding: 8px 16px; font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
-.err-head span:nth-child(3) { text-align: right; margin-right: 28px; }
+.err-head { --row-py: 8px; --col-gap: 14px; display: grid; grid-template-columns: minmax(0, .6fr) minmax(0, .875fr) 68px minmax(320px, 2.49fr); gap: var(--col-gap); padding: var(--row-py) 16px; font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
 .err-empty { padding: 60px 20px; text-align: center; color: var(--text-muted); font-size: 12px; }
 .err-empty svg { width: 34px; height: 34px; margin-bottom: 10px; color: var(--border-strong); }
 .seg-toggle { display: inline-flex; background: var(--panel); border-radius: var(--radius-sm); padding: 2px; gap: 1px; }
@@ -2206,16 +2242,28 @@ tbody tr:hover { background: var(--panel-2); }
 
 .logs-stream-wrap { flex: 1; min-height: 0; }
 .logs-stream { min-width: 0; overflow-x: auto; }
-.logs-stream-head { display: flex; gap: 16px; padding: 10px 14px 10px 0; border-bottom: 1px solid var(--border-subtle); font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; position: sticky; top: 0; background: var(--card); z-index: 3; align-items: center; min-width: fit-content; box-sizing: border-box; }
+/* The header's own horizontal scroller, held at the rows' scrollLeft by
+   useHeaderScrollSync (the rows own the scrollbar, so this one hides its
+   overflow). It is what sticks to the top, not the header inside it: a sticky
+   element sticks to its nearest scroller, and this one never scrolls
+   vertically. Being that scroller is also what keeps the header's time gutter
+   pinned (sticky left) while the columns beside it move. */
+.logs-stream-head-scroll { position: sticky; top: 0; z-index: 3; overflow: hidden; background: var(--card); }
+.logs-stream-head { --row-py: 10px; --col-gap: 16px; display: flex; gap: var(--col-gap); padding: var(--row-py) 14px var(--row-py) 0; border-bottom: 1px solid var(--border-subtle); font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; background: var(--card); align-items: center; min-width: fit-content; box-sizing: border-box; }
 .logs-stream-head .log-fixed-cols {
   display: flex; gap: 12px; align-items: center; flex-shrink: 0;
   position: sticky; left: 0; z-index: 3; background: var(--card);
-  padding-left: 0; padding-right: 4px;
+  align-self: stretch;
+  padding: var(--row-py) calc(var(--col-gap) / 2) var(--row-py) 0;
+  margin: calc(var(--row-py) * -1) calc(var(--col-gap) / -2 - 1px) calc(var(--row-py) * -1) 0;
+  border-right: 1px solid var(--border-subtle);
 }
 .log-row .log-fixed-cols {
   display: flex; gap: 12px; align-items: stretch; flex-shrink: 0;
   position: sticky; left: 0; z-index: 2; background: var(--card);
-  padding: 8px 4px 8px 0; margin: -8px 0;
+  padding: var(--row-py) calc(var(--col-gap) / 2) var(--row-py) 0;
+  margin: calc(var(--row-py) * -1) calc(var(--col-gap) / -2 - 1px) calc(var(--row-py) * -1) 0;
+  border-right: 1px solid var(--border-subtle);
 }
 .log-row:hover .log-fixed-cols { background: var(--panel-2); }
 .log-row.selected .log-fixed-cols { background: var(--brand-muted); }
@@ -2224,18 +2272,22 @@ tbody tr:hover { background: var(--panel-2); }
 .lh-text { flex: 1; min-width: 240px; }
 .lh-stream { width: 200px; flex-shrink: 0; }
 .lh-extra { width: 160px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.log-row { display: flex; gap: 16px; padding: 8px 14px 8px 0; border-bottom: 1px solid var(--border-subtle); font-size: 11.5px; align-items: stretch; cursor: pointer; transition: background .08s; min-width: fit-content; box-sizing: border-box; }
+.log-row { --row-py: 8px; --col-gap: 16px; display: flex; gap: var(--col-gap); padding: var(--row-py) 14px var(--row-py) 0; border-bottom: 1px solid var(--border-subtle); font-size: 11.5px; align-items: stretch; cursor: pointer; transition: background .08s; min-width: fit-content; box-sizing: border-box; }
 .log-extra { width: 160px; flex-shrink: 0; font-size: 10.5px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; align-self: flex-start; }
 .log-row:hover { background: var(--panel-2); }
 .log-row.selected { background: var(--brand-muted); }
-.log-lvl-bar { display: block; width: 3px; flex-shrink: 0; align-self: stretch; border-radius: 0; margin: -8px 0; }
+.log-lvl-bar { display: block; width: 3px; flex-shrink: 0; align-self: stretch; border-radius: 0; margin: calc(var(--row-py) * -1) 0; }
 .log-lvl-error { background: var(--critical); }
 .log-lvl-warn { background: var(--warning); }
 .log-lvl-info { background: var(--info); opacity: .45; }
 .log-time { width: 128px; flex-shrink: 0; display: flex; flex-direction: column; gap: 1px; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; }
 .log-date { color: var(--text-muted); }
 .log-hhmm { color: var(--text-primary); font-weight: 500; }
-.log-text { flex: 1; min-width: 240px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.5; align-self: flex-start; }
+/* overflow-wrap: anywhere so a long unbroken token (a URL) wraps inside the
+   two-line clamp. Otherwise it sets the column's minimum, and once the table
+   is narrower than its columns that row's Text column grows past 240px and
+   every column after it falls out of line with the header and the other rows. */
+.log-text { flex: 1; min-width: 240px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.5; align-self: flex-start; overflow-wrap: anywhere; }
 .log-stream { width: 200px; flex-shrink: 0; display: flex; flex-direction: column; gap: 3px; overflow: hidden; align-self: flex-start; }
 .log-tag { display: flex; align-items: center; gap: 4px; font-family: 'JetBrains Mono', monospace; font-size: 10px; overflow: hidden; }
 .log-tag .k { color: var(--text-muted); }
@@ -2246,13 +2298,13 @@ tbody tr:hover { background: var(--panel-2); }
    this is a real table. It reuses the stream's shell — sticky head, sticky
    time/severity gutter, horizontal scroll — and only replaces what sits to the
    right of the gutter, which is why a row here is still .log-row. */
-.span-head { gap: 12px; }
-.span-row { gap: 12px; align-items: center; padding-top: 7px; padding-bottom: 7px; }
+.span-head { --col-gap: 12px; }
 /* The sticky time/severity gutter is pulled out to the row's full height with a
    negative margin, so its own padding has to match the row's — .log-row is 8px
    and a span row is 7px. One pixel out and the gutter paints over the row's
-   bottom border, which is why the separator stopped at the Time column. */
-.span-row .log-fixed-cols { padding-top: 7px; padding-bottom: 7px; margin: -7px 0; }
+   bottom border, which is why the separator stopped at the Time column. Both
+   read --row-py, so setting it here moves the row and the gutter together. */
+.span-row { --row-py: 7px; --col-gap: 12px; align-items: center; }
 .span-cell {
   flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   color: var(--text-secondary); font-size: 11.5px; align-self: center;
@@ -2263,6 +2315,20 @@ tbody tr:hover { background: var(--panel-2); }
 .span-row .span-cell[data-log-field="span_name"] { color: var(--text-primary); }
 .span-dur, .span-cell.right { text-align: right; }
 .span-dur { color: var(--text-primary); }
+
+/* Column rules on the log and span tables (see "Column rules" by the table
+   styles). The sticky gutter draws the first one on its right edge, so the
+   rule stays put while the columns scroll under it; the column after it draws
+   none, and each one after that draws its own on its left. Log cells stay
+   top-aligned as they were; header and span cells are recentred. */
+:is(.logs-stream-head, .log-row) > * + * + * {
+  box-sizing: content-box; align-self: stretch;
+  margin-top: calc(var(--row-py) * -1); margin-bottom: calc(var(--row-py) * -1);
+  padding-top: var(--row-py); padding-bottom: var(--row-py);
+  margin-left: calc(var(--col-gap) / -2 - 1px); padding-left: calc(var(--col-gap) / 2);
+  border-left: 1px solid var(--border-subtle);
+}
+.logs-stream-head > *, .span-row > * { align-content: center; }
 
 /* A span event has no status of its own — that is different from UNSET, so the
    blank reads as a dash rather than as a gap in the table. */
@@ -3485,10 +3551,10 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
   padding: 12px var(--card-pad-x) var(--card-pad-b); }
 .infra-chart-card .clbl { font-size: 12px; font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; color: var(--text-primary); }
 .infra-chart-card .cval { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: var(--text-muted); font-weight: 500; }
-.infra-summary-head { display: grid; grid-template-columns: 190px 170px 1fr 1fr 1fr 84px 84px; gap: 12px; padding: 8px 16px; font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; border-top: 1px solid var(--border-subtle); }
+.infra-summary-head { --row-py: 8px; --col-gap: 12px; display: grid; grid-template-columns: 190px 170px 1fr 1fr 1fr 84px 84px; gap: var(--col-gap); padding: var(--row-py) 16px; font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; border-top: 1px solid var(--border-subtle); }
 .infra-summary-head span { text-align: right; }
 .infra-summary-head span:nth-child(-n+2) { text-align: left; }
-.infra-summary-row { display: grid; grid-template-columns: 190px 170px 1fr 1fr 1fr 84px 84px; gap: 12px; padding: 11px 16px; align-items: center; font-size: 11.5px; border-top: 1px solid var(--border-subtle); cursor: pointer; transition: background .08s; }
+.infra-summary-row { --row-py: 11px; --col-gap: 12px; display: grid; grid-template-columns: 190px 170px 1fr 1fr 1fr 84px 84px; gap: var(--col-gap); padding: var(--row-py) 16px; align-items: center; font-size: 11.5px; border-top: 1px solid var(--border-subtle); cursor: pointer; transition: background .08s; }
 .infra-summary-row:hover { background: var(--panel-2); }
 .isr-host { display: flex; align-items: center; gap: 8px; }
 .isr-host .status-dot { width: 8px; height: 8px; }
@@ -3550,8 +3616,8 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 /* generic infra empty-state (AWS / GCP / disconnected KBs resources) */
 .infra-empty-charts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
 .infra-empty-table { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); overflow: hidden; }
-.infra-empty-table-head { display: flex; gap: 20px; padding: 9px 16px; border-bottom: 1px solid var(--border-subtle); font-size: 10.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
-.infra-empty-table-head span:first-child { flex: 1; }
+.infra-empty-table-head { --row-py: 9px; --col-gap: 20px; display: flex; gap: var(--col-gap); padding: var(--row-py) 16px; border-bottom: 1px solid var(--border-subtle); font-size: 10.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
+.infra-empty-table-head span:first-child { flex: 1; text-align: left; }
 .infra-empty-table-head span { flex-shrink: 0; width: 120px; text-align: right; }
 
 /* namespace select step (PVC-style journeys) */
@@ -3599,10 +3665,10 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 .k8s-containers-head { padding: 12px 16px; font-size: 13px; font-weight: 600; border-bottom: 1px solid var(--border-subtle); }
 
 /* app/db integration summary (MySQL / Redis) */
-.appdb-summary-head { display: grid; grid-template-columns: 1fr 100px 100px 100px 100px 110px; gap: 14px; padding: 8px 16px; font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; border-top: 1px solid var(--border-subtle); }
+.appdb-summary-head { --row-py: 8px; --col-gap: 14px; display: grid; grid-template-columns: 1fr 100px 100px 100px 100px 110px; gap: var(--col-gap); padding: var(--row-py) 16px; font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; border-top: 1px solid var(--border-subtle); }
 .appdb-summary-head span { text-align: right; }
 .appdb-summary-head span:first-child { text-align: left; }
-.appdb-summary-row { display: grid; grid-template-columns: 1fr 100px 100px 100px 100px 110px; gap: 14px; padding: 11px 16px; align-items: center; font-size: 11.5px; border-top: 1px solid var(--border-subtle); }
+.appdb-summary-row { --row-py: 11px; --col-gap: 14px; display: grid; grid-template-columns: 1fr 100px 100px 100px 100px 110px; gap: var(--col-gap); padding: var(--row-py) 16px; align-items: center; font-size: 11.5px; border-top: 1px solid var(--border-subtle); }
 .appdb-summary-row .host-cell { font-family: 'JetBrains Mono', monospace; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: 8px; }
 .appdb-summary-row .host-cell-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .appdb-summary-row .num-cell { font-family: 'JetBrains Mono', monospace; font-weight: 600; color: var(--text-primary); text-align: right; }
@@ -3948,7 +4014,7 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 
 /* theme delta table */
 .ds-theme-grid { border: 1px solid var(--card-border); border-radius: var(--radius-lg); overflow: hidden; background: var(--card); }
-.ds-theme-row { display: grid; grid-template-columns: minmax(160px, 240px) 1fr 1fr; gap: 14px; align-items: center; padding: 9px 16px; border-top: 1px solid var(--border-subtle); }
+.ds-theme-row { --row-py: 9px; --col-gap: 14px; display: grid; grid-template-columns: minmax(160px, 240px) 1fr 1fr; gap: var(--col-gap); align-items: center; padding: var(--row-py) 16px; border-top: 1px solid var(--border-subtle); }
 .ds-theme-row--head { border-top: none; }
 .ds-theme-head { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px; color: var(--text-muted); }
 .ds-theme-cell { display: flex; align-items: center; gap: 10px; }

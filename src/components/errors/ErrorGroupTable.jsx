@@ -204,7 +204,10 @@ export default function ErrorGroupTable({
         <SortHead id="error" label="Error" sort={sort} onSort={onSort} />
         <SortHead id="count" label="Count" sort={sort} onSort={onSort} right />
         <span>Errors over time</span>
-        <span className="sr-only">Actions</span>
+        {/* A real cell holding the hidden label: .sr-only is positioned out of
+            the grid, which left the header a column short of its rows and the
+            last column rule stopping at the header. */}
+        <span><span className="sr-only">Actions</span></span>
       </div>
       {groups.map((g, i) => (
         <ErrorGroupRow
