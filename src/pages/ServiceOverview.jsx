@@ -25,6 +25,7 @@ import { GRID_PROPS, NO_ANIM, AREA_PROPS, LINE_PROPS, valueAxisProps, maxOf, fmt
 import { buildTimeAxis, withX } from '@/components/charts/timeAxis'
 import { useTimeFocus, useMeasuredWidth, useSeriesHover } from '@/components/charts/useTimeFocus'
 import ChartTooltip from '@/components/charts/ChartTooltip'
+import { KpiCardsSkeleton, LatencyDrilldownSkeleton, TrendChartsSkeleton } from '@/pages/ServiceOverviewSkeleton'
 
 const SERVICE_VIEWS = [
   { id: 'overview', label: 'Overview', Icon: Gauge },
@@ -1755,6 +1756,51 @@ function ErrorsTab({ win, onFocus, syncId, onOpenLink }) {
   )
 }
 
+// The Overview tab loads in two stages: the scorecards land first, the charts
+// after them. The mock data is ready on the first render, so these delays
+// stand in for the queries a real backend would run.
+const KPI_LOAD_MS = 400
+const CHART_LOAD_MS = 1100
+
+// True once `ms` has passed since `key` last changed, and false again the
+// moment it changes, so a new key never shows the previous one's content.
+function useLoadedAfter(key, ms) {
+  const [loaded, setLoaded] = useState(null)
+  useEffect(() => {
+    const id = setTimeout(() => setLoaded(key), ms)
+    return () => clearTimeout(id)
+  }, [key, ms])
+  return loaded === key
+}
+
+// Mounted with the tab, so coming back to Overview loads it again. Keyed on the
+// service, not the range: a drag-to-zoom redraws the charts in place and keeps
+// whatever upstream is selected in the drilldown.
+function OverviewTab({ svc, data, win, syncId, onFocus, onOpenTrace, onOpenUpstream }) {
+  const kpisReady = useLoadedAfter(svc.id, KPI_LOAD_MS)
+  const chartsReady = useLoadedAfter(svc.id, CHART_LOAD_MS)
+  return (
+    <>
+      {kpisReady
+        ? <div className="svc-reveal"><KpiCards svc={svc} /></div>
+        : <KpiCardsSkeleton />}
+      {chartsReady ? (
+        <div className="svc-reveal">
+          <LatencyDrilldown layers={data.drilldown} layerSeries={data.drilldownSeries} callerTotal={data.drilldownTotal} onOpenUpstream={onOpenUpstream} syncId={syncId} win={win} onFocus={onFocus} />
+          <TrendCharts bands={data.bands} syncId={syncId} win={win} onFocus={onFocus} />
+        </div>
+      ) : (
+        <>
+          <LatencyDrilldownSkeleton />
+          <TrendChartsSkeleton />
+        </>
+      )}
+      <SlowRequests onOpenTrace={onOpenTrace} data={data.slow} />
+      <InfraCorrelation hosts={data.infra} win={win} />
+    </>
+  )
+}
+
 // Built but not wired: SERVICE_VIEWS has no Traces entry yet, so nothing
 // renders this. Kept intact for the sub-tab that will mount it — unlike the
 // SparkChart that sat beside it, this is a finished screen rather than a
@@ -2352,15 +2398,7 @@ export default function ServiceOverview({ serviceId, onSelectService, onOpenTrac
 
   let body
   if (serviceSubTab === 'overview') {
-    body = (
-      <>
-        <KpiCards svc={svc} />
-        <LatencyDrilldown layers={data.drilldown} layerSeries={data.drilldownSeries} callerTotal={data.drilldownTotal} onOpenUpstream={openExternal} syncId={syncId} win={win} onFocus={setTimeRange} />
-        <TrendCharts bands={data.bands} syncId={syncId} win={win} onFocus={setTimeRange} />
-        <SlowRequests onOpenTrace={onOpenTrace} data={data.slow} />
-        <InfraCorrelation hosts={data.infra} win={win} />
-      </>
-    )
+    body = <OverviewTab svc={svc} data={data} win={win} syncId={syncId} onFocus={setTimeRange} onOpenTrace={onOpenTrace} onOpenUpstream={openExternal} />
   } else if (serviceSubTab === 'detail') {
     body = <EndpointTab data={data} endpoint={endpoint} onOpenUpstream={openExternal} onOpenTrace={onOpenTrace} syncId={syncId} win={win} onFocus={setTimeRange} />
   } else if (serviceSubTab === 'red') {
