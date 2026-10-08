@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { LogoIcon, LogoWordmark } from './Logo'
 
 const ICONS = {
+  home: <><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/></>,
   pulse: <path d="M3 12h4l2 8 4-16 2 8h6"/>,
   fileSearch: <><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M4.268 21a2 2 0 0 0 1.727 1H18a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v3"/><path d="m9 18-1.5-1.5"/><circle cx="5" cy="14" r="3"/></>,
   server: <><rect x="3" y="4" width="18" height="6" rx="1"/><rect x="3" y="14" width="18" height="6" rx="1"/><circle cx="7" cy="7" r=".7"/><circle cx="7" cy="17" r=".7"/></>,
@@ -30,11 +31,13 @@ function Icon({ name, className }) {
   )
 }
 
-// The production app's list, in its order and with its short labels. `title`
-// spells out the short ones in the hover text, where there is room for it.
+// Home, then the production app's list in its order, mostly with its short
+// labels. `title` spells out the short ones in the hover text, where there is
+// room for it.
 const NAV_GROUPS = [
   { label: 'Workspace', items: [
-    { id: 'services', label: 'Services', icon: 'pulse', enabled: true },
+    { id: 'home', label: 'Home', icon: 'home', enabled: true },
+    { id: 'services', label: 'APM & Services', icon: 'pulse', enabled: true },
     { id: 'logs', label: 'Logs', icon: 'fileSearch', enabled: true },
     { id: 'infra', label: 'Infra', title: 'Infrastructure', icon: 'server', enabled: true },
     { id: 'rum', label: 'Browser', title: 'Browser (RUM)', icon: 'appWindow' },
@@ -53,10 +56,11 @@ const NAV_GROUPS = [
   ]},
 ]
 
-// The view each enabled item opens. Services is the exception: it is the Home
-// page's list of services, reached through goHome, which also closes the
-// settings drawer.
+// The view each enabled item opens. Home is the exception: it goes through
+// goHome, which also closes the settings drawer. APM & Services opens the service
+// page, on the service and tab it was last left on.
 const NAV_VIEWS = {
+  services: 'service',
   logs: 'logs',
   infra: 'infra',
   traces: 'traces',
@@ -65,15 +69,14 @@ const NAV_VIEWS = {
 }
 
 const ACTIVE_ITEM = {
-  home: 'services', service: 'services',
+  home: 'home', service: 'services',
   logs: 'logs', infra: 'infra', traces: 'traces', trace: 'traces',
   errors: 'errors', explore: 'explore',
 }
 
 export default function Sidebar({ navCollapsed, setNavCollapsed, view, goHome, setView, onOpenHelp, onLogout, theme, setTheme }) {
-  // A single trace's waterfall belongs to Traces, and one service's page to
-  // Services (the list it was opened from), so the nav keeps those items lit
-  // while you are inside one.
+  // A single trace's waterfall belongs to Traces, so the nav keeps that item lit
+  // while you are inside one rather than moving the highlight.
   const activeId = ACTIVE_ITEM[view] ?? 'services'
   const [profileOpen, setProfileOpen] = useState(false)
   const [popPos, setPopPos] = useState({ left: 0, bottom: 0 })
@@ -113,7 +116,7 @@ export default function Sidebar({ navCollapsed, setNavCollapsed, view, goHome, s
               const on = it.id === activeId
               const enabled = !!it.enabled
               const open = !enabled ? undefined
-                : it.id === 'services' ? goHome
+                : it.id === 'home' ? goHome
                 : NAV_VIEWS[it.id] ? () => setView(NAV_VIEWS[it.id])
                 : undefined
               return (
