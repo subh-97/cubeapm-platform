@@ -1056,7 +1056,7 @@ function SlowQueriesTable() {
         <div className="panel-head-left">Slow Queries</div>
         <CardMenu kind="list" title="Slow Queries" />
       </div>
-      <div className="split-ep-head is-sortable" style={{ gridTemplateColumns: '130px 1fr 84px' }}>
+      <div className="split-ep-head slowq-head is-sortable">
         <Hdr sortKey="time" align="left">Time</Hdr>
         <Hdr sortKey="query" align="left">Query</Hdr>
         <Hdr sortKey="duration">Duration</Hdr>
@@ -1746,6 +1746,14 @@ function ErrorsTab({ win, timeRange, serviceId, onFocus, syncId, onOpenLink, sid
   // counts: this service, this side, failed, this span, this exception. The
   // Traces stream carries a span for every error group, so it is never empty.
   const openRow = (e) => onOpenLink?.({ view: 'traces', filters: tracesFiltersFor(e) })
+  // The exception goes one step further than the row: to the Errors page,
+  // filtered to this group, with its details drawer open — the stack trace,
+  // the sample occurrences and their traces are there.
+  const openDetails = (e) => onOpenLink?.({
+    view: 'errors', service: serviceId, kind: side, exception: e.exception,
+    ...(side === 'client' ? { spanName: e.spanName } : { endpoint: e.endpoint }),
+    open: true,
+  })
   return (
     <div className="panel">
       <div className="panel-head">
@@ -1785,11 +1793,25 @@ function ErrorsTab({ win, timeRange, serviceId, onFocus, syncId, onOpenLink, sid
             role="button"
             tabIndex={0}
             onClick={() => openRow(e)}
-            onKeyDown={ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openRow(e) } }}
+            onKeyDown={ev => {
+              // Keys pressed on the exception button are that button's own.
+              if (ev.target !== ev.currentTarget) return
+              if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openRow(e) }
+            }}
           >
             <div className="err-endpoint" title={where(e)}>{where(e)}</div>
             <div className="err-exc">
-              <span className="err-exc-cls">{e.exception}</span>
+              {/* The row goes to Traces; the exception goes to its details and
+                  stack trace. Two destinations in one row, so this one is its
+                  own control. */}
+              <button
+                type="button"
+                className="err-exc-cls"
+                onClick={ev => { ev.stopPropagation(); openDetails(e) }}
+                title={`Show the details and stack trace for ${e.exception}`}
+              >
+                {e.exception}
+              </button>
               <span className="err-exc-msg">{e.message}</span>
             </div>
             {/* The chip sits under the number, as on the Errors page, so the

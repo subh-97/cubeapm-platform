@@ -73,18 +73,22 @@
   background: none; color: var(--text-muted); font-weight: 400;
 }
 
-/* The service page's Errors tab stacks the same chip under its count, flush
-   right, so anything wider than its narrow column spills left into the gap
-   rather than right into the spark. */
-.err-row .err-count { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+/* The service page's Errors tab stacks the same chip under its count. Both
+   sit at the left of the column like its header and every other column there;
+   justify-content centres the pair in the cell the column rules stretch to the
+   row's height (index.css, "Column rules"). */
+.err-row .err-count { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 3px; }
 
 /* ── The table ─────────────────────────────────────────────────────────── */
 
+/* --col-gap and each one's --row-py are what the column rules in index.css
+   read to draw a rule down the middle of every gap, the full row's height. */
 .errp-head,
 .errp-row {
+  --col-gap: 14px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr) 92px minmax(260px, 2.2fr) 84px;
-  gap: 14px;
+  gap: var(--col-gap);
 }
 
 /* Sticky inside .logs-main-body, the page's one scroll container, so the
@@ -92,34 +96,38 @@
    is a shadow rather than a border: it lands on the first row's own top border
    instead of doubling it. */
 .errp-head {
+  --row-py: 8px;
   position: sticky; top: 0; z-index: 4;
   align-items: center;
-  padding: 8px 16px;
+  padding: var(--row-py) 16px;
   background: var(--card);
   box-shadow: 0 1px 0 var(--border-subtle);
   font-size: 10px; font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase; letter-spacing: .5px;
 }
+/* A sort button is its whole header cell: the column rules give every cell
+   its column's width and the row's height, so the button fills it. No padding
+   of its own here — the cell's comes from the column rules, and the base reset
+   already zeroes a button's. */
 .errp-sort {
   display: inline-flex; align-items: center; gap: 5px;
-  justify-self: start;
-  padding: 0; border: 0; background: none;
+  border: 0; background: none;
   font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit;
   cursor: pointer;
 }
 .errp-sort:hover { color: var(--text-primary); }
 .errp-sort:hover .sortable-th-arrow { opacity: .9; }
-.errp-sort:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 2px; }
-.errp-sort.is-right { justify-self: end; }
+.errp-sort:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; border-radius: 2px; }
 
 /* The hover affordance is a brand bar on the left, not a background, so the
    charts in the row keep the surface they are drawn on — the same choice as
    the service page's Errors tab. The open row keeps the bar and takes a fill. */
 .errp-row {
+  --row-py: 12px;
   position: relative;
   align-items: center;
-  padding: 12px 16px;
+  padding: var(--row-py) 16px;
   border-top: 1px solid var(--border-subtle);
   font-size: 12px;
   cursor: pointer;
@@ -136,7 +144,7 @@
 @media (prefers-reduced-motion: reduce) { .errp-row::before { transition: none; } }
 
 /* Endpoint cell: whose, then where. */
-.errp-where { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.errp-where { min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 3px; }
 .errp-svc { display: flex; align-items: center; gap: 7px; min-width: 0; color: var(--text-primary); }
 .errp-svc .status-dot.neutral { background: var(--neutral); }
 .errp-svc-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -153,7 +161,7 @@
    its LEFT end — `…jedis.exceptions.JedisPoolException` — because the segment
    nearest the class says the most. That is what direction: rtl does to the
    ellipsis; the <bdi> inside keeps the dotted name itself reading left to right. */
-.errp-err { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.errp-err { min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 3px; }
 .errp-exc {
   display: flex; min-width: 0; max-width: 100%;
   font-family: var(--font-mono); font-size: 11.5px;
@@ -198,7 +206,9 @@
 }
 
 /* Count cell: the number, and under it how it compares with before. */
-.errp-count { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+/* Left-aligned with its header, like every other column, and like the
+   service page's Errors tab — the count and its chip start at the rule. */
+.errp-count { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 4px; }
 .errp-count-n { font-size: 15px; color: var(--text-primary); }
 
 /* Spark cell. The placeholder holds the row at its final height while the chart
@@ -206,7 +216,7 @@
 .errp-spark { min-width: 0; height: 104px; cursor: default; }
 .errp-spark-ph { height: 100%; border-bottom: 1px solid var(--border-subtle); opacity: .6; }
 
-.errp-actions { display: flex; justify-content: flex-end; }
+.errp-actions { display: flex; align-items: center; justify-content: flex-end; }
 .errp-traces-link {
   display: inline-flex; align-items: center; gap: 4px;
   padding: 3px 6px; margin-right: -6px;

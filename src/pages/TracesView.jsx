@@ -23,6 +23,7 @@ import MathPopover from '@/components/MathPopover'
 import SaveQueryPopover from '@/components/SaveQueryPopover'
 import MyQueriesDrawer from '@/components/MyQueriesDrawer'
 import { useSavedQueries } from '@/hooks/useSavedQueries'
+import { useHeaderScrollSync } from '@/hooks/useHeaderScrollSync'
 import { Sigma, Network, ArrowUpDown, Hash, Calculator, AlertCircle, Bookmark, BookmarkPlus, BookmarkCheck, List } from 'lucide-react'
 import { ALIASES } from '@/utils/logFields'
 import { LogRecordDrawer } from '@/components/LogRecordDrawer'
@@ -696,6 +697,7 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
   )
 
   const [volumeWrapRef, volumeWrapWidth] = useMeasuredWidth()
+  const streamScroll = useHeaderScrollSync()
 
   const volumeYAxis = useMemo(
     () => valueAxisProps({ format: fmtCount, allowDecimals: false, maxValue: volumeMax }),
@@ -1161,24 +1163,26 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
                   </div>
                 </div>}
 
-                <div className="logs-stream-head span-head">
-                  <div className="log-fixed-cols">
-                    <span className="lh-bar-spacer" />
-                    <span className="lh-time">Time</span>
+                <div className="logs-stream-head-scroll" ref={streamScroll.headRef} onWheel={streamScroll.onHeadWheel}>
+                  <div className="logs-stream-head span-head">
+                    <div className="log-fixed-cols">
+                      <span className="lh-bar-spacer" />
+                      <span className="lh-time">Time</span>
+                    </div>
+                    {columns.map(c => (
+                      <span
+                        key={c.key}
+                        className={`span-cell${c.grow ? ' grow' : ''}${c.align === 'right' ? ' right' : ''}`}
+                        style={{ width: c.width }}
+                      >
+                        {c.label}
+                      </span>
+                    ))}
                   </div>
-                  {columns.map(c => (
-                    <span
-                      key={c.key}
-                      className={`span-cell${c.grow ? ' grow' : ''}${c.align === 'right' ? ' right' : ''}`}
-                      style={{ width: c.width }}
-                    >
-                      {c.label}
-                    </span>
-                  ))}
                 </div>
 
                 <div className="logs-stream-wrap">
-                  <div className="logs-stream" data-log-content>
+                  <div className="logs-stream" data-log-content ref={streamScroll.bodyRef} onScroll={streamScroll.onBodyScroll}>
                     {filtered.length === 0 && (
                       <div className="err-empty">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
