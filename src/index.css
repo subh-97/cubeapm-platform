@@ -524,7 +524,7 @@ a { color: inherit; }
  * the two were a screen apart, which read as two unrelated controls. It keeps
  * a resting outline, though: without one nothing marks it as clickable, so it
  * read as a static caption. */
-.endpoint-strip .filter-select.is-endpoint { flex: 0 1 auto; width: 548px; min-width: 0; height: 30px;
+.endpoint-strip .filter-select.is-endpoint { flex: 0 1 auto; width: 329px; min-width: 0; height: 30px;
   justify-content: flex-start; gap: 10px;
   background: none; border: 1px solid var(--border-panel); }
 /* At this width the shared right-aligned value would drift away from its
@@ -1065,7 +1065,11 @@ tbody tr:hover { background: var(--panel-2); }
 .slowq-row .d { text-align: right; font-weight: 400; color: var(--text-primary); }
 
 /* ============ Errors tab ============ */
-.err-row { display: grid; grid-template-columns: 1fr 1.4fr 60px 320px; gap: 14px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--border-subtle); font-size: 12px; }
+/* Endpoint .6fr (40% narrower than its old 1fr) and Error .875fr (20% narrower
+ * than its old 1.4fr share). The space they gave up goes to the sparkline,
+ * which keeps its old 320px as a floor. minmax(0, …) lets the text columns go
+ * below their longest unbroken path; those cells ellipsize instead. */
+.err-row { display: grid; grid-template-columns: minmax(0, .6fr) minmax(0, .875fr) 68px minmax(320px, 2.49fr); gap: 14px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--border-subtle); font-size: 12px; }
 /* Clickable row opens the Traces page scoped to the error. The hover affordance
  * is a brand-tinted left bar so the sparkline column keeps a stable chart
  * background underneath. */
@@ -1074,14 +1078,17 @@ tbody tr:hover { background: var(--panel-2); }
 .err-row.is-clickable:hover::before,
 .err-row.is-clickable:focus-visible::before { background: var(--brand); }
 .err-row.is-clickable:focus-visible { outline: none; }
-.err-endpoint { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-primary); }
+.err-endpoint { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-primary);
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .err-exc { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .err-exc-cls { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--critical-fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .err-exc-msg { font-size: 10.5px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.err-count { text-align: right; font-weight: 400; font-size: 15px; color: var(--text-primary); margin-right: 20px; }
+/* Count track is 68px so its 28px right margin leaves the same 40px for the
+ * number and the COUNT header; shrinking the text box would clip the header. */
+.err-count { text-align: right; font-weight: 400; font-size: 15px; color: var(--text-primary); margin-right: 28px; }
 .err-spark { height: 132px; }
-.err-head { display: grid; grid-template-columns: 1fr 1.4fr 60px 320px; gap: 14px; padding: 8px 16px; font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
-.err-head span:nth-child(3) { text-align: right; margin-right: 20px; }
+.err-head { display: grid; grid-template-columns: minmax(0, .6fr) minmax(0, .875fr) 68px minmax(320px, 2.49fr); gap: 14px; padding: 8px 16px; font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
+.err-head span:nth-child(3) { text-align: right; margin-right: 28px; }
 .err-empty { padding: 60px 20px; text-align: center; color: var(--text-muted); font-size: 12px; }
 .err-empty svg { width: 34px; height: 34px; margin-bottom: 10px; color: var(--border-strong); }
 .seg-toggle { display: inline-flex; background: var(--panel); border-radius: var(--radius-sm); padding: 2px; gap: 1px; }
@@ -3728,6 +3735,12 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 /* ============ filter selects ============ */
 .subtab-filters { display: flex; align-items: center; gap: 6px; }
 .subtab-filters .filter-select { align-self: stretch; }
+/* The Category, Host and Version pills start 36% wider than their old fixed
+ * 130px and grow to fit a longer value (a host name) up to 200px, past which
+ * the value ellipsizes. The value is the current selection, so it reads in the
+ * brand blue, a step heavier than the label beside it. */
+.subtab-filters .filter-select { width: auto; min-width: 177px; max-width: 200px; }
+.subtab-filters .filter-value > span { color: var(--brand); font-weight: 600; }
 .filter-select { display: inline-flex; align-items: center; justify-content: space-between; gap: 5px; width: 130px;
   background: var(--panel); border: none; color: var(--text-secondary);
   padding: 0 9px; border-radius: var(--radius-sm); font-size: 11.5px; font-family: inherit; cursor: pointer; overflow: hidden; }
@@ -3745,7 +3758,7 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 .svc-picker { display: flex; align-items: center; min-width: 0; }
 /* As wide as the Detail tab's Endpoint picker, so the two labelled fields line
  * up; capped so a narrow page wraps it instead of overflowing. */
-.svc-picker-field { position: relative; flex: none; width: 548px; max-width: 100%; }
+.svc-picker-field { position: relative; flex: none; width: 329px; max-width: 100%; }
 /* Outlined, not filled - the field sits on the card like the production one */
 .svc-picker-control {
   display: flex; align-items: center; gap: 8px; width: 100%; height: 100%; min-height: 30px; box-sizing: border-box;
