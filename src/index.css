@@ -123,6 +123,9 @@
   --shadow-login: 0 30px 80px rgba(0, 0, 0, .55);
   --overlay-hover: rgba(255, 255, 255, .03);
   --swatch-edge: rgba(255, 255, 255, .07);
+  /* A bone's fill, and the light that passes over it while it waits */
+  --sk-base: var(--panel-2);
+  --sk-sheen: rgba(255, 255, 255, .045);
   --login-grid: rgba(35, 43, 59, .55);
   /* Login inputs + SSO buttons. Dark sinks them into the card; light lifts
      them to white with a visible edge, the usual affordance for a form. */
@@ -222,6 +225,8 @@
   --shadow-login: 0 24px 64px rgba(15, 23, 42, .14);
   --overlay-hover: rgba(15, 23, 42, .05);
   --swatch-edge: rgba(15, 23, 42, .12);
+  --sk-base: color-mix(in srgb, var(--panel) 50%, var(--panel-2));
+  --sk-sheen: rgba(255, 255, 255, .8);
   --login-grid: rgba(148, 163, 184, .28);
   --login-control-bg: var(--card);
   --login-control-bg-focus: var(--card);
@@ -1297,6 +1302,48 @@ tbody tr:hover { background: var(--panel-2); }
 .sk-row-svc .sk-dot::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.05), transparent); animation: skShimmer 1.4s linear infinite; }
 .sk-row-svc .sk-line { flex: 1; height: 12px; background: var(--panel); border-radius: 3px; max-width: 200px; position: relative; overflow: hidden; }
 .sk-row-svc .sk-line::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.05), transparent); animation: skShimmer 1.4s linear infinite; }
+
+/* ============ Service Overview skeleton (ServiceOverviewSkeleton.jsx) ============ */
+/* The sheen is a band painted against the viewport (background-attachment:
+ * fixed), so every bone on the page shows the same slice of one light rather
+ * than each running its own. With motion reduced it parks off screen and the
+ * bones sit still. */
+.ovsk-bone {
+  display: block; flex-shrink: 0; border-radius: 3px;
+  background-color: var(--sk-base);
+  background-image: linear-gradient(100deg, transparent 0%, var(--sk-sheen) 50%, transparent 100%);
+  background-size: 45vw 100%; background-repeat: no-repeat; background-attachment: fixed;
+  background-position: -45vw 0;
+  animation: ovskSweep 1.1s ease-in-out infinite;
+}
+@keyframes ovskSweep { from { background-position: -45vw 0; } to { background-position: 100vw 0; } }
+.ovsk-bone.is-inline { display: inline-block; vertical-align: middle; }
+
+.ovsk-kpi-val { display: flex; align-items: flex-end; gap: 5px; height: 30px; padding-bottom: 3px; }
+
+.ovsk-plot { height: 100%; display: grid; grid-template-columns: 29px 1fr; grid-template-rows: 1fr 30px; }
+.ovsk-y { position: relative; }
+.ovsk-y .ovsk-bone { position: absolute; right: 8px; }
+.ovsk-field { position: relative; border-bottom: 1px solid var(--border-subtle); }
+.ovsk-gridline { position: absolute; left: 0; right: 0; border-top: 1px dashed var(--border-subtle); }
+.ovsk-ghost {
+  position: absolute; inset: 0; border-radius: 0; opacity: .55;
+  -webkit-mask-size: 100% 100%; mask-size: 100% 100%;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+}
+.ovsk-x { grid-column: 2; display: flex; justify-content: space-around; padding-top: 9px; }
+
+/* The search input's line: same size, so the box is the same height. */
+.ovsk-search-line { flex: 1; min-width: 0; font-size: 11.5px; line-height: 1.45; }
+.ovsk-item { cursor: default; }
+.ovsk-item:hover { background: none; }
+.ovsk-item .drill2-swatch { border-radius: 2px; }
+.ovsk-item .drill2-bartrack { background: color-mix(in srgb, var(--sk-base) 45%, transparent); }
+.ovsk-total-swatch { border-top-color: var(--border-strong); }
+
+/* The real panel fading up in the bone's place. */
+.svc-reveal { animation: svcReveal .24s ease-out both; }
+@keyframes svcReveal { from { opacity: 0; } to { opacity: 1; } }
 
 /* ============ Walkthrough guide ============ */
 .wt-overlay { position: fixed; inset: 0; z-index: 2000; pointer-events: none; }
