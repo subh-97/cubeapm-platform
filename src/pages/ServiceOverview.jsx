@@ -27,9 +27,9 @@ import { useSortedRows } from '@/hooks/useSortedRows'
 import { useScrollReveal, revealClass } from '@/hooks/useScrollReveal'
 import RequestTraceSplit from '@/components/trace/RequestTraceSplit'
 import ErrorGroupsPanel from '@/components/errors/ErrorGroupsPanel'
+import BreakAtSlashes from '@/components/browser/BreakAtSlashes'
 import { errorGroupsForWindow, tracesFiltersFor } from '@/data/errors'
-import { previousPeriodText } from '@/utils/errorsPage'
-import { Gauge, Crosshair, ChartLine, Globe, Database, TriangleAlert, Cpu, ArrowUpRight } from 'lucide-react'
+import { Gauge, Crosshair, ChartLine, Globe, Database, TriangleAlert, Cpu } from 'lucide-react'
 import { GRID_PROPS, NO_ANIM, AREA_PROPS, LINE_PROPS, valueAxisProps, maxOf, niceAxis, formatDecimals, fmtCompact, fmtBytes, fmtCount, fmtRedMs, fmtRedRpm, fmtRedPct } from '@/components/charts/chartDefaults'
 import { buildTimeAxis, withX } from '@/components/charts/timeAxis'
 import { useMeasuredWidth, useSeriesHover } from '@/components/charts/useTimeFocus'
@@ -53,8 +53,8 @@ import { KpiCardsSkeleton, LatencyDrilldownSkeleton, TrendChartsSkeleton } from 
 // the URL cannot name, or the other way round. Only the labels live here.
 const VIEW_META = {
   overview: { label: 'Overview', Icon: Gauge },
-  detail: { label: 'Detail', Icon: Crosshair },
   red: { label: 'RED', Icon: ChartLine },
+  detail: { label: 'Detail', Icon: Crosshair },
   external: { label: 'External', Icon: Globe },
   db: { label: 'DB', Icon: Database },
   errors: { label: 'Errors', Icon: TriangleAlert },
@@ -1313,14 +1313,11 @@ const CLIENT_ERRORS_BY = ['side', 'service', 'spanName', 'exception']
 //
 // What the tab draws is ErrorGroupsPanel (shared with the Browser page's Errors
 // tab); what stays here is the service page's own part of it — which groups,
-// and where a row, an exception and the head's button go.
-function ErrorsTab({ win, timeRange, serviceId, onFocus, syncId, onOpenLink, side: sideProp, onSide }) {
+// and where a row and an exception go.
+function ErrorsTab({ win, serviceId, onFocus, syncId, onOpenLink, side: sideProp, onSide }) {
   const [ownSide, setOwnSide] = useState('server')
   const side = sideProp ?? ownSide
   const setSide = onSide ?? setOwnSide
-  // What each count's chip compares against, worded from the picked range
-  // ("the previous hour") as the Errors page words it (rule 6).
-  const prevText = previousPeriodText(timeRange)
   const groups = useMemo(
     () => errorGroupsForWindow(win, { side, service: serviceId, by: side === 'client' ? CLIENT_ERRORS_BY : undefined }),
     [win, side, serviceId],
@@ -1338,30 +1335,27 @@ function ErrorsTab({ win, timeRange, serviceId, onFocus, syncId, onOpenLink, sid
     open: true,
   })
   // The panel's default sides (Server | Client) and Endpoint column (the route
-  // on Server, the call on Client) are this tab's, so neither is passed.
+  // on Server, the call on Client) are this tab's, so neither is passed. No
+  // prevText, so no comparison chip under the counts, and no head button: the
+  // exception is the way through to the Errors page.
+  //
+  // The wrapper scopes index.css's .svc-errors rules to this tab: the Endpoint
+  // and Error text wraps rather than being cut, and the count sits right. The
+  // Endpoint wraps between path segments (BreakAtSlashes), not mid-word.
   return (
-    <ErrorGroupsPanel
-      side={side}
-      onSide={setSide}
-      groups={groups}
-      prevText={prevText}
-      win={win}
-      onFocus={onFocus}
-      syncId={syncId}
-      onOpenRow={openRow}
-      onOpenException={openDetails}
-      headRight={(
-        <button
-          type="button"
-          className="hbtn small"
-          title={`Open ${serviceId}'s ${side} errors on the Errors page`}
-          onClick={() => onOpenLink?.({ view: 'errors', service: serviceId, kind: side })}
-        >
-          Open in Errors
-          <ArrowUpRight size={12} strokeWidth={2} aria-hidden="true" />
-        </button>
-      )}
-    />
+    <div className="svc-errors">
+      <ErrorGroupsPanel
+        side={side}
+        onSide={setSide}
+        groups={groups}
+        renderWhere={e => <BreakAtSlashes text={side === 'client' ? e.spanName : e.endpoint} />}
+        win={win}
+        onFocus={onFocus}
+        syncId={syncId}
+        onOpenRow={openRow}
+        onOpenException={openDetails}
+      />
+    </div>
   )
 }
 
@@ -1888,7 +1882,7 @@ export default function ServiceOverview({ serviceId, onSelectService, onOpenTrac
   } else if (serviceSubTab === 'db') {
     body = <DbTab svc={svc} data={data} syncId={syncId} win={win} onFocus={setTimeRange} />
   } else if (serviceSubTab === 'errors') {
-    body = <ErrorsTab win={win} timeRange={timeRange} serviceId={svc.id} onFocus={setTimeRange} syncId={syncId} onOpenLink={onOpenLink} side={errorsSide} onSide={onErrorsSide} />
+    body = <ErrorsTab win={win} serviceId={svc.id} onFocus={setTimeRange} syncId={syncId} onOpenLink={onOpenLink} side={errorsSide} onSide={onErrorsSide} />
   } else if (serviceSubTab === 'runtime') {
     // Keyed on the service so switching services drops the host selection.
     body = <RuntimeTab key={svc.id} syncId={syncId} win={win} onFocus={setTimeRange} />
