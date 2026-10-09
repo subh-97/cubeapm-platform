@@ -1,0 +1,45 @@
+/* The request list + trace preview: src/components/trace/RequestTraceSplit.jsx.
+
+   The split itself is the service page's (.slowreq-* in src/index.css) and is
+   not restyled here. What is here is the one thing the panel adds when its
+   caller can open an exception: the error summary above a failed trace's
+   waterfall. Every colour is a token, so both themes follow. */
+
+/* A failed trace's throw, said before the waterfall that contains it. Shaped
+   like the latency drilldown's insight callout — a critical rule down the left
+   on a faint critical wash — since it is the same kind of statement: here is
+   what went wrong. The wash is mixed from the token so it re-themes. */
+.rts-errsum {
+  display: flex; flex-direction: column; gap: 3px;
+  margin: 0 0 12px; padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--critical) 6%, transparent);
+  border-left: 2px solid var(--critical);
+  min-width: 0;
+}
+.rts-errsum-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.rts-errsum-lbl {
+  font-size: 10px; font-weight: 600; letter-spacing: .5px; text-transform: uppercase;
+  color: var(--text-muted);
+}
+.rts-errsum-more { font-size: 10.5px; color: var(--text-muted); white-space: nowrap; }
+/* The message is read in full here (the error list ellipsizes it), so it
+   wraps rather than running off the preview. */
+.rts-errsum-msg {
+  font-size: 11.5px; line-height: 1.5; color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+/* stickyPreview: a list of up to a hundred requests is several screens tall,
+   and the preview — at the top of its grid cell — scrolled away with the
+   first rows, so picking the eightieth showed nothing beside it. The preview
+   sticks to the top of the page's scroller instead, below whatever the caller
+   pins there (--rts-sticky-top), and scrolls inside itself if it is ever
+   taller than the screen. A panel clips its rounded corners with
+   overflow: hidden, which would make the panel the preview's scroller and
+   stop it sticking; `clip` cuts the same corners without being one. */
+.panel.rts-sticky { overflow: clip; }
+.panel.rts-sticky .slowreq-preview {
+  position: sticky; top: var(--rts-sticky-top, 0px);
+  max-height: calc(100vh - 180px); overflow-y: auto;
+}

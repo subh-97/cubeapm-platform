@@ -220,16 +220,10 @@ export function initialErrorsState({ incoming = null, pathname = '', search = ''
   }
 }
 
-/**
- * Whether two search strings say the same thing. The browser re-escapes what
- * it is handed — an apostrophe in the search text comes back from the address
- * bar as %27 — so comparing the raw strings would write the URL a second time
- * after every change for a difference only the encoding makes.
- */
-export function sameSearch(a, b) {
-  const canonical = s => new URLSearchParams(String(s ?? '').replace(/^\?/, '')).toString()
-  return canonical(a) === canonical(b)
-}
+// sameSearch (do two search strings say the same thing, whatever the browser
+// re-escaped) lives in searchParams.js, shared with the Browser page, and is
+// re-exported here under its old name so ErrorsView and its tests are unchanged.
+export { sameSearch } from '@/utils/searchParams'
 
 // Separates "a malformed query worth explaining" from "a plain value that
 // happens not to parse" on paste — the same test Logs and Traces use.

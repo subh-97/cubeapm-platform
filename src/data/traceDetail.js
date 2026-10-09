@@ -17,6 +17,7 @@
 import { spanRows } from './tracesExplorer'
 import { logRows } from './observability'
 import { errorTraceRows } from './errors'
+import { browserTraceRows } from './browser'
 import { valueOfConcept } from '@/utils/logFields'
 
 const seedOf = (traceId) => {
@@ -44,9 +45,15 @@ const TRACE_IDS = [...BY_TRACE.keys()]
 
 // Structural fields: they say where the span sits, not what happened in it, and
 // the view already shows each of them in the meta block above the tag list.
+//
+// The last two are the Browser page's. A script error carries its stack twice,
+// as the browser reported it and source-mapped, and the second is no more a
+// tag than the first is; `rum.kind` says whether a browser span is a page load
+// or a call, which its name and kind already show.
 const STRUCTURAL = new Set([
   'trace_id', 'span_id', 'parent_id', 'duration', 'span_name', 'service',
   'root_name', 'event.domain', 'event_name', 'exception.stacktrace',
+  'exception.stacktrace.unminified', 'rum.kind',
 ])
 
 const RESOURCE_PREFIX = '_resource.'
@@ -149,6 +156,13 @@ export function buildTrace(traceId) {
   // would usually belong to another service and usually have succeeded.
   if (raw.length === 0) {
     raw = (errorTraceRows(traceId) ?? []).filter(s => s.tags['event.domain'] === 'span')
+  }
+
+  // A Browser-page sample does the same under its own id scheme: the page
+  // load or call it was, and the backend span behind a call. The two schemes
+  // never decode each other's ids, so the order of these two lookups is moot.
+  if (raw.length === 0) {
+    raw = (browserTraceRows(traceId) ?? []).filter(s => s.tags['event.domain'] === 'span')
   }
 
   if (raw.length === 0) {

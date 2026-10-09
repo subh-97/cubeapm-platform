@@ -1,0 +1,36 @@
+/* The error-groups panel: src/components/errors/ErrorGroupsPanel.jsx.
+
+   Its rows are the service page's Errors tab (.err-head / .err-row in
+   src/index.css) and are not restyled here. What is here is only what the
+   panel adds: the row's button, the "Showing N of M" line under a capped
+   list, and the exception class when nothing opens it. Every colour is a
+   token. */
+
+/* The Endpoint text is the row's button, for the keyboard and a screen
+   reader; it must look exactly like the text it replaced. Everything a button
+   brings is unset and the cell's mono type and ellipsis inherited — `block`
+   so the ellipsis still cuts it at the column's edge. */
+.err-open {
+  all: unset; display: block; max-width: 100%; box-sizing: border-box;
+  overflow: hidden; text-overflow: ellipsis; white-space: inherit; cursor: inherit;
+}
+/* Focused, it shows what a focused row always showed: the brand bar down the
+   row's left edge. */
+.err-row.is-clickable:has(.err-open:focus-visible)::before { background: var(--brand); }
+
+/* The series budget's footer bleeds to the edges of a padded card; a panel's
+   rows carry their own 16px inset instead, so the line takes it as padding —
+   the same arrangement as under a RED chart section. Its top rule closes off
+   the last row.
+
+   Positioned, so the footer's screen-reader line (an absolutely placed
+   .sr-only span) is placed against it. With no positioned ancestor up to the
+   page, that span took the whole document as its box and sat at its own
+   static offset — far below the page's scroller — and the document grew a
+   scrollbar that scrolled the app shell away. */
+.errg-foot { position: relative; }
+.errg-foot > .series-budget { margin: 0; padding: 7px 16px 8px; }
+
+/* With no exception destination the class is text, not a link: the critical
+   colour stays (the thing IS the failure), the underline and pointer go. */
+.err-exc-cls.is-static { cursor: default; text-decoration: none; }

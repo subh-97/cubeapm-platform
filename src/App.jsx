@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import HomeSkeleton from '@/pages/HomeSkeleton'
 import Walkthrough from '@/components/Walkthrough'
@@ -15,14 +15,19 @@ import InfraView from '@/pages/InfraView'
 import TraceDetail from '@/pages/TraceDetail'
 import LoginPage from '@/pages/LoginPage'
 import DesignSystemPage from '@/pages/DesignSystemPage'
+import BrowserView from '@/pages/BrowserView'
+import BrowserSettings from '@/components/browser/BrowserSettings'
 import { services, redEndpoints } from '@/data/services'
 import { INFRA_SOURCES, infraHosts } from '@/data/observability'
+import { BROWSER_APPS, BROWSER_SOURCE_MAP_SEED } from '@/data/browser'
 import { TIME_PRESETS, DEFAULT_PRESET, rangeLabel } from '@/utils/timeRange'
 import { filtersToChips } from '@/utils/tracesHandoff'
 import { useTheme } from '@/hooks/useTheme'
 import { parseRoute, canonicalUrl, routeUrl, serviceUrl, traceUrl, DEFAULT_SERVICE_TAB } from '@/utils/route'
 import { traceViewFor } from '@/data/traceResolvers'
 import { MOBILE_TRACES_SOURCE } from '@/utils/explorerSources'
+import { BROWSER_PATH, parseBrowserSearch } from '@/utils/browserUrl'
+import { trapTab } from '@/utils/focusTrap'
 
 function getInfraNavItems() {
   const items = []
@@ -36,6 +41,8 @@ function getInfraNavItems() {
   return items
 }
 const INFRA_NAV_ITEMS = getInfraNavItems()
+
+const BROWSER_APP_IDS = BROWSER_APPS.map(a => a.id)
 
 // Explore applies an incoming payload once per nonce (ARCH D13), so clicking
 // the same card twice has to arrive as two different payloads.
@@ -101,6 +108,13 @@ export default function App() {
   const [infraResource, setInfraResource] = useState(null)
   const [infraExpanded, setInfraExpanded] = useState({})
   const [hiddenNavItems, setHiddenNavItems] = useState(() => new Set())
+  // The Browser page's settings, held here because the drawer that edits them
+  // is unmounted whenever it closes. Path patterns start empty, as production's
+  // do; the source maps start with each app's main bundle, so a script error's
+  // un-minified stack is there to read before anyone has uploaded anything -
+  // and disappears, honestly, when its map is deleted.
+  const [browserPathPatterns, setBrowserPathPatterns] = useState([])
+  const [browserSourceMaps, setBrowserSourceMaps] = useState(BROWSER_SOURCE_MAP_SEED)
 
   // The service page remembers where it was left: APM in the sidebar reopens
   // it, picking another service keeps the tab, and the settings drawer still
@@ -119,6 +133,31 @@ export default function App() {
   // one; everything else is a backend trace.
   const traceDatasource = route.datasource ?? 'traces'
 
+  // Where a trace was opened from, when that was not the Traces explorer: the
+  // Browser page passes itself along (openTraceFrom's `origin`), in the
+  // history entry's state rather than the URL, so /trace/<id> stays the one
+  // address of a trace. It survives a reload and Back/Forward with the entry
+  // it belongs to; a trace reached any other way has none and reads as before.
+  // `state` is the origin page's own, handed back to it on the way out (the
+  // Browser Traces tab's place); App never reads inside it.
+  const from = view === 'trace' ? location.state?.from : null
+  const traceFrom = from && typeof from.url === 'string' && typeof from.view === 'string' && typeof from.label === 'string'
+    ? from
+    : null
+
+  // The Browser page is remembered the same way, as the query string it was
+  // left on - its app, tab and filters are all in it - so Browser in the
+  // sidebar reopens that screen rather than starting over. A reload on a
+  // trace opened from Browser still knows that screen, from the trace's origin.
+  const [lastBrowserSearch, setLastBrowserSearch] = useState(() => {
+    if (view === 'browser') return location.search
+    const url = traceFrom?.view === 'browser' ? traceFrom.url : ''
+    return url.startsWith(`${BROWSER_PATH}?`) ? url.slice(BROWSER_PATH.length) : ''
+  })
+  useEffect(() => {
+    if (view === 'browser') setLastBrowserSearch(location.search)
+  }, [view, location.search])
+
   // Pushing the URL you are already on would add an entry Back steps through
   // for nothing.
   const go = useCallback((url) => {
@@ -127,11 +166,17 @@ export default function App() {
 
   // A page, by name. Already on it, nothing happens: its own query string (the
   // Errors page's filters) stays, and Back gets no entry for the click.
+  // Browser reopens the screen it was left on; a first visit is the bare path,
+  // which the page corrects in place to the app it opens on.
   const showView = useCallback((v) => {
     if (v === 'service') return go(serviceUrl(lastService.id, lastService.tab))
+    if (v === 'browser') {
+      if (location.pathname !== BROWSER_PATH) navigate(BROWSER_PATH + lastBrowserSearch)
+      return
+    }
     const url = routeUrl({ view: v })
     if (location.pathname !== url) navigate(url)
-  }, [go, lastService, location.pathname, navigate])
+  }, [go, lastService, lastBrowserSearch, location.pathname, navigate])
 
   const setServiceSubTab = useCallback((tab) => {
     go(serviceUrl(serviceId, tab))
@@ -143,6 +188,40 @@ export default function App() {
     go(traceUrl(id, datasource))
     setSettingsOpen(false)
   }, [go])
+
+  // A trace opened by a page that wants its trail to lead back to it rather
+  // than to Traces — the Browser page. `origin` is { view, label, url, state }
+  // (see traceFrom). A function of its own rather than a second argument to
+  // openTrace, so openTrace stays the one-id call every other page makes.
+  const openTraceFrom = useCallback((id, origin) => {
+    const url = traceUrl(id)
+    if (!origin || typeof origin.url !== 'string') return openTrace(id)
+    const from = { view: origin.view, label: origin.label, url: origin.url, state: origin.state }
+    if (url !== currentUrl) navigate(url, { state: { from } })
+    setSettingsOpen(false)
+  }, [openTrace, currentUrl, navigate])
+
+  // Back to the page a trace was opened from, with what that page handed over
+  // (its own history state), as Back would find it.
+  const leaveTrace = useCallback(() => {
+    if (traceFrom) navigate(traceFrom.url, { state: traceFrom.state })
+  }, [traceFrom, navigate])
+
+  // The Browser page's settings drawer, opened on one of its tabs - the error
+  // modal's "Open Source Maps settings" lands on Source Maps.
+  const openSettingsTab = useCallback((tab) => {
+    setSettingsTab(tab)
+    setSettingsOpen(true)
+  }, [])
+
+  // The same button in the same modal on the trace page: Source Maps is a
+  // Browser setting, so it opens on the Browser screen the trace came from (or
+  // the one last left), with the drawer on that tab.
+  const openBrowserSourceMaps = useCallback(() => {
+    const url = traceFrom?.view === 'browser' ? traceFrom.url : BROWSER_PATH + lastBrowserSearch
+    navigate(url, traceFrom?.view === 'browser' ? { state: traceFrom.state } : undefined)
+    openSettingsTab('Source Maps')
+  }, [traceFrom, lastBrowserSearch, navigate, openSettingsTab])
 
   // Kept in App because a link may cross pages: a record in Logs can send you
   // to a trace, a service or an infrastructure resource, and only App knows how
@@ -277,15 +356,18 @@ export default function App() {
   const isTrace = view === 'trace'
   const isExplore = view === 'explore'
   const isErrors = view === 'errors'
+  const isBrowser = view === 'browser'
 
   return (
     <div className={`app${navCollapsed ? ' nav-collapsed' : ''}`}>
       <Sidebar
         navCollapsed={navCollapsed}
         setNavCollapsed={setNavCollapsed}
-        // A mobile trace is the trace view under another list, so the sidebar
-        // is told which one to keep lit.
-        view={isTrace && traceDatasource === 'mobile' ? 'mtrace' : view}
+        // A trace opened from Browser belongs to Browser, so that item stays
+        // lit while you are in it, as Traces does for its own; a mobile trace
+        // is the trace view under another list, so the sidebar is told which
+        // one to keep lit.
+        view={traceFrom?.view ?? (isTrace && traceDatasource === 'mobile' ? 'mtrace' : view)}
         goHome={goHome}
         setView={showView}
         onOpenHelp={openHelp}
@@ -376,6 +458,9 @@ export default function App() {
                 datasource={traceDatasource}
                 goHome={goHome}
                 goTraces={() => showView(traceViewFor(traceDatasource).listView)}
+                origin={traceFrom ? { label: traceFrom.label, href: traceFrom.url, onOpen: leaveTrace } : undefined}
+                sourceMaps={browserSourceMaps}
+                onOpenSourceMaps={openBrowserSourceMaps}
                 goLogs={openLogsForTrace}
                 timeRange={timeRange}
                 setTimeRange={setTimeRange}
@@ -426,6 +511,19 @@ export default function App() {
                 incoming={errorsIncoming}
                 onIncomingApplied={() => setErrorsIncoming(null)}
               />
+            ) : isBrowser ? (
+              <BrowserView
+                goHome={goHome}
+                timeRange={timeRange}
+                setTimeRange={setTimeRange}
+                settingsOpen={settingsOpen}
+                setSettingsOpen={setSettingsOpen}
+                setToast={setToast}
+                onOpenLink={openLink}
+                onOpenTrace={openTraceFrom}
+                sourceMaps={browserSourceMaps}
+                onOpenSettingsTab={openSettingsTab}
+              />
             ) : isInfra ? (
               <InfraView
                 key={`${infraSource}:${infraResource ?? ''}`}
@@ -460,6 +558,14 @@ export default function App() {
             timeRange={timeRange}
             hiddenNavItems={hiddenNavItems}
             setHiddenNavItems={setHiddenNavItems}
+            browser={isBrowser ? {
+              pathPatterns: browserPathPatterns,
+              setPathPatterns: setBrowserPathPatterns,
+              sourceMaps: browserSourceMaps,
+              setSourceMaps: setBrowserSourceMaps,
+              apps: BROWSER_APPS,
+              appId: parseBrowserSearch(location.search, BROWSER_APP_IDS).service,
+            } : null}
           />
         </>
       )}
@@ -474,14 +580,19 @@ export default function App() {
   )
 }
 
-function SettingsDrawer({ view, serviceSubTab, serviceId, settingsTab, setSettingsTab, onClose, timeRange, hiddenNavItems, setHiddenNavItems }) {
+function SettingsDrawer({ view, serviceSubTab, serviceId, settingsTab, setSettingsTab, onClose, timeRange, hiddenNavItems, setHiddenNavItems, browser }) {
   const isInfra = view === 'infra'
 
+  // Browser is asked before the service page's RED tab: serviceSubTab is the
+  // service page's last tab, still set while you are on another page, and a
+  // Browser drawer must not pick up its tabs from it.
   const tabs = view === 'home'
     ? ['General', 'Notifications']
-    : serviceSubTab === 'red'
-      ? ['Display', 'Thresholds']
-      : ['Apdex', 'Thresholds', 'Alerts']
+    : view === 'browser'
+      ? ['Path Patterns', 'Source Maps']
+      : serviceSubTab === 'red'
+        ? ['Display', 'Thresholds']
+        : ['Apdex', 'Thresholds', 'Alerts']
 
   const activeTab = settingsTab && tabs.includes(settingsTab) ? settingsTab : tabs[0]
 
@@ -494,8 +605,62 @@ function SettingsDrawer({ view, serviceSubTab, serviceId, settingsTab, setSettin
 
   const svc = services.find(s => s.id === serviceId)
 
+  // The drawer is a dialog over the page (its backdrop dims the rest), so the
+  // keyboard is brought into it as it opens — onto its open tab, which is
+  // Source Maps when the exception modal sent the reader here — kept in it
+  // while it is open, and Escape closes it. Focus then goes back to what
+  // opened it, or, when that is gone (the modal that asked for Source Maps),
+  // to the page's settings gear — but only when focus has nowhere else to be.
+  // The drawer also closes because something in it moved the reader on (a
+  // link to another page, whose own mount may place focus); focus that has
+  // already landed on a control is left where it is, and only focus that fell
+  // to <body> with the drawer is brought back.
+  //
+  // The drawer box itself can hold focus (tabIndex -1, never a Tab stop), so a
+  // click on its text keeps focus inside it — where Escape and the Tab trap
+  // still hear the keyboard — instead of dropping it to <body>. A pointer's
+  // focus draws no ring, so the drawer looks as it always has.
+  const drawerRef = useRef(null)
+  const tabRefs = useRef({})
+  useEffect(() => {
+    const opener = document.activeElement
+    const first = tabRefs.current[activeTab] ?? drawerRef.current?.querySelector('.drawer-close')
+    first?.focus({ preventScroll: true })
+    return () => {
+      const at = document.activeElement
+      if (at && at !== document.body) return
+      const back = opener instanceof HTMLElement && opener !== document.body && opener.isConnected
+        ? opener
+        : document.querySelector('button[aria-label="Open settings"]')
+      back?.focus({ preventScroll: true })
+    }
+    // Once, as it opens: the open tab changing later is not a reason to move.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  const onDrawerKeyDown = (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onClose(); return }
+    trapTab(e)
+  }
+  // The tabs keep their look (div.drawer-tab) and gain what a tab needs: a
+  // role, one Tab stop for the strip, Enter or Space to open one, and the
+  // arrows to move along it.
+  const onTabKeyDown = (e, t) => {
+    const i = tabs.indexOf(t)
+    const to = e.key === 'ArrowRight' ? tabs[(i + 1) % tabs.length]
+      : e.key === 'ArrowLeft' ? tabs[(i - 1 + tabs.length) % tabs.length]
+        : e.key === 'Home' ? tabs[0]
+          : e.key === 'End' ? tabs[tabs.length - 1]
+            : (e.key === 'Enter' || e.key === ' ') ? t
+              : null
+    if (to == null) return
+    e.preventDefault()
+    setSettingsTab(to)
+    tabRefs.current[to]?.focus()
+  }
+  const tabDomId = t => `settings-tab-${t.replace(/\W+/g, '-').toLowerCase()}`
+
   return (
-    <div className="settings-drawer open">
+    <div ref={drawerRef} className="settings-drawer open" role="dialog" aria-modal="true" aria-label="Settings" tabIndex={-1} onKeyDown={onDrawerKeyDown}>
       <div className="drawer-header">
         <button className="drawer-close" onClick={onClose} aria-label="Close settings">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12" /></svg>
@@ -504,15 +669,34 @@ function SettingsDrawer({ view, serviceSubTab, serviceId, settingsTab, setSettin
         {isInfra && <button className="drawer-done" onClick={onClose}>Done</button>}
       </div>
       {!isInfra && (
-        <div className="drawer-tabs">
+        <div className="drawer-tabs" role="tablist" aria-label="Settings sections">
           {tabs.map(t => (
-            <div key={t} className={`drawer-tab${t === activeTab ? ' active' : ''}`} onClick={() => setSettingsTab(t)}>{t}</div>
+            <div
+              key={t}
+              ref={el => { tabRefs.current[t] = el }}
+              id={tabDomId(t)}
+              role="tab"
+              aria-selected={t === activeTab}
+              aria-controls="settings-drawer-body"
+              tabIndex={t === activeTab ? 0 : -1}
+              className={`drawer-tab${t === activeTab ? ' active' : ''}`}
+              onClick={() => setSettingsTab(t)}
+              onKeyDown={e => onTabKeyDown(e, t)}
+            >
+              {t}
+            </div>
           ))}
         </div>
       )}
-      <div className="drawer-body">
+      <div
+        className="drawer-body"
+        id="settings-drawer-body"
+        {...(isInfra ? null : { role: 'tabpanel', 'aria-labelledby': tabDomId(activeTab) })}
+      >
         {isInfra ? (
           <InfraNavSettings hiddenNavItems={hiddenNavItems} setHiddenNavItems={setHiddenNavItems} />
+        ) : view === 'browser' && browser ? (
+          <BrowserSettings tab={activeTab} {...browser} />
         ) : (
           <SettingsBody tab={activeTab} view={view} serviceSubTab={serviceSubTab} svc={svc} timeRange={timeRange} redEndpoints={redEndpoints} />
         )}

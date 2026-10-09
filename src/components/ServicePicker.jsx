@@ -8,8 +8,18 @@ import { services } from '@/data/services'
 // this lists them in the order the data layer already sorts them - critical,
 // then warning, then healthy - so an incident is the first thing in the list
 // however much of it the search leaves.
+//
+// The service page lists its services; the Browser page lists its browser apps
+// through the same picker. `items` is the list ({ id, name, language? }, already
+// in severity order - this never re-sorts it), `label` the word in the field,
+// `noun` what one item is called in the accessible names, the tooltip and the
+// no-match line ("Switch app", "No apps match"), and `idPrefix` keeps the list's
+// and options' DOM ids apart from another picker's. The defaults are the
+// service page's, so it renders exactly as it did before these existed.
 
-export default function ServicePicker({ serviceId, onSelect }) {
+const capitalise = s => s.charAt(0).toUpperCase() + s.slice(1)
+
+export default function ServicePicker({ serviceId, onSelect, items = services, label = 'Service', noun = 'service', idPrefix = 'svc' }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [hl, setHl] = useState(0)
@@ -21,14 +31,16 @@ export default function ServicePicker({ serviceId, onSelect }) {
   // rather than dropping to the page.
   const refocus = useRef(false)
 
-  const current = services.find(s => s.id === serviceId) || services[0]
+  const current = items.find(s => s.id === serviceId) || items[0]
   const q = query.trim().toLowerCase()
-  const matches = q ? services.filter(s => s.name.toLowerCase().includes(q)) : services
+  const matches = q ? items.filter(s => s.name.toLowerCase().includes(q)) : items
+  const listId = `${idPrefix}-picker-list`
+  const optId = s => `${idPrefix}-opt-${s.id}`
 
   const close = useCallback(() => { setOpen(false); setQuery('') }, [])
 
   const openList = () => {
-    setHl(Math.max(0, services.findIndex(s => s.id === current.id)))
+    setHl(Math.max(0, items.findIndex(s => s.id === current.id)))
     setOpen(true)
   }
 
@@ -69,20 +81,24 @@ export default function ServicePicker({ serviceId, onSelect }) {
     else if (e.key === 'Tab') close()
   }
 
+  // Nothing to pick from, so nothing to draw: a page with no apps says so in
+  // its own body rather than in an empty field.
+  if (!current) return null
+
   return (
     <div className="svc-picker" ref={rootRef}>
       <div className={`svc-picker-field${open ? ' open' : ''}`}>
         {open ? (
           <div className="svc-picker-control">
-            <span className="svc-picker-label" aria-hidden="true">Service</span>
+            <span className="svc-picker-label" aria-hidden="true">{label}</span>
             <input
               ref={inputRef}
               className="svc-picker-input mono"
               role="combobox"
-              aria-label="Search services"
+              aria-label={`Search ${noun}s`}
               aria-expanded="true"
-              aria-controls="svc-picker-list"
-              aria-activedescendant={matches[hl] ? `svc-opt-${matches[hl].id}` : undefined}
+              aria-controls={listId}
+              aria-activedescendant={matches[hl] ? optId(matches[hl]) : undefined}
               placeholder={current.name}
               value={query}
               onChange={e => { setQuery(e.target.value); setHl(0) }}
@@ -97,23 +113,23 @@ export default function ServicePicker({ serviceId, onSelect }) {
             className="svc-picker-control"
             onClick={openList}
             onKeyDown={e => { if (e.key === 'ArrowDown') { e.preventDefault(); openList() } }}
-            title="Switch service"
-            aria-label={`Service: ${current.name}. Switch service`}
+            title={`Switch ${noun}`}
+            aria-label={`${label}: ${current.name}. Switch ${noun}`}
             aria-haspopup="listbox"
             aria-expanded="false"
           >
-            <span className="svc-picker-label" aria-hidden="true">Service</span>
+            <span className="svc-picker-label" aria-hidden="true">{label}</span>
             <span className="svc-picker-name mono">{current.name}</span>
             {current.language && <span className="svc-lang">{current.language}</span>}
             <svg className="svc-picker-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
           </button>
         )}
         {open && (
-          <div className="svc-picker-list" id="svc-picker-list" role="listbox" aria-label="Services" ref={listRef}>
+          <div className="svc-picker-list" id={listId} role="listbox" aria-label={`${capitalise(noun)}s`} ref={listRef}>
             {matches.map((s, i) => (
               <div
                 key={s.id}
-                id={`svc-opt-${s.id}`}
+                id={optId(s)}
                 role="option"
                 aria-selected={s.id === current.id}
                 className={`svc-picker-item${s.id === current.id ? ' active' : ''}${i === hl ? ' hl' : ''}`}
@@ -125,7 +141,7 @@ export default function ServicePicker({ serviceId, onSelect }) {
                 {s.language && <span className="svc-lang">{s.language}</span>}
               </div>
             ))}
-            {matches.length === 0 && <div className="svc-picker-empty">No services match “{query.trim()}”</div>}
+            {matches.length === 0 && <div className="svc-picker-empty">{`No ${noun}s match “`}{query.trim()}”</div>}
           </div>
         )}
       </div>

@@ -1,0 +1,60 @@
+/* The Browser page's metric tabs: Page Views, Ajax Calls and Web Vitals
+   (src/components/browser/{SummaryCard,MetricPanel,PageViewsTab,AjaxCallsTab,
+   WebVitalsTab}.jsx).
+
+   Additive only. Everything these tabs draw is the service page's own markup —
+   .charts-row/.chart-card for the summary cards, .panel/.red-table-* and the
+   LegendLineChart sections for the panel, SortableTable's .table-scroll for the
+   tables, .kpi-chip and .status-dot for ratings, Errors' .errp-delta for the
+   comparison chip — so what is here is only what that markup lacks for these
+   tabs, under brw- classes. No index.css class is restyled anywhere but inside
+   a brw- scope, every colour is a token, and the theme is html[data-theme],
+   so both themes follow without a rule of their own. */
+
+/* ── Summary cards ─────────────────────────────────────────────────────── */
+
+/* A card's name stays on one line, so the three cards of a row keep the same
+   height whatever the width: on a narrow three-up row 'Interaction to Next
+   Paint (INP)' would otherwise wrap in one card and not the next, and drop
+   that card's chart a line below its neighbours'. It gives way with an
+   ellipsis instead, and the full name is the span's title. */
+.brw-sum-card .clbl { min-height: 22px; }
+.brw-sum-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A grid item is as wide as its content at the least, so the card with the
+   longest one-line name would widen past the other two. At zero the three
+   columns stay equal and the name gives way instead. */
+.charts-row > .brw-sum-card { min-width: 0; }
+
+/* The headline figure with its comparison chip beside it, on the figure's
+   baseline, and a web vital's rating chip at the far end of the same line —
+   centred on it, since the chip is a pill rather than text. */
+.brw-sum-figure { display: flex; align-items: baseline; gap: 8px; min-width: 0; margin-bottom: 6px; }
+.chart-card .brw-sum-figure .cval { margin-bottom: 0; line-height: 1.2; white-space: nowrap; }
+.brw-sum-figure .kpi-chip { margin-left: auto; align-self: center; }
+
+/* Shorter than the service page's trend cards (241px): these carry a headline
+   above the chart, and the panel of full-size charts sits right under them.
+   Scoped under .charts-row so it outranks `.charts-row .chart-host`. */
+.charts-row .brw-sum-card .chart-host { height: 176px; }
+
+/* ── Tables ────────────────────────────────────────────────────────────── */
+
+/* Production's rows open nothing, so they must not look as if they do: the
+   global `tbody tr { cursor: pointer }` is undone here. The hover tint stays —
+   it is what keeps a reader's eye on one row across four columns. */
+.brw-static tbody tr { cursor: default; }
+
+/* Every header here carries an ⓘ, and beside it the faint circled arrow every
+   sortable header shows at rest read as the same icon twice ('ROUTE ⓘ ⊙').
+   So an unsorted column's arrow waits for the pointer or the keyboard to
+   reach its header, and the sorted column keeps its arrow, which is news. */
+.brw-static .sortable-th-arrow:not(.active) { opacity: 0; }
+.brw-static .sortable-th:is(:hover, :focus-within) .sortable-th-arrow { opacity: .9; }
+
+/* The Web Vitals Endpoint cell: the page's one worst-rating dot, then its URL,
+   cut with an ellipsis (the full URL is its title) so a long one cannot push
+   the vitals off the right of the panel. The dot is the smaller 7px one the
+   Traces list uses beside a name, and sits at the start of the line. */
+.brw-vital-ep { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.brw-vital-ep .status-dot { width: 7px; height: 7px; }
+.brw-vital-ep .cell-clip { min-width: 0; max-width: 420px; }

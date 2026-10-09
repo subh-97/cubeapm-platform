@@ -43,6 +43,7 @@ test('the other pages parse from their paths', () => {
   assert.deepEqual(parseRoute('/mobile-traces'), { view: 'mtraces' })
   assert.deepEqual(parseRoute('/explore'), { view: 'explore' })
   assert.deepEqual(parseRoute('/errors'), { view: 'errors' })
+  assert.deepEqual(parseRoute('/browser'), { view: 'browser' })
   assert.deepEqual(parseRoute('/infrastructure'), { view: 'infra' })
   assert.deepEqual(parseRoute('/trace/4bf92f3577b34da6'), { view: 'trace', traceId: '4bf92f3577b34da6' })
   assert.deepEqual(parseRoute('/home'), { view: 'home' })
@@ -125,12 +126,19 @@ test('parsing then printing lands on the canonical URL', () => {
   assert.equal(canon('/service/no-such-service', '?tab=red'), `/service/${first}?tab=red`)
   assert.equal(canon('/', ''), '/home')
   assert.equal(canon('/logs', ''), '/logs')
+  assert.equal(canon('/browser', '?service=cubedemo-web&tab=traces'), '/browser')
+  assert.equal(routeUrl({ view: 'browser' }), '/browser')
   assert.equal(canon('/trace/abc', ''), traceUrl('abc'))
 })
 
 test('a page keeps its own query string; a service URL is rewritten whole', () => {
   const errors = '?kind=client&service=payment-service&exception=Jedis'
   assert.equal(canonicalUrl('/errors', errors), `/errors${errors}`)
+  // The Browser page's link, pasted from production exactly: its foreign keys
+  // (index, name, refresh) are the page's to read past, not App's to strip.
+  const browser = '?service=cubedemo-web&view=graph&index=cube%3Aerror&error=TypeError&name=POST+api.stripe.com%2Fv1%2Fpayment_intents&kind=server&time=7d&refresh=1791403390990&tab=pageviews&endpoint=%2Faccount%2F%3AuserId%2Fwishlist'
+  assert.equal(canonicalUrl('/browser', browser), `/browser${browser}`)
+  assert.equal(canonicalUrl('/browser', ''), '/browser')
   assert.equal(canonicalUrl('/explore', ''), '/explore')
   assert.equal(canonicalUrl('/mobile-traces', ''), '/mobile-traces')
   assert.equal(canonicalUrl('/mobile-traces', '?q=eventType%3AMobileCrash'), '/mobile-traces?q=eventType%3AMobileCrash')

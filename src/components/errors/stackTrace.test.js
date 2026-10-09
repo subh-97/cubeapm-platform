@@ -2,14 +2,16 @@
 // which frames are the application's, where a wrapped cause starts, and what a
 // folded trace keeps. The last test runs every sample the data layer hands the
 // drawer, so a change to the generated traces cannot quietly turn the root
-// cause into a library frame.
+// cause into a library frame. The browser's JavaScript traces — V8 frames,
+// the bare frames source-map tools print, and genuinely minified bundles —
+// are read by the same function with the file-based app test.
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { REFERENCE_WINDOW, resolveWindow } from '@/data/timeWindow'
 import { ERROR_SIDES, errorGroupsForWindow, errorSamplesFor } from '@/data/errors'
 import {
-  classifyStackLines, countFrames, foldStack, isAppFrame, isFrame, FOLD_FRAMES,
+  classifyStackLines, countFrames, foldStack, isAppFrame, isFrame, isJsAppFrame, jsFramePath, FOLD_FRAMES,
 } from './stackTrace.js'
 
 const POOL_TRACE = [
@@ -130,4 +132,93 @@ test('every sample the drawer is handed opens on its own throw and keeps its cau
     }
   }
   assert.ok(checked > 50)
+})
+
+// ── JavaScript ────────────────────────────────────────────────────────────
+
+const JS_HEAD = "TypeError: Cannot read properties of undefined (reading 'clientSecret')"
+
+// Source-mapped, as V8 prints it: two of the shop's own frames under src/,
+// then React's event plumbing, a vendor chunk and V8's async marker.
+const JS_UNMINIFIED = [
+  JS_HEAD,
+  '    at CheckoutForm.submit (src/pages/checkout/CheckoutForm.jsx:142:37)',
+  '    at CartSummary (src/components/cart.js:118:22)',
+  '    at HTMLUnknownElement.callCallback (node_modules/react-dom/cjs/react-dom.development.js:4164:14)',
+  '    at Object.invokeGuardedCallbackDev (react-dom/cjs/react-dom.development.js:4213:16)',
+  '    at https://shop.cubedemo.com/assets/vendor-8b1d3e.js:1:52011',
+  '    at async Promise.all (index 0)',
+].join('\n')
+
+// What the browser actually reported: every frame a position in a bundle.
+const JS_MINIFIED = [
+  JS_HEAD,
+  '    at t.render (https://shop.cubedemo.com/assets/index-4f2a9c.js:2:184310)',
+  '    at Ji (https://shop.cubedemo.com/assets/vendor-8b1d3e.js:1:52011)',
+  '    at https://shop.cubedemo.com/assets/index-4f2a9c.js:2:9921',
+].join('\n')
+
+const js = text => classifyStackLines(text, { isApp: isJsAppFrame })
+
+test('a V8 trace opens on its throw, with the app\'s own source frames apart from React and the vendor chunk', () => {
+  const lines = js(JS_UNMINIFIED)
+  assert.deepEqual(kinds(lines), ['head', 'app', 'app', 'lib', 'lib', 'lib', 'lib'])
+  // The throw's own parentheses are part of its message, not a frame position.
+  assert.equal(lines[0].text, JS_HEAD)
+  assert.equal(countFrames(lines), 6)
+})
+
+test('a minified trace is all frames and no app code: nothing in a bundle can be attributed without its map', () => {
+  const lines = js(JS_MINIFIED)
+  assert.deepEqual(kinds(lines), ['head', 'lib', 'lib', 'lib'])
+  assert.equal(lines[1].text, '    at t.render (https://shop.cubedemo.com/assets/index-4f2a9c.js:2:184310)')
+})
+
+test('frames printed without `at` are still frames, not more of the message', () => {
+  const text = [
+    JS_HEAD,
+    'CheckoutForm.submit (src/pages/checkout/CheckoutForm.jsx:142:37)',
+    'CartSummary (src/components/cart.js:118:22)',
+    'callCallback (node_modules/react-dom/cjs/react-dom.development.js:4164:14)',
+    'render@https://shop.cubedemo.com/assets/index-4f2a9c.js:2:184310',
+    '@https://shop.cubedemo.com/assets/vendor-8b1d3e.js:1:52011',
+  ].join('\n')
+  assert.deepEqual(kinds(js(text)), ['head', 'app', 'app', 'lib', 'lib', 'lib'])
+  // Before the first frame a line is still the message's, however it reads.
+  assert.deepEqual(kinds(js(`Error: first line\nsecond line\n${JS_UNMINIFIED.split('\n')[1]}`)), ['head', 'head', 'app'])
+})
+
+test('without a JS test, a JS trace keeps its shape and no frame passes for the JVM app\'s', () => {
+  assert.deepEqual(kinds(classifyStackLines(JS_UNMINIFIED)), ['head', 'lib', 'lib', 'lib', 'lib', 'lib', 'lib'])
+})
+
+test('isApp decides instead of the package prefixes, and is handed the frame without its `at`', () => {
+  const seen = []
+  const lines = classifyStackLines(POOL_TRACE, { isApp: f => { seen.push(f); return f.startsWith('redis.') } })
+  assert.deepEqual(kinds(lines), ['head', 'app', 'lib', 'lib', 'cause', 'lib', 'more'])
+  assert.equal(seen[0], 'redis.clients.jedis.util.Pool.getResource(Pool.java:84)')
+})
+
+test('a JS frame is the app\'s by the file it points at, wherever the file is served from', () => {
+  assert.equal(jsFramePath('CartSummary (src/components/cart.js:118:22)'), 'src/components/cart.js')
+  assert.equal(jsFramePath('t.render (https://shop.cubedemo.com/assets/index-4f2a9c.js:2:184310)'), 'assets/index-4f2a9c.js')
+  assert.equal(jsFramePath('render@https://shop.cubedemo.com/assets/index-4f2a9c.js:2:184310'), 'assets/index-4f2a9c.js')
+  assert.equal(jsFramePath('https://shop.cubedemo.com/assets/vendor-8b1d3e.js:1:52011'), 'assets/vendor-8b1d3e.js')
+  assert.equal(isJsAppFrame('Cart (webpack:///./src/components/cart.js:1:2)'), true)
+  assert.equal(isJsAppFrame('Cart (https://localhost:5173/src/components/cart.js:1:2)'), true)
+  assert.equal(isJsAppFrame('Cart (file:///Users/me/shop/src/components/cart.js:1:2)'), true)
+  // A package's own src/ is still the package's.
+  assert.equal(isJsAppFrame('x (node_modules/@stripe/stripe-js/src/index.js:1:2)'), false)
+  assert.equal(isJsAppFrame('x (react-dom/cjs/react-dom.development.js:4164:14)'), false)
+  assert.equal(isJsAppFrame('new Promise (<anonymous>)'), false)
+  assert.equal(isJsAppFrame('Cart (app/components/cart.js:1:2)', ['app/']), true)
+})
+
+test('a long JS trace folds like a JVM one, keeping its throw', () => {
+  const text = [JS_HEAD, ...Array.from({ length: 20 }, (_, i) => `    at f${i} (src/f${i}.js:${i + 1}:1)`)].join('\n')
+  const folded = foldStack(js(text))
+  assert.equal(folded[0].kind, 'head')
+  assert.equal(countFrames(folded), FOLD_FRAMES)
+  assert.equal(folded.at(-1).kind, 'fold')
+  assert.equal(folded.at(-1).hidden, 8)
 })
