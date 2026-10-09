@@ -1,5 +1,6 @@
 import { spanRows } from '@/data/tracesExplorer'
 import { isIdentityValue } from '@/data/observability'
+import { STATUS } from '@/utils/status'
 
 /**
  * The traces half of the query vocabulary.
@@ -86,14 +87,21 @@ export function getSpanFieldValue(span, field) {
   return span.tags?.[field]
 }
 
-/** Columns the table always shows, in order. `Time` is rendered separately. */
+/**
+ * Columns the table always shows, in order. `Time` is rendered separately.
+ *
+ * `link` marks a value that is a control rather than text: 'trace' opens the
+ * trace it names, 'filter' narrows the results to it (with `linkTitle` saying
+ * what that does). The explorer renders both the same way, so a dataset only
+ * has to say which of its columns lead somewhere.
+ */
 export const SPAN_COLUMNS = [
   { key: 'service',     label: 'service',     width: 168 },
   { key: 'span_name',   label: 'span_name',   width: 300, grow: true },
   { key: 'span_kind',   label: 'span_kind',   width: 92 },
   { key: 'duration',    label: 'duration',    width: 104, align: 'right' },
   { key: 'status_code', label: 'status_code', width: 108 },
-  { key: 'trace_id',    label: 'trace_id',    width: 246, mono: true },
+  { key: 'trace_id',    label: 'trace_id',    width: 246, mono: true, link: 'trace' },
   { key: 'span_id',     label: 'span_id',     width: 148, mono: true },
 ]
 
@@ -166,6 +174,45 @@ export function statusForSpan(statusCode) {
   if (statusCode === 'ERROR') return 'critical'
   if (statusCode === 'UNSET') return 'healthy'
   return 'neutral'
+}
+
+/**
+ * The severity a span row carries — its status, since that is the only part of
+ * a span that is a severity rather than an identity.
+ */
+export function statusForSpanRow(row) {
+  return statusForSpan(row.statusCode)
+}
+
+/**
+ * The drawer's badge for a span. A span event has no status, so it is named for
+ * what it is rather than given a severity word it never claimed.
+ */
+export function spanBadgeFor(row) {
+  return { status: statusForSpan(row.statusCode), label: row.statusCode || 'Span event' }
+}
+
+/**
+ * The bands the span histogram stacks by, bottom to top.
+ *
+ * Span status is the one dimension of a span that is a severity rather than an
+ * identity, so the bars use the same red/green the rest of the product reserves
+ * for severity — named by status here, and drawn from that status's token by
+ * the page, so no band carries a colour of its own. Span events get the neutral
+ * tone: they are rows in this table too — leaving them out would make the chart
+ * disagree with the row count under it — but they carry no status of their own
+ * to colour. The keys are the ones `spanVolumeForWindow` writes.
+ */
+export const SPAN_BANDS = [
+  { key: 'unset', label: 'UNSET',      status: STATUS.healthy,  opacity: 0.6 },
+  { key: 'event', label: 'span_event', status: STATUS.neutral,  opacity: 0.65 },
+  { key: 'error', label: 'ERROR',      status: STATUS.critical, opacity: 0.85 },
+]
+
+/** Which of SPAN_BANDS a span row is counted in. */
+export function spanBandOf(row) {
+  if (row.tags?.['event.domain'] === 'span_event') return 'event'
+  return row.statusCode === 'ERROR' ? 'error' : 'unset'
 }
 
 /* ---- waterfall search ---- */

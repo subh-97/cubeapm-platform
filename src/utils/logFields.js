@@ -198,15 +198,18 @@ const DB_INFRA_SOURCE = { mysql: 'mysql', redis: 'redis', mongodb: 'mongo', post
  * not always an APM service — on a real instance log rows carry `search` while
  * APM knows `search-service`. Linking anyway produces a page that loads, shows
  * nothing, and blames the user.
+ *
+ * `traceList` names the list a trace opens under, for the hint: a device's
+ * request opens under Mobile Traces, not Traces.
  */
-export function linkFor({ field, value, record, knownServices }) {
+export function linkFor({ field, value, record, knownServices, traceList = 'Traces' }) {
   if (value == null || value === '') return null
   const concept = conceptOf(field)
   const str = String(value)
 
   if (concept === 'traceId') {
     return { kind: 'open', view: 'traces', traceId: str, label: 'Open this trace',
-      hint: `Opens trace ${str.slice(0, 8)}… in Traces` }
+      hint: `Opens trace ${str.slice(0, 8)}… in ${traceList}` }
   }
 
   if (concept === 'service') {

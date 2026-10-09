@@ -40,6 +40,7 @@ test('a trailing slash or extra segment still names the service', () => {
 test('the other pages parse from their paths', () => {
   assert.deepEqual(parseRoute('/logs'), { view: 'logs' })
   assert.deepEqual(parseRoute('/traces'), { view: 'traces' })
+  assert.deepEqual(parseRoute('/mobile-traces'), { view: 'mtraces' })
   assert.deepEqual(parseRoute('/explore'), { view: 'explore' })
   assert.deepEqual(parseRoute('/errors'), { view: 'errors' })
   assert.deepEqual(parseRoute('/infrastructure'), { view: 'infra' })
@@ -51,6 +52,63 @@ test('the other pages parse from their paths', () => {
 
 test('a trace URL with no id is the Traces list', () => {
   assert.deepEqual(parseRoute('/trace/'), { view: 'traces' })
+})
+
+// A mobile trace is the one route whose dataset is in the query string, so
+// these are the cases that decide whether a reload of one lands on the device's
+// request or on a backend trace with the same id.
+test('a mobile trace names its datasource; a backend trace has no such key', () => {
+  assert.deepEqual(parseRoute('/trace/abc', '?datasource=mobile'),
+    { view: 'trace', traceId: 'abc', datasource: 'mobile' })
+  assert.deepEqual(parseRoute('/trace/abc', 'datasource=mobile'),
+    { view: 'trace', traceId: 'abc', datasource: 'mobile' })
+  assert.deepEqual(parseRoute('/trace/abc', ''), { view: 'trace', traceId: 'abc' })
+  assert.deepEqual(parseRoute('/trace/abc', '?datasource=traces'), { view: 'trace', traceId: 'abc' })
+})
+
+test('an unknown datasource reads as the backend, with no key at all', () => {
+  for (const q of ['?datasource=bogus', '?datasource=', '?datasource=MOBILE', '?datasource=mobile?datasource=mobile']) {
+    const route = parseRoute('/trace/abc', q)
+    assert.deepEqual(route, { view: 'trace', traceId: 'abc' }, q)
+    assert.ok(!('datasource' in route), `${q} leaves no datasource key`)
+    assert.equal(canonicalUrl('/trace/abc', q), '/trace/abc', q)
+  }
+})
+
+test('a mobile trace URL with no id is the Mobile Traces list', () => {
+  assert.deepEqual(parseRoute('/trace/', '?datasource=mobile'), { view: 'mtraces' })
+  assert.equal(canonicalUrl('/trace/', '?datasource=mobile'), '/mobile-traces')
+  assert.equal(canonicalUrl('/trace/', ''), '/traces')
+})
+
+test('traceUrl spells the datasource only for mobile', () => {
+  assert.equal(traceUrl('abc'), '/trace/abc')
+  assert.equal(traceUrl('abc', 'traces'), '/trace/abc')
+  assert.equal(traceUrl('abc', 'bogus'), '/trace/abc')
+  assert.equal(traceUrl('abc', 'mobile'), '/trace/abc?datasource=mobile')
+  assert.equal(traceUrl('a b/c', 'mobile'), '/trace/a%20b%2Fc?datasource=mobile')
+  assert.equal(routeUrl({ view: 'trace', traceId: 'abc', datasource: 'mobile' }), '/trace/abc?datasource=mobile')
+  assert.equal(routeUrl({ view: 'trace', traceId: 'abc' }), '/trace/abc')
+  assert.equal(routeUrl({ view: 'mtraces' }), '/mobile-traces')
+})
+
+test('a mobile trace round-trips with exactly one ?datasource=mobile', () => {
+  const once = (url) => {
+    const [path, query = ''] = url.split('?')
+    return canonicalUrl(path, query ? `?${query}` : '')
+  }
+  const start = traceUrl('mob_4bf92f3577b34da6', 'mobile')
+  assert.equal(once(start), start)
+  assert.equal(once(once(start)), start)
+  assert.equal(start.split('datasource=').length - 1, 1)
+  const [path, query] = start.split('?')
+  assert.deepEqual(parseRoute(path, `?${query}`),
+    { view: 'trace', traceId: 'mob_4bf92f3577b34da6', datasource: 'mobile' })
+  // A trace owns its whole URL, as a service does: a stray parameter is
+  // dropped rather than carried, and the datasource survives it.
+  assert.equal(canonicalUrl('/trace/abc', '?datasource=mobile&stray=1'), '/trace/abc?datasource=mobile')
+  assert.equal(canonicalUrl('/trace/abc', '?stray=1&datasource=mobile'), '/trace/abc?datasource=mobile')
+  assert.equal(canonicalUrl('/trace/abc', '?stray=1'), '/trace/abc')
 })
 
 test('Overview is left out of the URL, other tabs are spelled as ?tab=', () => {
@@ -74,6 +132,8 @@ test('a page keeps its own query string; a service URL is rewritten whole', () =
   const errors = '?kind=client&service=payment-service&exception=Jedis'
   assert.equal(canonicalUrl('/errors', errors), `/errors${errors}`)
   assert.equal(canonicalUrl('/explore', ''), '/explore')
+  assert.equal(canonicalUrl('/mobile-traces', ''), '/mobile-traces')
+  assert.equal(canonicalUrl('/mobile-traces', '?q=eventType%3AMobileCrash'), '/mobile-traces?q=eventType%3AMobileCrash')
   assert.equal(canonicalUrl('/', ''), '/home')
   assert.equal(canonicalUrl('/service/notify-service', '?tab=red'), '/service/notify-service?tab=red')
   assert.equal(canonicalUrl('/service/notify-service', '?tab=red&stray=1'), '/service/notify-service?tab=red')

@@ -1,9 +1,7 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
-import { spanRowsForWindow, spanVolumeForWindow, buildSpanFacets, spanFacetFieldsFor } from '@/data/tracesExplorer'
-import { errorSamplesFor, mergeErrorSpans } from '@/utils/tracesHandoff'
-import { BASE_TIME } from '@/data/observability'
-import { resolveWindow, bucketIndexOf } from '@/data/timeWindow'
+import { resolveWindow } from '@/data/timeWindow'
+import { TRACES_SOURCE, filterVolume } from '@/utils/explorerSources'
 import PageBar from '@/components/layout/PageBar'
 import QueryBuilder, { applyChipsToLog, chipsToString } from '@/components/QueryBuilder'
 import FacetGroup from '@/components/explorer/FacetGroup'
@@ -29,17 +27,10 @@ import { ALIASES } from '@/utils/logFields'
 import { LogRecordDrawer } from '@/components/LogRecordDrawer'
 import QueryHistoryDrawer from '@/components/explorer/QueryHistoryDrawer'
 import AlertDrawer from '@/components/explorer/AlertDrawer'
-import {
-  TRACE_FIELD_CATALOG, getSpanFieldValue, SPAN_ALL_FIELDS, DEFAULT_ACTIVE_FIELDS,
-  columnsFor, formatSpanDuration, statusForSpan,
-} from '@/utils/traceFields'
 import { GRID_PROPS, valueAxisProps, fmtCount } from '@/components/charts/chartDefaults'
 import { buildTimeAxis } from '@/components/charts/timeAxis'
 import ChartTooltip from '@/components/charts/ChartTooltip'
 import { useTimeFocus, useMeasuredWidth, useSeriesHover } from '@/components/charts/useTimeFocus'
-
-const AGG_ALL_FIELDS = TRACE_FIELD_CATALOG.map(f => f.field)
-const AGG_NUMERIC_FIELDS = new Set(TRACE_FIELD_CATALOG.filter(f => f.type === 'keyword').map(f => f.field))
 
 const FILTERS_MIN_W = 232
 const FILTERS_MAX_W = Math.round(FILTERS_MIN_W * 1.6)
@@ -49,64 +40,30 @@ const NOTE_DESC_MAX = 100
 // happens not to parse". Only the former earns an error on paste.
 const LOOKS_LIKE_QUERY = /[:(]|!=|!~|\s(?:AND|OR|in|not_in)\s/i
 
-// Example queries offered in the bar's saved list. Traces get their own set —
-// the log examples are written about fields a span does not have.
-const TRACE_SAVED_QUERIES = [
-  { id: 'tq1', name: 'Failing spans', chips: [{ field: 'status_code', op: 'eq', value: 'ERROR' }] },
-  { id: 'tq2', name: 'Failing server spans', chips: [
-    { field: 'span_kind', op: 'eq', value: 'server' },
-    { field: 'status_code', op: 'eq', value: 'ERROR', connector: 'AND' },
-  ] },
-  { id: 'tq3', name: 'Database calls', chips: [{ field: 'category', op: 'eq', value: 'db' }] },
-  { id: 'tq4', name: 'Span events only', chips: [{ field: 'event.domain', op: 'eq', value: 'span_event' }] },
-]
-
-// Recent queries, in the traces vocabulary. A log query offered here would be
-// one that cannot run against spans, so the two pages keep separate histories.
-const QUERY_HISTORY = (() => {
-  const now = BASE_TIME.getTime()
-  return [
-    { id: 1, query: 'status_code:=ERROR AND span_kind:=server', time: new Date(now - 6 * 60000), results: 142 },
-    { id: 2, query: 'service:=payment-service AND category:=db', time: new Date(now - 21 * 60000), results: 318 },
-    { id: 3, query: 'http.status_code:5*', time: new Date(now - 48 * 60000), results: 96 },
-    { id: 4, query: 'db.system:=redis AND cache.hit:=false', time: new Date(now - 1.4 * 3600000), results: 57 },
-    { id: 5, query: 'event.domain:=span_event AND event_name:=exception', time: new Date(now - 2.2 * 3600000), results: 74 },
-    { id: 6, query: 'span_name:"POST /v1/shipment"', time: new Date(now - 3.5 * 3600000), results: 210 },
-    { id: 7, query: 'exception.type:=java.lang.RuntimeException', time: new Date(now - 5 * 3600000), results: 61 },
-    { id: 8, query: 'shipment.carrier:=fedex AND status_code:=ERROR', time: new Date(now - 9 * 3600000), results: 18 },
-    { id: 9, query: 'net.peer.name:=api.twilio.com', time: new Date(now - 14 * 3600000), results: 133 },
-    { id: 10, query: 'span_kind:=client AND category:=http', time: new Date(now - 26 * 3600000), results: 402 },
-  ]
-})()
-
-// Span status is the one dimension of a span that is a severity rather than an
-// identity, so the bars use the same red/green the rest of the product reserves
-// for severity. Span events get the neutral tone: they are rows in this table
-// too — leaving them out would make the chart disagree with the row count under
-// it — but they carry no status of their own to colour.
-const VOLUME_SERIES = [
-  { key: 'unset', label: 'UNSET', color: '#22C55E', opacity: 0.6 },
-  { key: 'event', label: 'span_event', color: '#616C86', opacity: 0.65 },
-  { key: 'error', label: 'ERROR', color: '#EF4444', opacity: 0.85 },
-]
-
 // Named because the tick ladder has to subtract the right-hand margin from the
 // width it is given: that strip is not room a label can be drawn in.
 const VOLUME_MARGIN = { top: 8, right: 6, left: 0, bottom: 0 }
 
+// A band is a severity, so its colour is its status's token rather than a hex
+// of its own: one place decides what "critical" looks like, in either theme.
+const bandColor = (band) => `var(--${band.status})`
+
+// The legend's value emphasis follows the band's severity, not its name, so a
+// dataset's own failing band is marked without the page knowing what it is
+// called.
+const BAND_VALUE_CLASS = { critical: ' val-critical', warning: ' val-warning' }
+
 // The band colours survive the move to the shared tooltip, because here they
 // genuinely mean severity rather than identity — but they move off the text and
-// onto the swatch, so an ERROR count reads as legibly as an UNSET one.
-// Worst-first, matching the legend under the chart.
-const VOLUME_TOOLTIP_SERIES = [...VOLUME_SERIES].reverse()
-
+// onto the swatch, so an ERROR count reads as legibly as an UNSET one. The
+// caller passes the bands worst-first, matching the legend under the chart.
 //
 // `suppressed` is the platform rule for a page with more than one chart: only
 // the chart the pointer is actually in opens a panel, the rest show the
 // crosshair alone. This page draws a single chart today, so it is always the
 // hovered one and the flag never fires — it is wired anyway so that a second
 // chart placed beside this one inherits the rule without an edit here.
-function VolumeTooltip({ active, payload, nowMs, hoverKey, suppressed }) {
+function VolumeTooltip({ active, payload, nowMs, hoverKey, suppressed, series }) {
   if (!active || !payload?.length) return null
   const rec = payload[0]?.payload
   if (!rec) return null
@@ -119,7 +76,7 @@ function VolumeTooltip({ active, payload, nowMs, hoverKey, suppressed }) {
       nowMs={nowMs}
       hoverKey={hoverKey}
       suppressed={suppressed}
-      items={VOLUME_TOOLTIP_SERIES.map(s => ({
+      items={series.map(s => ({
         key: s.key,
         label: s.label,
         value: rec[s.key]?.toLocaleString(),
@@ -130,7 +87,10 @@ function VolumeTooltip({ active, payload, nowMs, hoverKey, suppressed }) {
   )
 }
 
+// A week of spans runs to tens of millions, which "26040.64K" spells badly.
 function compactCount(n) {
+  if (n >= 1e9) return `${(n / 1e9).toFixed(2)}B`
+  if (n >= 1e6) return `${(n / 1e6).toFixed(2)}M`
   if (n >= 1000) return `${(n / 1000).toFixed(2)}K`
   return n.toLocaleString()
 }
@@ -155,8 +115,7 @@ function truncate(text, max) {
   return t.length > max ? `${t.slice(0, max - 1)}…` : t
 }
 
-function downloadCSV(rows) {
-  const cols = ['time', 'service', 'span_name', 'span_kind', 'duration', 'status_code', 'trace_id', 'span_id']
+function downloadCSV(rows, cols, prefix) {
   const escape = v => `"${String(v ?? '').replace(/"/g, '""')}"`
   const lines = [
     cols.map(escape).join(','),
@@ -168,21 +127,33 @@ function downloadCSV(rows) {
   const blob = new Blob([lines.join('\n')], { type: 'text/csv' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
-  a.href = url; a.download = `traces-${Date.now()}.csv`; a.click()
+  a.href = url; a.download = `${prefix}-${Date.now()}.csv`; a.click()
   URL.revokeObjectURL(url)
 }
 
-/** One cell of the span table. Only three columns are more than their text. */
-function SpanCell({ col, row, onOpenTrace }) {
+const isBlank = (v) => v == null || v === ''
+
+/**
+ * One cell of the table. Only duration, status_code and the columns marked as
+ * links are more than their text.
+ */
+function SpanCell({ col, row, source, onOpenTrace, onFilter }) {
   const raw = row.tags[col.key]
   if (col.key === 'duration') {
-    return <span className="span-cell span-dur mono" style={{ width: col.width }}>{formatSpanDuration(raw)}</span>
+    // A record with no duration has not "taken 0 ns" — it was never timed — so
+    // the blank reads as a blank, like every other empty cell.
+    const text = isBlank(raw) ? '' : source.formatDuration(raw)
+    return (
+      <span className="span-cell span-dur mono" style={{ width: col.width }}>
+        {text || <span className="span-empty">—</span>}
+      </span>
+    )
   }
   if (col.key === 'status_code') {
     // A span event has no status, which is a different statement from UNSET.
     // Rendering the blank as a dash rather than nothing keeps the column
     // readable as a column instead of looking like a rendering failure.
-    const status = statusForSpan(raw)
+    const status = source.statusForStatusCode(raw)
     return (
       <span className="span-cell" style={{ width: col.width }}>
         {raw
@@ -191,16 +162,32 @@ function SpanCell({ col, row, onOpenTrace }) {
       </span>
     )
   }
-  if (col.key === 'trace_id') {
-    // The one value on the row that leads somewhere else: the waterfall for the
-    // whole request this span belongs to.
+  if (col.link === 'trace' || col.link === 'filter') {
+    // The values on the row that lead somewhere else: a trace id opens the
+    // waterfall for the whole request, a filter link narrows the results to
+    // its value. A record without the value has nowhere to lead, so it gets
+    // the blank rather than a link to nothing.
+    const cls = `span-cell${col.mono ? ' mono' : ''}${col.grow ? ' grow' : ''}`
+    if (isBlank(raw)) {
+      return <span className={cls} style={{ width: col.width }}><span className="span-empty">—</span></span>
+    }
+    const isTrace = col.link === 'trace'
+    // A filter link's values are long and the column cuts them off, so the
+    // full value leads the tooltip and the action follows it.
+    const title = isTrace
+      ? (col.linkTitle ?? `Open trace ${raw}`)
+      : (col.linkTitle ? `${raw}\n${col.linkTitle}` : `Filter to ${raw}`)
     return (
-      <span className="span-cell mono" style={{ width: col.width }}>
+      <span className={cls} style={{ width: col.width }}>
         <button
           type="button"
           className="span-trace-link"
-          title={`Open trace ${raw}`}
-          onClick={(e) => { e.stopPropagation(); onOpenTrace(raw) }}
+          title={title}
+          onClick={(e) => {
+            e.stopPropagation()
+            if (isTrace) onOpenTrace(raw)
+            else onFilter({ field: col.key, op: 'eq', value: String(raw) })
+          }}
         >
           {raw}
         </button>
@@ -220,6 +207,10 @@ function SpanCell({ col, row, onOpenTrace }) {
   )
 }
 
+// What a source without extra rows contributes: one shared empty array, so
+// the merged stream stays the seeded one and nothing downstream recomputes.
+const NO_EXTRA_ROWS = []
+
 /**
  * Traces explorer.
  *
@@ -229,26 +220,43 @@ function SpanCell({ col, row, onOpenTrace }) {
  * severity dimension the chart stacks by, and the table: a log line is one
  * blob of text, a span is a fixed set of columns, so this one is a real table
  * rather than a stream.
+ *
+ * `source` is the dataset the page reads (see utils/explorerSources): Traces by
+ * default, Mobile Traces by passing its config. Everything that differs between
+ * the two lives there, so this file holds no knowledge of either. The page
+ * reads it on mount and assumes it never changes — a caller showing a different
+ * dataset mounts a new page (`key={source.id}`), because the bar's chips,
+ * recents and saved queries belong to the dataset they were written about.
  */
-export default function TracesView({ goHome, timeRange, setTimeRange, setToast, onOpenLink, onOpenTrace, incomingChip, onIncomingChipApplied }) {
+export default function TracesView({ source = TRACES_SOURCE, goHome, timeRange, setTimeRange, setToast, onOpenLink, onOpenTrace, incomingChip, onIncomingChipApplied }) {
   // The span stream is read for the selected range, the same way the log stream
   // is — see LogsView. Facets count over the window's rows, so the number
   // beside each value describes what is actually on screen. The error samples
   // a link from Errors needs are merged in further down, once the applied
   // query they depend on exists.
   const win = useMemo(() => resolveWindow(timeRange), [timeRange])
-  const seededRows = useMemo(() => spanRowsForWindow(win), [win])
-  const volume = useMemo(() => spanVolumeForWindow(win), [win])
+  const seededRows = useMemo(() => source.rowsForWindow(win), [source, win])
+  const volume = useMemo(() => source.volumeForWindow(win), [source, win])
+
+  // The aggregation popover's field lists, derived from the dataset's own
+  // vocabulary: `keyword` there means numeric, which is what avg() and its
+  // kind can be asked of.
+  const aggAllFields = useMemo(() => source.fieldCatalog.map(f => f.field), [source])
+  const aggNumericFields = useMemo(
+    () => new Set(source.fieldCatalog.filter(f => f.type === 'keyword').map(f => f.field)),
+    [source],
+  )
+
+  // The histogram's bands with their colours resolved, bottom to top as they
+  // stack, and worst-first for the legend and the tooltip.
+  const volumeSeries = useMemo(() => source.bands.map(b => ({ ...b, color: bandColor(b) })), [source])
+  const legendSeries = useMemo(() => [...volumeSeries].reverse(), [volumeSeries])
 
   const [filters, setFilters] = useState({})
   const [selectedId, setSelectedId] = useState(null)
   const [chips, setChips] = useState([])
   const [runRequested, setRunRequested] = useState(false)
-  const [recents, setRecents] = useState([
-    [{ field: 'status_code', op: 'eq', value: 'ERROR' }],
-    [{ field: 'span_kind', op: 'eq', value: 'server' }],
-    [{ field: 'service', op: 'eq', value: 'payment-service' }],
-  ])
+  const [recents, setRecents] = useState(source.initialRecents)
   const addRecent = useCallback((next) => {
     if (!next || next.length === 0) return
     const key = chipsToString(next)
@@ -275,11 +283,18 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
   // page lands on rows, while every other query, and no query at all, reads
   // the seeded stream the histogram draws. They are merged here, once, so every
   // reader downstream (facets, filters, columns, the drawer, the aggregations,
-  // the CSV) sees one stream rather than two that disagree.
-  const errorSamples = useMemo(() => errorSamplesFor(win, appliedChips), [win, appliedChips])
-  const spanRows = useMemo(() => mergeErrorSpans(seededRows, errorSamples), [seededRows, errorSamples])
-  const spanFacets = useMemo(() => buildSpanFacets(spanRows), [spanRows])
-  const spanFacetFields = useMemo(() => spanFacetFieldsFor(spanFacets), [spanFacets])
+  // the CSV) sees one stream rather than two that disagree. A dataset no other
+  // page links into has no such rows (`extraRowsFor: null`).
+  const extraRows = useMemo(
+    () => source.extraRowsFor?.(win, appliedChips) ?? NO_EXTRA_ROWS,
+    [source, win, appliedChips],
+  )
+  const spanRows = useMemo(
+    () => (extraRows.length ? source.mergeExtraRows(seededRows, extraRows) : seededRows),
+    [source, seededRows, extraRows],
+  )
+  const spanFacets = useMemo(() => source.buildFacets(spanRows), [source, spanRows])
+  const spanFacetFields = useMemo(() => source.facetFieldsFor(spanFacets), [source, spanFacets])
 
   const runQuery = useCallback(() => {
     const nextChips = effectiveChips
@@ -409,7 +424,7 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
   const openEditAggregation = useCallback((funcId) => { setEditingFuncId(funcId); setAggPopOpen(true) }, [])
   const closeAggregation = useCallback(() => { setAggPopOpen(false); setEditingFuncId(null) }, [])
 
-  const [activeFields, setActiveFields] = useState(DEFAULT_ACTIVE_FIELDS)
+  const [activeFields, setActiveFields] = useState(source.defaultActiveFields)
   const [filtersWidth, setFiltersWidth] = useState(FILTERS_MIN_W)
   const [graphVisible, setGraphVisible] = useState(true)
   const [myQueriesOpen, setMyQueriesOpen] = useState(false)
@@ -474,6 +489,26 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
   const addChipToQuery = useCallback((chip) => {
     setChips(prev => prev.length === 0 ? [chip] : [...prev, { connector: 'AND', ...chip }])
   }, [])
+
+  // A filter link in the table: narrow the results to the value clicked. It
+  // narrows what is on screen, not what is being typed — the clicked row came
+  // from the applied query, so the narrowed query is built from that one, and
+  // the row is always kept. Built from the bar instead, an edit nobody had run
+  // yet would be applied along with it, and could leave the row out. The bar
+  // adopts the result and the run is requested rather than made here, the way
+  // the incoming-chip path does it, so it reads the bar after the chip has
+  // landed. A query that already requires this exact value is run as it stands
+  // rather than given the same condition twice.
+  const filterTo = useCallback((chip) => {
+    const allAnd = appliedChips.every((n, i) => i === 0 || (n.connector ?? 'AND') === 'AND')
+    const has = allAnd && appliedChips.some(n =>
+      n.kind !== 'group' && n.field === chip.field && n.op === chip.op && n.value === chip.value)
+    setChips(has ? appliedChips
+      : appliedChips.length === 0 ? [chip]
+        : [...appliedChips, { connector: 'AND', ...chip }])
+    setPipes(appliedPipes)
+    setRunRequested(true)
+  }, [appliedChips, appliedPipes])
 
   // A filter handed in from another page — the trace view's "see the spans".
   // Replaces rather than appends, and runs itself, for the same reasons it does
@@ -576,10 +611,10 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
       for (const [field, set] of active) {
         if (!set.has(String(s.tags[field] ?? ''))) return false
       }
-      if (appliedChips.length && !applyChipsToLog(s, appliedChips, getSpanFieldValue)) return false
+      if (appliedChips.length && !applyChipsToLog(s, appliedChips, source.getValue)) return false
       return true
     })
-  }, [spanRows, filters, appliedChips])
+  }, [source, spanRows, filters, appliedChips])
 
   const effectivePipes = useMemo(() => withImpliedCount(appliedPipes), [appliedPipes])
   const livePipes = useMemo(() => withImpliedCount(pipes), [pipes])
@@ -604,9 +639,15 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
   // anything to plot; `toExploreLogsQuery` translates our chip dialect and
   // appends `| stats count()` when the query has no aggregation of its own
   // (ARCH D13). The bar as it stands travels, not the last run.
+  //
+  // A dataset Explore has no datasource for gets no entry point at all
+  // (`exploreDatasource: null`): sending its query to another datasource would
+  // chart that one's records under this one's field names.
+  const exploreDatasource = source.exploreDatasource
   const openInExplore = useCallback(() => {
-    onOpenLink?.({ view: 'explore', datasource: 'traces', query: toExploreLogsQuery(composedQuery) })
-  }, [onOpenLink, composedQuery])
+    if (!exploreDatasource) return
+    onOpenLink?.({ view: 'explore', datasource: exploreDatasource, query: toExploreLogsQuery(composedQuery) })
+  }, [onOpenLink, composedQuery, exploreDatasource])
 
   const appliedQuery = useMemo(
     () => composeQuery(chipsToString(appliedChips), effectivePipes),
@@ -633,7 +674,7 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
     effectiveChips, effectivePipes, livePipes,
     appliedQuery,
     stringify: chipsToString,
-    examples: TRACE_SAVED_QUERIES,
+    examples: source.exampleQueries,
     onToast: setToast,
     onApply: applySaved,
   })
@@ -649,42 +690,27 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
   const aggregateResult = useMemo(() => aggregate({
     pipes: effectivePipes,
     logs: chipFilteredRows,
-    getFieldValue: getSpanFieldValue,
+    getFieldValue: source.getValue,
     now: win.end * 1000,
     timeRange: win.spanSec * 1000,
     bucketCount: Math.min(30, win.buckets.length),
-  }), [effectivePipes, chipFilteredRows, win])
+  }), [source, effectivePipes, chipFilteredRows, win])
 
   // Scale the production-shaped baseline by per-band filtered ratios, so the
-  // chart keeps a realistic silhouette while still agreeing with the filter.
-  // With nothing filtered every ratio is 1 and the baseline is untouched.
+  // chart keeps a realistic silhouette while still agreeing with the filter —
+  // see `filterVolume`. With nothing filtered the baseline is drawn untouched.
   const filteredVolume = useMemo(() => {
     const hasFilters = appliedChips.length > 0 || Object.values(filters).some(s => s?.size)
     if (!hasFilters) return volume
-
-    const bandOf = (r) => r.tags['event.domain'] === 'span_event'
-      ? 'event'
-      : r.statusCode === 'ERROR' ? 'error' : 'unset'
-
-    const all = [], filt = []
-    const bucket = (acc, r) => {
-      const i = bucketIndexOf(win, r.time.getTime())
-      if (i < 0) return
-      if (!acc[i]) acc[i] = { unset: 0, event: 0, error: 0 }
-      acc[i][bandOf(r)]++
-    }
-    spanRows.forEach(r => bucket(all, r))
-    chipFilteredRows.forEach(r => bucket(filt, r))
-
-    return volume.map((d, i) => {
-      const a = all[i]
-      if (!a) return { ...d, unset: 0, event: 0, error: 0, total: 0 }
-      const f = filt[i] || { unset: 0, event: 0, error: 0 }
-      const scale = k => (a[k] > 0 ? Math.round(d[k] * f[k] / a[k]) : 0)
-      const unset = scale('unset'), event = scale('event'), error = scale('error')
-      return { ...d, unset, event, error, total: unset + event + error }
+    return filterVolume({
+      volume,
+      bands: source.bands,
+      bandOf: source.bandOf,
+      win,
+      allRows: spanRows,
+      filteredRows: chipFilteredRows,
     })
-  }, [chipFilteredRows, spanRows, volume, win, filters, appliedChips])
+  }, [source, chipFilteredRows, spanRows, volume, win, filters, appliedChips])
 
   // No time filter left to apply: the spans were read for this window.
   const filtered = chipFilteredRows
@@ -715,17 +741,16 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
     [win, volumeWrapWidth, volumeYAxis.width],
   )
 
-  const visibleTotals = useMemo(() => ({
-    total: visibleVolume.reduce((a, b) => a + b.total, 0),
-    unset: visibleVolume.reduce((a, b) => a + b.unset, 0),
-    event: visibleVolume.reduce((a, b) => a + b.event, 0),
-    error: visibleVolume.reduce((a, b) => a + b.error, 0),
-  }), [visibleVolume])
+  const visibleTotals = useMemo(() => {
+    const totals = { total: visibleVolume.reduce((a, b) => a + b.total, 0) }
+    for (const { key } of source.bands) totals[key] = visibleVolume.reduce((a, b) => a + b[key], 0)
+    return totals
+  }, [source, visibleVolume])
 
   const selected = selectedId ? filtered.find(r => r.id === selectedId) : null
   const selectedIndex = selectedId ? filtered.findIndex(r => r.id === selectedId) : -1
 
-  const columns = useMemo(() => columnsFor(activeFields), [activeFields])
+  const columns = useMemo(() => source.columnsFor(activeFields), [source, activeFields])
 
   const openTrace = useCallback((id) => {
     if (onOpenTrace) onOpenTrace(id)
@@ -769,7 +794,7 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
       >
         <a onClick={goHome}>CubeAPM</a>
         <span className="sep">/</span>
-        <span className="current">Traces</span>
+        <span className="current">{source.title}</span>
       </PageBar>
 
       <div className="logs-layout logs-layout-stitched" style={{ gridTemplateColumns: `${filtersWidth}px 1fr` }}>
@@ -809,16 +834,18 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
                 recents={recents}
                 addRecent={addRecent}
                 savedQueries={savedQueries}
-                exampleQueries={TRACE_SAVED_QUERIES}
+                exampleQueries={source.exampleQueries}
                 onRun={runQuery}
                 onBlockedChange={setBuilderBlocked}
                 onCopyQuery={copyableQuery ? copyQuery : null}
                 parsePastedQuery={parsePastedQuery}
                 onApplyPipes={applyPastedPipes}
-                fieldCatalog={TRACE_FIELD_CATALOG}
+                fieldCatalog={source.fieldCatalog}
                 rows={spanRows}
-                getValue={getSpanFieldValue}
-                placeholder="Type a field name (e.g. service, span_name, duration) or free text"
+                getValue={source.getValue}
+                placeholder={source.placeholder}
+                freeTextNoun={source.freeTextNoun}
+                freeTextMeta={source.freeTextMeta}
               />
               <button className="hbtn small icon-only" title="Query history" aria-label="Query history" onClick={() => setHistoryOpen(true)}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>
@@ -850,7 +877,7 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
                 </button>
                 {moreOpen && (
                   <div className="logs-more-menu" role="menu">
-                    <button role="menuitem" className="logs-more-item" onClick={() => { downloadCSV(filtered); setMoreOpen(false) }}>
+                    <button role="menuitem" className="logs-more-item" onClick={() => { downloadCSV(filtered, source.csvColumns, source.csvPrefix); setMoreOpen(false) }}>
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                       Download CSV
                     </button>
@@ -858,21 +885,25 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 10a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 20a2 2 0 004 0"/><line x1="12" y1="2" x2="12" y2="4"/></svg>
                       Create Alert
                     </button>
-                    <button role="menuitem" className="logs-more-item" onClick={() => { openInExplore(); setMoreOpen(false) }}>
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M16 8l-2.4 5.6L8 16l2.4-5.6z"/></svg>
-                      Open in Explore
-                    </button>
-                    <a
-                      role="menuitem"
-                      className="logs-more-item"
-                      href="https://docs.cubeapm.com/traces/querying"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={() => setMoreOpen(false)}
-                    >
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                      Learn about Querying
-                    </a>
+                    {exploreDatasource && (
+                      <button role="menuitem" className="logs-more-item" onClick={() => { openInExplore(); setMoreOpen(false) }}>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M16 8l-2.4 5.6L8 16l2.4-5.6z"/></svg>
+                        Open in Explore
+                      </button>
+                    )}
+                    {source.docsUrl && (
+                      <a
+                        role="menuitem"
+                        className="logs-more-item"
+                        href={source.docsUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={() => setMoreOpen(false)}
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                        Learn about Querying
+                      </a>
+                    )}
                   </div>
                 )}
               </div>
@@ -1003,14 +1034,14 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
               onClose={closeAggregation}
               onSave={upsertAggregation}
               initial={editingFunc}
-              allFields={AGG_ALL_FIELDS}
-              numericFields={AGG_NUMERIC_FIELDS}
+              allFields={aggAllFields}
+              numericFields={aggNumericFields}
             />
             <GroupByPopover
               anchorRef={groupByPillRef}
               open={groupByPopOpen}
               onClose={() => setGroupByPopOpen(false)}
-              fields={TRACE_FIELD_CATALOG}
+              fields={source.fieldCatalog}
               selected={groupBy}
               onChange={setGroupBy}
             />
@@ -1063,7 +1094,7 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="13" width="4" height="8" rx="1"/><rect x="10" y="8" width="4" height="13" rx="1"/><rect x="18" y="3" width="4" height="18" rx="1"/></svg>
                   {graphVisible ? 'Hide graph' : 'Show graph'}
                 </button>
-                <FieldsDropdown fields={SPAN_ALL_FIELDS} activeFields={activeFields} setActiveFields={setActiveFields} />
+                <FieldsDropdown fields={source.allFields} activeFields={activeFields} setActiveFields={setActiveFields} />
                 <div className="live-toggle">
                   <button
                     className={`live-btn${live === 'on' ? ' active' : live === 'pause' ? ' paused' : ''}`}
@@ -1089,8 +1120,8 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
                 </div>
               </div>
               <div className="logs-controls-right">
-                <span className="span-count">{filtered.length.toLocaleString()} span{filtered.length === 1 ? '' : 's'}</span>
-                <button className="hbtn small" onClick={() => downloadCSV(filtered)} title="Download as CSV">
+                <span className="span-count">{filtered.length.toLocaleString()} {filtered.length === 1 ? source.noun.one : source.noun.many}</span>
+                <button className="hbtn small" onClick={() => downloadCSV(filtered, source.csvColumns, source.csvPrefix)} title="Download as CSV">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                   CSV
                 </button>
@@ -1098,10 +1129,12 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 10a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 20a2 2 0 004 0"/><line x1="12" y1="2" x2="12" y2="4"/></svg>
                   Alert
                 </button>
-                <button className="hbtn small" onClick={openInExplore} title="Chart this query in Explore">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M16 8l-2.4 5.6L8 16l2.4-5.6z"/></svg>
-                  Explore
-                </button>
+                {exploreDatasource && (
+                  <button className="hbtn small" onClick={openInExplore} title="Chart this query in Explore">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M16 8l-2.4 5.6L8 16l2.4-5.6z"/></svg>
+                    Explore
+                  </button>
+                )}
               </div>
             </div>
 
@@ -1142,8 +1175,8 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
                           <CartesianGrid {...GRID_PROPS} />
                           <XAxis {...volumeAxis.props} />
                           <YAxis {...volumeYAxis} />
-                          <Tooltip content={p => <VolumeTooltip {...p} nowMs={win.end * 1000} hoverKey={bandHover} suppressed={!focus.hovered} />} cursor={{ fill: 'rgba(255,255,255,0.02)' }} isAnimationActive={false} />
-                          {VOLUME_SERIES.map(s => (
+                          <Tooltip content={p => <VolumeTooltip {...p} series={legendSeries} nowMs={win.end * 1000} hoverKey={bandHover} suppressed={!focus.hovered} />} cursor={{ fill: 'rgba(255,255,255,0.02)' }} isAnimationActive={false} />
+                          {volumeSeries.map(s => (
                             <Bar key={s.key} dataKey={s.key} stackId="v" fill={s.color} fillOpacity={s.opacity} isAnimationActive={false} {...bandHoverProps(s.key)} />
                           ))}
                           {focus.overlay}
@@ -1153,11 +1186,11 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
                   </div>
                   <div className="logs-volume-legend">
                     <div className="lvl-row"><span className="lvl-key">Total</span><span className="lvl-val">{compactCount(visibleTotals.total)}</span></div>
-                    {[...VOLUME_SERIES].reverse().map(s => (
-                      <div key={s.key} className="lvl-row">
+                    {legendSeries.map(s => (
+                      <div key={s.key} className="lvl-row" title={s.desc}>
                         <span className="lvl-swatch" style={{ background: s.color }} />
                         <span className="lvl-key">{s.label}</span>
-                        <span className={`lvl-val${s.key === 'error' ? ' val-critical' : ''}`}>{compactCount(visibleTotals[s.key])}</span>
+                        <span className={`lvl-val${BAND_VALUE_CLASS[s.status] ?? ''}`}>{compactCount(visibleTotals[s.key])}</span>
                       </div>
                     ))}
                   </div>
@@ -1186,7 +1219,7 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
                     {filtered.length === 0 && (
                       <div className="err-empty">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
-                        <div>No spans match this filter</div>
+                        <div>{source.emptyText}</div>
                       </div>
                     )}
                     {filtered.map(row => (
@@ -1196,14 +1229,14 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
                         onClick={() => { if (window.getSelection()?.isCollapsed !== false) setSelectedId(row.id) }}
                       >
                         <div className="log-fixed-cols">
-                          <span className={`log-lvl-bar span-bar-${statusForSpan(row.statusCode)}`} />
+                          <span className={`log-lvl-bar span-bar-${source.statusForRow(row)}`} />
                           <span className="log-time">
                             <span className="log-date">{row.dateStr}</span>
                             <span className="log-hhmm">{row.timeStr}</span>
                           </span>
                         </div>
                         {columns.map(c => (
-                          <SpanCell key={c.key} col={c} row={row} onOpenTrace={openTrace} />
+                          <SpanCell key={c.key} col={c} row={row} source={source} onOpenTrace={openTrace} onFilter={filterTo} />
                         ))}
                       </div>
                     ))}
@@ -1228,10 +1261,8 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
               onNavigate={(i) => { const r = filtered[i]; if (r) setSelectedId(r.id) }}
               pinned={pinnedFields}
               onTogglePin={togglePinnedField}
-              badge={{
-                status: statusForSpan(selected.statusCode),
-                label: selected.statusCode || 'Span event',
-              }}
+              badge={source.badgeFor(selected)}
+              traceList={source.title}
             />
           )}
         </div>
@@ -1242,13 +1273,13 @@ export default function TracesView({ goHome, timeRange, setTimeRange, setToast, 
           filters={filters}
           query={appliedQuery}
           onClose={() => setAlertOpen(false)}
-          emptyLabel="All spans"
-          namePlaceholder="e.g. Error spans on payment-service"
+          emptyLabel={source.alertEmptyLabel}
+          namePlaceholder={source.alertNamePlaceholder}
         />
       )}
       {historyOpen && (
         <QueryHistoryDrawer
-          history={QUERY_HISTORY}
+          history={source.queryHistory}
           subject="workspace"
           onClose={() => setHistoryOpen(false)}
           onApply={applyHistoryQuery}

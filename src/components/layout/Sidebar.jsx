@@ -43,7 +43,7 @@ const NAV_GROUPS = [
     { id: 'infra', label: 'Infrastructure', icon: 'server', enabled: true },
     { id: 'rum', label: 'Browser', title: 'Browser (RUM)', icon: 'appWindow' },
     { id: 'traces', label: 'Traces', icon: 'textSearch', enabled: true },
-    { id: 'mtraces', label: 'MTraces', title: 'Mobile Traces', icon: 'phoneCode' },
+    { id: 'mtraces', label: 'MTraces', title: 'Mobile Traces', icon: 'phoneCode', enabled: true },
     { id: 'profiles', label: 'Profiles', icon: 'flame' },
     { id: 'errors', label: 'Errors', icon: 'bug', enabled: true },
     { id: 'mobile', label: 'Mobile', icon: 'phone' },
@@ -66,18 +66,24 @@ const NAV_VIEWS = {
   logs: 'logs',
   infra: 'infra',
   traces: 'traces',
+  mtraces: 'mtraces',
   errors: 'errors',
   explore: 'explore',
 }
 
+// `trace` and `mtrace` are the one trace view seen from its two datasets: App
+// hands over `mtrace` while a mobile trace is open, so the item lit is the list
+// the trace was opened from.
 const ACTIVE_ITEM = {
   home: 'home', service: 'services',
   logs: 'logs', infra: 'infra', traces: 'traces', trace: 'traces',
+  mtraces: 'mtraces', mtrace: 'mtraces',
   errors: 'errors', explore: 'explore',
 }
 
 export default function Sidebar({ navCollapsed, setNavCollapsed, view, goHome, setView, onOpenHelp, onLogout, theme, setTheme }) {
-  // A single trace's waterfall belongs to Traces, so the nav keeps that item lit
+  // A single trace's waterfall belongs to the list it was opened from — Traces,
+  // or Mobile Traces for a device's request — so the nav keeps that item lit
   // while you are inside one rather than moving the highlight.
   const activeId = ACTIVE_ITEM[view] ?? 'services'
   const [profileOpen, setProfileOpen] = useState(false)

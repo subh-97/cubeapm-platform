@@ -5,7 +5,7 @@
 // to the parent as a callback, which is what lets the same drawer sit in front
 // of a different data source.
 
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, createContext, useContext } from 'react'
 import { ArrowUpRight, Filter as FilterIcon } from 'lucide-react'
 import { services } from '@/data/services'
 import StatusBadge from '@/components/shared/StatusBadge'
@@ -29,8 +29,14 @@ import { highlightTerms } from '@/utils/highlight'
 // told which names actually exist.
 const KNOWN_SERVICES = new Set(services.map(s => s.id))
 
-function linkFor(field, value, record) {
-  return resolveLink({ field, value, record, knownServices: KNOWN_SERVICES })
+// Which list a trace link opens into, for the hint that says so. Logs and
+// Traces open a backend trace; Mobile Traces opens a device's request, under
+// its own list. Read by the rows through context rather than threaded through
+// every one of them.
+const TraceListContext = createContext('Traces')
+
+function linkFor(field, value, record, traceList) {
+  return resolveLink({ field, value, record, knownServices: KNOWN_SERVICES, traceList })
 }
 
 // Marks a value as a doorway, and opens it when there is somewhere to go.
@@ -110,7 +116,8 @@ function NoiseGroup({ fields, hits, record, canPin, onTogglePin, onMenu, onOpenL
 // One field row, shared by the pinned block and the grouped list so a field
 // looks and behaves the same wherever it currently sits.
 function FieldRow({ name, value, hits, record, isMsg, pinned, pinnable, onTogglePin, onMenu, onOpenLink }) {
-  const link = isMsg ? null : linkFor(name, value, record)
+  const traceList = useContext(TraceListContext)
+  const link = isMsg ? null : linkFor(name, value, record, traceList)
   // Any of the four spellings a stack trace arrives under. Matching one name
   // meant an Elastic agent's error.stack_trace rendered as a wrapped paragraph
   // with its frames run together - the exact thing this view exists to fix.
@@ -337,7 +344,8 @@ function JsonLine({ line, number, record, onKeyMenu, onOpenLink }) {
     >"{name}"</button>
   )
   const isNum = typeof value === 'number'
-  const link = kind === 'pair' ? linkFor(name, value, record) : null
+  const traceList = useContext(TraceListContext)
+  const link = kind === 'pair' ? linkFor(name, value, record, traceList) : null
 
   return (
     <div className="log-json-line">
@@ -378,6 +386,7 @@ export function LogRecordDrawer({
   pinned = [], onTogglePin, onOpenLink,
   initialView = 'fields',
   badge,
+  traceList = 'Traces',
 }) {
   const [view, setView] = useState(initialView)
   const [menu, setMenu] = useState(null)   // { field, value, x, y }
@@ -465,285 +474,290 @@ export function LogRecordDrawer({
   const run = (fn) => { fn(); setMenu(null) }
 
   return (
-    <aside className="log-detail">
-      <div className="log-detail-head">
-        <div className="log-detail-heading">
-          <div className="log-detail-title-row">
-            {/* A log record's severity IS its level. A span's is its
-                status_code, and calling an ordinary span "Info" would state a
-                severity the span never claimed — so the caller can name the
-                badge, and only falls back to the level when it does not. */}
-            <StatusBadge
-              status={badge?.status ?? statusForLogLevel(record.level)}
-              label={badge?.label ?? (record.level.charAt(0).toUpperCase() + record.level.slice(1))}
-            />
-            {/* A Kubernetes event stores the literal "UNSET" where a message
-                would go, so the shape and the built title are the only things
-                that say what you are looking at. */}
-            <span className="log-detail-shape">{TYPE_LABELS[shape]}</span>
-            {title.title && <span className="log-detail-built-title">{title.title}</span>}
+    <TraceListContext.Provider value={traceList}>
+      <aside className="log-detail">
+        <div className="log-detail-head">
+          <div className="log-detail-heading">
+            <div className="log-detail-title-row">
+              {/* A log record's severity IS its level. A span's is its
+                  status_code, and calling an ordinary span "Info" would state a
+                  severity the span never claimed — so the caller can name the
+                  badge, and only falls back to the level when it does not. */}
+              <StatusBadge
+                status={badge?.status ?? statusForLogLevel(record.level)}
+                label={badge?.label ?? (record.level.charAt(0).toUpperCase() + record.level.slice(1))}
+              />
+              {/* A Kubernetes event stores the literal "UNSET" where a message
+                  would go, so the shape and the built title are the only things
+                  that say what you are looking at. */}
+              <span className="log-detail-shape">{TYPE_LABELS[shape]}</span>
+              {title.title && <span className="log-detail-built-title">{title.title}</span>}
+            </div>
+            <div className="log-detail-sub mono">
+              {record.dateStr}T{record.timeStr}Z
+              <span className="log-detail-age">({relativeDayLabel(record.time)})</span>
+            </div>
           </div>
-          <div className="log-detail-sub mono">
-            {record.dateStr}T{record.timeStr}Z
-            <span className="log-detail-age">({relativeDayLabel(record.time)})</span>
-          </div>
-        </div>
-        <div className="log-detail-head-right">
-          {total > 1 && (
-            <nav className="log-detail-nav" aria-label="Record navigation">
-              <button
-                className="icon-only"
-                onClick={() => onNavigate(0)}
-                disabled={!hasNewer}
-                title="Jump to newest record"
-                aria-label="Jump to newest record"
-              >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 4h14"/><path d="M12 21V9"/><path d="M6 15l6-6 6 6"/></svg>
-              </button>
-              <button onClick={() => onNavigate(index - 1)} disabled={!hasNewer} title="Newer record">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
-                Newer
-              </button>
-              <button onClick={() => onNavigate(index + 1)} disabled={!hasOlder} title="Older record">
-                Older
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6"/></svg>
-              </button>
-            </nav>
-          )}
-          <button className="log-detail-close" onClick={onClose} aria-label="Close">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
-          </button>
-        </div>
-      </div>
-
-      <div className="log-detail-tabs" role="tablist">
-        <button role="tab" aria-selected={view === 'fields'}
-          className={`log-detail-tab${view === 'fields' ? ' active' : ''}`}
-          onClick={() => setView('fields')}>Overview</button>
-        <button role="tab" aria-selected={view === 'json'}
-          className={`log-detail-tab${view === 'json' ? ' active' : ''}`}
-          onClick={() => setView('json')}>JSON</button>
-        {view === 'json' && (
-          <button className="log-detail-copyjson"
-            onClick={() => onCopy(JSON.stringify(json, null, 2), 'Record copied to clipboard as JSON')}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
-            Copy JSON
-          </button>
-        )}
-      </div>
-
-        {view === 'fields' && highlights.length > 0 && (
-          <div
-            className="log-detail-highlights"
-            style={{ gridTemplateColumns: `repeat(${highlights.length}, minmax(0, 1fr))` }}
-          >
-            {highlights.map(([k, v]) => {
-              const link = linkFor(k, v, record)
-              return (
-                <div className="log-hl-card" key={k}>
-                  <div className="log-hl-head">
-                    <span className="log-hl-key">{highlightTerms(k, hits)}</span>
-                    <button
-                        type="button"
-                        className="log-field-menu-btn"
-                        aria-label={`Actions for ${k}`}
-                        title={`Actions for ${k}`}
-                        onClick={(e) => { e.stopPropagation(); openMenu(k, v, e.currentTarget) }}
-                      >
-                        <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg>
-                      </button>
-                  </div>
-                  <div className="log-hl-value-row">
-                    {v == null || v === '' ? (
-                      <span className="log-hl-value is-empty" aria-label="No value">—</span>
-                    ) : (
-                      <>
-                        <span
-                          className={`log-hl-value mono${link ? ' is-link' : ''}`}
-                          title={String(v)}
-                          data-log-field={k}
-                          data-log-value={v}
-                        >{highlightTerms(String(v), hits)}</span>
-                        {durationGloss(k, v) && (
-                          <span className="log-detail-gloss">{durationGloss(k, v)}</span>
-                        )}
-                        {link && <LinkMarker link={link} onOpen={onOpenLink} />}
-                      </>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        )}
-
-      {/* Overview only. Filtering the JSON view would hand back something that
-          reads as the record but no longer parses as one. */}
-      {view === 'fields' && (
-        <div className="log-detail-search">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
-          <input
-            value={fieldQuery}
-            onChange={(e) => setFieldQuery(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Escape' && fieldQuery) { e.stopPropagation(); setFieldQuery('') } }}
-            placeholder="Search fields and values…"
-            spellCheck={false}
-            autoComplete="off"
-            aria-label="Search fields and values"
-          />
-          {fieldQuery && (
-            <button type="button" onClick={() => setFieldQuery('')} aria-label="Clear search" title="Clear search">
+          <div className="log-detail-head-right">
+            {total > 1 && (
+              <nav className="log-detail-nav" aria-label="Record navigation">
+                <button
+                  className="icon-only"
+                  onClick={() => onNavigate(0)}
+                  disabled={!hasNewer}
+                  title="Jump to newest record"
+                  aria-label="Jump to newest record"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 4h14"/><path d="M12 21V9"/><path d="M6 15l6-6 6 6"/></svg>
+                </button>
+                <button onClick={() => onNavigate(index - 1)} disabled={!hasNewer} title="Newer record">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+                  Newer
+                </button>
+                <button onClick={() => onNavigate(index + 1)} disabled={!hasOlder} title="Older record">
+                  Older
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+                </button>
+              </nav>
+            )}
+            <button className="log-detail-close" onClick={onClose} aria-label="Close">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div className="log-detail-tabs" role="tablist">
+          <button role="tab" aria-selected={view === 'fields'}
+            className={`log-detail-tab${view === 'fields' ? ' active' : ''}`}
+            onClick={() => setView('fields')}>Overview</button>
+          <button role="tab" aria-selected={view === 'json'}
+            className={`log-detail-tab${view === 'json' ? ' active' : ''}`}
+            onClick={() => setView('json')}>JSON</button>
+          {view === 'json' && (
+            <button className="log-detail-copyjson"
+              onClick={() => onCopy(JSON.stringify(json, null, 2), 'Record copied to clipboard as JSON')}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+              Copy JSON
             </button>
           )}
         </div>
-      )}
 
-      {view === 'fields' ? (
-        <div className="log-detail-body" data-log-content>
-          {matchCount === 0 && (
-            <div className="log-detail-nomatch">
-              No field or value matches <span className="mono">{fieldQuery.trim()}</span>
-            </div>
-          )}
-          {msgMatches && (
-            <div className="log-detail-group is-msg-card">
-              <MessageCard
-                text={title.detail}
-                hits={q ? hits : searchTerms}
-                onCopy={onCopy}
-              />
-            </div>
-          )}
-
-          {pinnedRows.length > 0 && (
-            <div className="log-detail-pinned">
-              {pinnedRows.map(([k, v]) => (
-                <FieldRow
-                  key={k} name={k} value={v} hits={hits} record={record}
-                  isMsg={k === '_msg'}
-                  pinned pinnable
-                  onTogglePin={onTogglePin} onMenu={openMenu} onOpenLink={onOpenLink}
-                />
-              ))}
-            </div>
-          )}
-          {groups.map((group, gi) => (
-            group.noise
-              ? <NoiseGroup key={gi} fields={group.fields} hits={hits} record={record}
-                  canPin={canPin} onTogglePin={onTogglePin} onMenu={openMenu} onOpenLink={onOpenLink} />
-              : (
-                <div className="log-detail-group" key={gi}>
-                  {group.fields.map(([k, v]) => (
-                    <FieldRow
-                      key={k} name={k} value={v} hits={hits} record={record}
-                      pinned={false} pinnable={canPin(k)}
-                      onTogglePin={onTogglePin} onMenu={openMenu} onOpenLink={onOpenLink}
-                    />
-                  ))}
-                </div>
-              )
-          ))}
-        </div>
-      ) : (
-        <div className="log-detail-body log-json-body">
-          <div className="log-json">
-            {jsonLines(json).map((line, i) => (
-              <JsonLine key={i} line={line} number={i + 1} record={record} onKeyMenu={openMenu} onOpenLink={onOpenLink} />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {menu && (() => {
-        const isMsg = menu.field === '_msg' || menu.field === '_time'
-        const hasValue = menu.value !== ''
-        const width = 208
-        const left = Math.max(8, Math.min(menu.x - width, window.innerWidth - width - 8))
-        const top = Math.min(menu.y, window.innerHeight - 300)
-        return (
-          <div className="log-sel-menu log-field-menu" style={{ left, top, width }}
-            onMouseDown={(e) => e.stopPropagation()}>
-            {/* Names the destination in words, so the marker beside the value
-                does not have to be decoded from an arrow alone. Rendered as a
-                div rather than a button: nothing happens on press yet, and it
-                should not take focus pretending otherwise. */}
-            {(() => {
-              const link = linkFor(menu.field, menu.value, record)
-              if (!link) return null
-              // A filter link is something we can actually do today, so it is a
-              // button. An open link is not wired to a destination yet, and a
-              // control that swallows the press teaches people it is broken.
-              return (
-                <>
-                  {link.kind === 'filter' ? (
-                    <button className="log-sel-item" title={link.hint}
-                      onClick={() => run(() => onAddChip({ field: link.field, op: 'eq', value: link.value }))}>
-                      <FilterIcon size={14} strokeWidth={2} />
-                      {link.label}
-                    </button>
-                  ) : onOpenLink ? (
-                    <button className="log-sel-item" title={link.hint}
-                      onClick={() => run(() => onOpenLink(link))}>
-                      <ArrowUpRight size={14} strokeWidth={2} />
-                      {link.label}
-                    </button>
-                  ) : (
-                    <div className="log-sel-item is-pending" aria-disabled="true" title={link.hint}>
-                      <ArrowUpRight size={14} strokeWidth={2} />
-                      {link.label}
+          {view === 'fields' && highlights.length > 0 && (
+            <div
+              className="log-detail-highlights"
+              style={{ gridTemplateColumns: `repeat(${highlights.length}, minmax(0, 1fr))` }}
+            >
+              {highlights.map(([k, v]) => {
+                const link = linkFor(k, v, record, traceList)
+                return (
+                  <div className="log-hl-card" key={k}>
+                    <div className="log-hl-head">
+                      <span className="log-hl-key">{highlightTerms(k, hits)}</span>
+                      <button
+                          type="button"
+                          className="log-field-menu-btn"
+                          aria-label={`Actions for ${k}`}
+                          title={`Actions for ${k}`}
+                          onClick={(e) => { e.stopPropagation(); openMenu(k, v, e.currentTarget) }}
+                        >
+                          <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg>
+                        </button>
                     </div>
-                  )}
-                  <div className="log-sel-sep" />
-                </>
-              )
-            })()}
-            {/* Include/Exclude are offered on tags only. Filtering on a whole
-                message body would pin the query to one record — the useful
-                message filter is a phrase, which the text-selection menu
-                already handles by letting the user pick one. */}
-            {!isMsg && hasValue && (
-              <>
-                <button className="log-sel-item" onClick={() => run(() => onAddChip({ field: menu.field, op: 'eq', value: menu.value }))}>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                  Include
-                </button>
-                <button className="log-sel-item" onClick={() => run(() => onAddChip({ field: menu.field, op: 'neq', value: menu.value }))}>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                  Exclude
-                </button>
-              </>
-            )}
-            {!isMsg && (
-              <button className="log-sel-item" onClick={() => run(() => onAddChip({ field: menu.field, op: 'exists' }))}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                Exists
+                    <div className="log-hl-value-row">
+                      {v == null || v === '' ? (
+                        <span className="log-hl-value is-empty" aria-label="No value">—</span>
+                      ) : (
+                        <>
+                          <span
+                            className={`log-hl-value mono${link ? ' is-link' : ''}`}
+                            title={String(v)}
+                            data-log-field={k}
+                            data-log-value={v}
+                          >{highlightTerms(String(v), hits)}</span>
+                          {durationGloss(k, v) && (
+                            <span className="log-detail-gloss">{durationGloss(k, v)}</span>
+                          )}
+                          {link && <LinkMarker link={link} onOpen={onOpenLink} />}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+        {/* Overview only. Filtering the JSON view would hand back something that
+            reads as the record but no longer parses as one. */}
+        {view === 'fields' && (
+          <div className="log-detail-search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+            <input
+              value={fieldQuery}
+              onChange={(e) => setFieldQuery(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Escape' && fieldQuery) { e.stopPropagation(); setFieldQuery('') } }}
+              placeholder="Search fields and values…"
+              spellCheck={false}
+              autoComplete="off"
+              aria-label="Search fields and values"
+            />
+            {fieldQuery && (
+              <button type="button" onClick={() => setFieldQuery('')} aria-label="Clear search" title="Clear search">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
               </button>
             )}
-            {isMsg && (
-              <div className="log-sel-note">Select any phrase in the value to filter on it.</div>
-            )}
-            {!isMsg && (
-              <>
-                <div className="log-sel-sep" />
-                <button className="log-sel-item" onClick={() => run(() => onDistribution(menu.field, menu.x, menu.y))}>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="12" width="4" height="9"/><rect x="10" y="7" width="4" height="14"/><rect x="17" y="3" width="4" height="18"/></svg>
-                  View distribution
-                </button>
-              </>
-            )}
-            {hasValue && (
-              <>
-                <div className="log-sel-sep" />
-                <button className="log-sel-item" onClick={() => run(() => onCopy(menu.value, 'Value copied to clipboard'))}>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
-                  Copy value
-                </button>
-              </>
-            )}
           </div>
-        )
-      })()}
-    </aside>
+        )}
+
+        {view === 'fields' ? (
+          <div className="log-detail-body" data-log-content>
+            {matchCount === 0 && (
+              <div className="log-detail-nomatch">
+                No field or value matches <span className="mono">{fieldQuery.trim()}</span>
+              </div>
+            )}
+            {msgMatches && (
+              <div className="log-detail-group is-msg-card">
+                <MessageCard
+                  text={title.detail}
+                  hits={q ? hits : searchTerms}
+                  onCopy={onCopy}
+                />
+              </div>
+            )}
+
+            {pinnedRows.length > 0 && (
+              <div className="log-detail-pinned">
+                {pinnedRows.map(([k, v]) => (
+                  <FieldRow
+                    key={k} name={k} value={v} hits={hits} record={record}
+                    isMsg={k === '_msg'}
+                    pinned pinnable
+                    onTogglePin={onTogglePin} onMenu={openMenu} onOpenLink={onOpenLink}
+                  />
+                ))}
+              </div>
+            )}
+            {groups.map((group, gi) => (
+              group.noise
+                ? <NoiseGroup key={gi} fields={group.fields} hits={hits} record={record}
+                    canPin={canPin} onTogglePin={onTogglePin} onMenu={openMenu} onOpenLink={onOpenLink} />
+                : (
+                  <div className="log-detail-group" key={gi}>
+                    {group.fields.map(([k, v]) => (
+                      <FieldRow
+                        key={k} name={k} value={v} hits={hits} record={record}
+                        pinned={false} pinnable={canPin(k)}
+                        onTogglePin={onTogglePin} onMenu={openMenu} onOpenLink={onOpenLink}
+                      />
+                    ))}
+                  </div>
+                )
+            ))}
+          </div>
+        ) : (
+          <div className="log-detail-body log-json-body">
+            <div className="log-json">
+              {jsonLines(json).map((line, i) => (
+                <JsonLine key={i} line={line} number={i + 1} record={record} onKeyMenu={openMenu} onOpenLink={onOpenLink} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {menu && (() => {
+          const isMsg = menu.field === '_msg' || menu.field === '_time'
+          const hasValue = menu.value !== ''
+          const width = 208
+          const left = Math.max(8, Math.min(menu.x - width, window.innerWidth - width - 8))
+          const top = Math.min(menu.y, window.innerHeight - 300)
+          return (
+            <div className="log-sel-menu log-field-menu" style={{ left, top, width }}
+              onMouseDown={(e) => e.stopPropagation()}>
+              {/* Names the destination in words, so the marker beside the value
+                  does not have to be decoded from an arrow alone. Rendered as a
+                  div rather than a button: nothing happens on press yet, and it
+                  should not take focus pretending otherwise. */}
+              {(() => {
+                const link = linkFor(menu.field, menu.value, record, traceList)
+                if (!link) return null
+                // A filter link is something we can actually do today, so it is a
+                // button. An open link is not wired to a destination yet, and a
+                // control that swallows the press teaches people it is broken.
+                return (
+                  <>
+                    {link.kind === 'filter' ? (
+                      <button className="log-sel-item" title={link.hint}
+                        onClick={() => run(() => onAddChip({ field: link.field, op: 'eq', value: link.value }))}>
+                        <FilterIcon size={14} strokeWidth={2} />
+                        {link.label}
+                      </button>
+                    ) : onOpenLink ? (
+                      <button className="log-sel-item" title={link.hint}
+                        onClick={() => run(() => onOpenLink(link))}>
+                        <ArrowUpRight size={14} strokeWidth={2} />
+                        {link.label}
+                      </button>
+                    ) : (
+                      <div className="log-sel-item is-pending" aria-disabled="true" title={link.hint}>
+                        <ArrowUpRight size={14} strokeWidth={2} />
+                        {link.label}
+                      </div>
+                    )}
+                    <div className="log-sel-sep" />
+                  </>
+                )
+              })()}
+              {/* Include/Exclude are offered on tags only. Filtering on a whole
+                  message body would pin the query to one record — the useful
+                  message filter is a phrase, which the text-selection menu
+                  already handles by letting the user pick one. */}
+              {!isMsg && hasValue && (
+                <>
+                  <button className="log-sel-item" onClick={() => run(() => onAddChip({ field: menu.field, op: 'eq', value: menu.value }))}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    Include
+                  </button>
+                  <button className="log-sel-item" onClick={() => run(() => onAddChip({ field: menu.field, op: 'neq', value: menu.value }))}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    Exclude
+                  </button>
+                </>
+              )}
+              {!isMsg && (
+                <button className="log-sel-item" onClick={() => run(() => onAddChip({ field: menu.field, op: 'exists' }))}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  Exists
+                </button>
+              )}
+              {isMsg && (
+                <div className="log-sel-note">Select any phrase in the value to filter on it.</div>
+              )}
+              {/* Only a page that can draw a distribution offers one. Traces has
+                  no distribution popover, and a row that throws on press is
+                  worse than no row. */}
+              {!isMsg && onDistribution && (
+                <>
+                  <div className="log-sel-sep" />
+                  <button className="log-sel-item" onClick={() => run(() => onDistribution(menu.field, menu.x, menu.y))}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="12" width="4" height="9"/><rect x="10" y="7" width="4" height="14"/><rect x="17" y="3" width="4" height="18"/></svg>
+                    View distribution
+                  </button>
+                </>
+              )}
+              {hasValue && (
+                <>
+                  <div className="log-sel-sep" />
+                  <button className="log-sel-item" onClick={() => run(() => onCopy(menu.value, 'Value copied to clipboard'))}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                    Copy value
+                  </button>
+                </>
+              )}
+            </div>
+          )
+        })()}
+      </aside>
+    </TraceListContext.Provider>
   )
 }

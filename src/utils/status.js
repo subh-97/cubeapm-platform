@@ -52,6 +52,26 @@ export function statusForLogLevel(level) {
   return STATUS.neutral
 }
 
+// An HTTP response code on the same scale, for records whose status_code is the
+// code itself rather than OTel's ERROR/UNSET — a mobile request reports what the
+// server answered. 0 is not a code at all: the request never got an answer
+// (timed out, no connection), which for the person holding the phone is as
+// broken as a 5xx. A 4xx is the client's own fault, worth seeing but not paging
+// on. UNSET is a record that never set a status, which means nothing went wrong
+// — the same reading statusForSpan gives it. Anything else, a blank included,
+// says nothing about health and stays neutral.
+export function statusForHttpStatus(code) {
+  if (code == null) return STATUS.neutral
+  const s = String(code).trim()
+  if (s === 'UNSET') return STATUS.healthy
+  if (!/^\d+$/.test(s)) return STATUS.neutral
+  const n = Number(s)
+  if (n === 0 || (n >= 500 && n <= 599)) return STATUS.critical
+  if (n >= 400 && n <= 499) return STATUS.warning
+  if (n >= 100 && n <= 399) return STATUS.healthy
+  return STATUS.neutral
+}
+
 export function worstStatus(...statuses) {
   const order = [STATUS.critical, STATUS.warning, STATUS.healthy, STATUS.info, STATUS.neutral]
   for (const s of order) {
