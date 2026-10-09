@@ -32,7 +32,7 @@ All routes are children of `<AppShell />` via `<Outlet />`:
 - `/alerts` → AlertsPage
 - `/settings` → SettingsPage
 
-The sidebar starts with Home, then follows the production app's list: APM & Services (a service's APM page), Logs, Infrastructure, Browser, Traces, MTraces, Profiles, Errors, Mobile, Dash, Explore, SLO, Alerts, Monitors, Investigation. Items not built yet (Browser, Profiles, Mobile, Dash, SLO, Alerts, Monitors, Investigation) are stubbed with `opacity-.42` and no click handler.
+The sidebar starts with Home, then follows the production app's list: APM & Services (a service's APM page), Logs, Infrastructure, Browser, Traces, MTraces, Profiles, Errors, Mobile, Dashboard, Explore, SLO, Alerts, Monitors, Investigation. Items not built yet (Browser, Profiles, Mobile, Dashboard, SLO, Alerts, Monitors, Investigation) are stubbed with `opacity-.42` and no click handler.
 
 ### Data layer
 Mock data in `src/data/`, generated as a function of the selected time range rather than stored flat. `src/utils/timeRange.js` models the range (`{kind:'preset'}` or `{kind:'absolute'}`, owned by `App`); `src/data/timeWindow.js` turns it into a window and samples one shared incident profile for every series, aggregate and level mix. Last 1 hour reproduces the published figures exactly; wider ranges dilute the incident, and p90 falls off a cliff where a mean would fade. See `docs/decisions/time-range-windowing.md`. Every service has RED metrics (Rate, Error, Duration) computed through status resolution functions. Replace with real API calls when integrating with the CubeAPM backend.
