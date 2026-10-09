@@ -47,7 +47,7 @@ const NAV_GROUPS = [
     { id: 'profiles', label: 'Profiles', icon: 'flame' },
     { id: 'errors', label: 'Errors', icon: 'bug', enabled: true },
     { id: 'mobile', label: 'Mobile', icon: 'phone' },
-    { id: 'dash', label: 'Dash', title: 'Dashboards', icon: 'dashboard' },
+    { id: 'dash', label: 'Dashboard', icon: 'dashboard' },
   ]},
   { label: 'Analyze', items: [
     { id: 'explore', label: 'Explore', icon: 'compass', enabled: true },
