@@ -17,6 +17,15 @@ const APM_SIDES = [
   { id: 'client', label: 'Client' },
 ]
 
+// An exception class with a line-break opportunity after every '.', so a
+// column that wraps it (the APM service page's does) breaks between package
+// segments — 'redis.clients.jedis.' / 'exceptions.JedisPoolException' — rather
+// than mid-word. Where the column cuts the text instead, they change nothing.
+function BreakAtDots({ text }) {
+  const parts = String(text ?? '').split(/(?<=\.)/)
+  return parts.map((p, i) => (i === 0 ? p : <span key={i}><wbr />{p}</span>))
+}
+
 /**
  * One panel of error groups: a side toggle, a search, then a row per group —
  * where it happens, what was thrown, how many against the previous period, and
@@ -37,7 +46,8 @@ const APM_SIDES = [
  *                          class as its own button, then the message)
  *   onOpenRow, onOpenException(group)
  *   prevText               what the count's chip compares against, worded
- *                          from the picked range ("the previous hour")
+ *                          from the picked range ("the previous hour"); left
+ *                          out, the count stands alone with no chip
  *   limit / noun           show the first `limit` groups, with the series
  *                          budget's "Showing N of M · Show all" line under them
  *   renderWhere(group)     the Endpoint cell's content, when it should be more
@@ -93,10 +103,10 @@ export default function ErrorGroupsPanel({
           onClick={ev => { ev.stopPropagation(); onOpenException(e) }}
           title={`Show the details and stack trace for ${e.exception}`}
         >
-          {e.exception}
+          <BreakAtDots text={e.exception} />
         </button>
       ) : (
-        <span className="err-exc-cls is-static">{e.exception}</span>
+        <span className="err-exc-cls is-static"><BreakAtDots text={e.exception} /></span>
       )}
       {/* Cut to the column, so the whole message is its title: six of a
           storefront's top ten TypeErrors share their first 45 characters. */}
@@ -138,10 +148,10 @@ export default function ErrorGroupsPanel({
         </div>
       </div>
       <div className="err-head">
-        <span>Endpoint</span><span>Error</span><span>Count</span><span />
+        <span>Endpoint</span><span>Error</span><span className="err-count-head">Count</span><span />
       </div>
       {shown.map(e => {
-        const delta = deltaChip(e.count, e.prevCount, prevText)
+        const delta = prevText != null ? deltaChip(e.count, e.prevCount, prevText) : null
         return (
           <div
             key={e.id}
@@ -175,7 +185,7 @@ export default function ErrorGroupsPanel({
                 the gap rather than right into the spark (errors.css). */}
             <div className="err-count">
               <span>{e.count.toLocaleString()}</span>
-              <span className="errp-delta" data-dir={delta.dir} title={delta.title}>{delta.label}</span>
+              {delta && <span className="errp-delta" data-dir={delta.dir} title={delta.title}>{delta.label}</span>}
             </div>
             <div className="err-spark" onClick={ev => ev.stopPropagation()}>
               <ErrorSpark series={e.series} win={win} onFocus={onFocus} syncId={syncId} height={sparkHeight} />

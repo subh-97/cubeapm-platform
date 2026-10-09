@@ -24,7 +24,7 @@ import { services } from '@/data/services'
 
 // The service page's views, in the order its tab strip shows them. The strip
 // is built from this list, so a tab the URL can name is a tab the page has.
-export const SERVICE_TABS = ['overview', 'detail', 'red', 'external', 'db', 'errors', 'runtime']
+export const SERVICE_TABS = ['overview', 'red', 'detail', 'external', 'db', 'errors', 'runtime']
 export const DEFAULT_SERVICE_TAB = 'overview'
 
 const VIEW_PATHS = {

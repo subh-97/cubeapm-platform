@@ -1103,10 +1103,14 @@ tbody tr:hover { background: var(--panel-2); }
 
 /* ============ Errors tab ============ */
 /* Endpoint .6fr (40% narrower than its old 1fr) and Error .875fr (20% narrower
- * than its old 1.4fr share). The space they gave up goes to the sparkline,
- * which keeps its old 320px as a floor. minmax(0, …) lets the text columns go
- * below their longest unbroken path; those cells ellipsize instead. */
-.err-row { --row-py: 12px; --col-gap: 14px; display: grid; grid-template-columns: minmax(0, .6fr) minmax(0, .875fr) 68px minmax(320px, 2.49fr); gap: var(--col-gap); align-items: center; padding: var(--row-py) 16px; border-top: 1px solid var(--border-subtle); font-size: 12px; }
+ * than its old 1.4fr share). The sparkline takes 1.31fr where it had 2.49fr:
+ * its share of the fr space falls from 63% to 47%, a quarter less, and its
+ * floor falls a quarter too (240px from 320px), so it is 25% narrower at every
+ * width and the text columns take what it gave up. minmax(0, …) lets the text
+ * columns go below their longest unbroken path; those cells ellipsize instead,
+ * except on the service page's tab, where they wrap (.svc-errors, below). The
+ * Browser page's panel sets its own columns (browser-traces.css). */
+.err-row { --row-py: 12px; --col-gap: 14px; display: grid; grid-template-columns: minmax(0, .6fr) minmax(0, .875fr) 68px minmax(240px, 1.31fr); gap: var(--col-gap); align-items: center; padding: var(--row-py) 16px; border-top: 1px solid var(--border-subtle); font-size: 12px; }
 /* Clickable row opens the Traces page scoped to the error. The hover affordance
  * is a brand-tinted left bar so the sparkline column keeps a stable chart
  * background underneath. */
@@ -1135,8 +1139,19 @@ tbody tr:hover { background: var(--panel-2); }
  * column rule instead of floating against the sparkline's. */
 .err-count { font-weight: 400; font-size: 15px; color: var(--text-primary); }
 .err-spark { height: 132px; }
-.err-head { --row-py: 8px; --col-gap: 14px; display: grid; grid-template-columns: minmax(0, .6fr) minmax(0, .875fr) 68px minmax(320px, 2.49fr); gap: var(--col-gap); padding: var(--row-py) 16px; font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
+.err-head { --row-py: 8px; --col-gap: 14px; display: grid; grid-template-columns: minmax(0, .6fr) minmax(0, .875fr) 68px minmax(240px, 1.31fr); gap: var(--col-gap); padding: var(--row-py) 16px; font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
 .err-empty { padding: 60px 20px; text-align: center; color: var(--text-muted); font-size: 12px; }
+/* The APM service page's Errors tab (ErrorsTab wraps its panel in .svc-errors).
+ * Nothing in it is cut: the endpoint, the exception class and its message wrap
+ * onto more lines — between path or package segments where the markup offers
+ * a break (BreakAtSlashes, BreakAtDots), anywhere only as a last resort. */
+.svc-errors :is(.err-endpoint, .err-open, .err-exc-cls, .err-exc-msg) {
+  overflow: visible; text-overflow: clip; white-space: normal; overflow-wrap: anywhere;
+}
+/* The count is a number column, so it sits right, header and cells alike, and
+ * the digits line up by place value down the column. */
+.svc-errors .err-count-head { text-align: right; }
+.svc-errors .err-row .err-count { align-items: flex-end; }
 .err-empty svg { width: 34px; height: 34px; margin-bottom: 10px; color: var(--border-strong); }
 .seg-toggle { display: inline-flex; background: var(--panel); border-radius: var(--radius-sm); padding: 2px; gap: 1px; }
 .seg-toggle .seg { padding: 4px 12px; font-size: 11.5px; color: var(--text-secondary); border-radius: 4px; cursor: pointer; font-weight: 500; }

@@ -9,8 +9,15 @@
 // differences allowed are what the extraction added on purpose, none of which
 // draws anything: the side toggle's role, focus and pressed state; each row's
 // way in for the keyboard moved from the row (a role=button around another
-// button) to a button on its Endpoint text; and the message's title. The new
-// options are then checked for what they add.
+// button) to a button on its Endpoint text; and the message's title. Two more
+// came later, also drawing nothing: the Count header's class, and a line-break
+// opportunity after each '.' of the exception class. The new options are then
+// checked for what they add.
+//
+// The service page itself has since dropped the count's chip and the head's
+// "Open in Errors" button, by passing neither prevText nor headRight. The
+// wrapper below still passes both, so the comparison keeps covering every
+// part the panel can draw.
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -195,11 +202,14 @@ function ErrorsTabOnPanel({ win, timeRange, serviceId, onFocus, syncId, onOpenLi
 // The extraction's deliberate changes to the markup, undone so the rest can be
 // compared: the side toggle can be reached and pressed from the keyboard, and
 // a row is opened by the button on its Endpoint text instead of being a
-// role=button itself.
+// role=button itself. Then the later ones: the Count header's class, and the
+// break opportunities in the exception class (BreakAtDots).
 const withoutSegA11y = h => h
   .replace(/(<div class="seg(?: active)?") role="button" tabindex="0" aria-pressed="(?:true|false)"/g, '$1')
   .replace(/<button type="button" class="err-open" aria-label="[^"]*">(.*?)<\/button>/g, '$1')
   .replace(/(<span class="err-exc-msg") title="[^"]*"/g, '$1')
+  .replace(/<span class="err-count-head">/g, '<span>')
+  .replace(/<span><wbr\/>([^<]*)<\/span>/g, '$1')
 const withoutRowButton = h => h.replace(/(<div class="err-row is-clickable") role="button" tabindex="0"/g, '$1')
 const rowCount = h => (h.match(/class="err-row is-clickable"/g) ?? []).length
 
@@ -313,4 +323,22 @@ test('the Endpoint can be drawn as more than its text, and the spark at another 
   assert.match(h, new RegExp(`class="err-open"[^>]*><span class="probe-where">${g.endpoint.length}</span></button>`))
   // The title keeps the text, whatever is drawn.
   assert.ok(h.includes(`<div class="err-endpoint" title="${g.endpoint}">`))
+})
+
+test('the count carries its comparison chip only when the caller says what it compares against', () => {
+  const g = GROUPS[0]
+  const plain = html(<ErrorGroupsPanel side="server" groups={[g]} win={WIN} />)
+  assert.ok(plain.includes(`<div class="err-count"><span>${g.count.toLocaleString()}</span></div>`), plain)
+  assert.doesNotMatch(plain, /errp-delta/)
+  const chipped = html(<ErrorGroupsPanel side="server" groups={[g]} win={WIN} prevText="the previous hour" />)
+  assert.match(chipped, /<div class="err-count"><span>[^<]*<\/span><span class="errp-delta" data-dir="[a-z]+"/)
+})
+
+test('an exception class can break after each dot, and still reads as itself', () => {
+  const g = GROUPS.find(e => e.exception.includes('.'))
+  assert.ok(g, 'a dotted exception class to break')
+  const h = html(<ErrorGroupsPanel side="server" groups={[g]} win={WIN} onOpenException={noop} />)
+  const [, cls] = h.match(/<button type="button" class="err-exc-cls"[^>]*>(.*?)<\/button>/)
+  assert.equal((cls.match(/<wbr\/>/g) ?? []).length, g.exception.split('.').length - 1)
+  assert.equal(cls.replace(/<[^>]+>/g, ''), g.exception)
 })
