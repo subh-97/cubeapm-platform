@@ -1,7 +1,9 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import PageBar from '@/components/layout/PageBar'
-import { FileText, Database as DatabaseIcon, CircleAlert, Flame, Maximize2, Copy, X, Download } from 'lucide-react'
-import { buildTrace, traceSummary, traceDatabase } from '@/data/traceDetail'
+import { FileText, Database as DatabaseIcon, CircleAlert, Flame, Maximize2, Copy, X, Download, SearchX } from 'lucide-react'
+import { traceSummary, traceDatabase } from '@/data/traceDetail'
+import { resolveTrace, traceViewFor } from '@/data/traceResolvers'
+import EmptyState from '@/components/shared/EmptyState'
 import { colorForName } from '@/utils/chartPalette'
 import Waterfall, { msLabel, visibleSpans } from '@/components/trace/Waterfall'
 import { spanSearchFields, spanSearchRow, spanValueIndex } from '@/utils/traceFields'
@@ -11,7 +13,8 @@ import { matchesPod } from '@/utils/tableQuery'
 /* The icon is a second handle on the tab, not decoration: at 12px the four
    labels are one grey word each, and the shape is what the eye comes back to
    after reading the table under them. Each is paired with its label — an icon
-   alone would be a guess. */
+   alone would be a guess. Which of them a trace offers is the datasource's
+   call (traceViewFor), so this is the full set in strip order. */
 const TABS = [
   { id: 'summary', label: 'Summary', Icon: FileText },
   { id: 'database', label: 'Database', Icon: DatabaseIcon },
@@ -344,8 +347,18 @@ function SpanDetails({ span, trace }) {
   )
 }
 
-export default function TraceDetail({ traceId, goHome, goTraces, goLogs, timeRange, setTimeRange, settingsOpen, setSettingsOpen }) {
-  const trace = useMemo(() => buildTrace(traceId), [traceId])
+const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
+
+/**
+ * One trace, from whichever dataset `datasource` names ('traces' for backend
+ * spans, 'mobile' for a device's request). The id is resolved in that dataset
+ * alone, and the datasource's view options decide the breadcrumb, which tabs
+ * are offered, whether Check Logs is, and the search example (traceResolvers).
+ * `goLogs` is optional; without it there is no Check Logs button to press.
+ */
+export default function TraceDetail({ traceId, datasource = 'traces', goHome, goTraces, goLogs, timeRange, setTimeRange, settingsOpen, setSettingsOpen }) {
+  const trace = useMemo(() => resolveTrace(traceId, datasource), [traceId, datasource])
+  const viewOpts = traceViewFor(datasource)
   const [selectedId, setSelectedId] = useState(null)
   const [tab, setTab] = useState('summary')
   // Lives here rather than in the tab so the choice survives a trip to the
@@ -490,8 +503,9 @@ export default function TraceDetail({ traceId, goHome, goTraces, goLogs, timeRan
   // tabs describe the waterfall on screen — the same rule the counts above
   // them follow.
   const tabs = useMemo(
-    () => TABS.filter(t => t.id !== 'errors' || (shown?.errors.length ?? 0) > 0),
-    [shown]
+    () => TABS.filter(t => viewOpts.tabs.includes(t.id)
+      && (t.id !== 'errors' || (shown?.errors.length ?? 0) > 0)),
+    [shown, viewOpts]
   )
   // Derived rather than corrected in an effect: the selected tab can vanish
   // under the toggle, and falling back here avoids a frame rendered with no
@@ -626,13 +640,35 @@ export default function TraceDetail({ traceId, goHome, goTraces, goLogs, timeRan
     URL.revokeObjectURL(url)
   }, [trace])
 
+  const goList = goTraces ?? goHome
+
   if (!trace) {
+    // An id that names nothing in this dataset says so, and offers the way
+    // back to the list it should have come from. Rendering a stand-in here
+    // would be read as the answer.
     return (
       <>
         <PageBar timeRange={timeRange} setTimeRange={setTimeRange}>
-          <a onClick={goHome}>CubeAPM</a><span className="sep">/</span><span className="current">Trace</span>
+          <a onClick={goHome}>CubeAPM</a>
+          <span className="sep">/</span>
+          <a onClick={goList}>{viewOpts.listLabel}</a>
+          <span className="sep">/</span>
+          <span className="current mono">{traceId ? `Trace ${traceId.slice(0, 12)}${traceId.length > 12 ? '…' : ''}` : 'Trace'}</span>
         </PageBar>
-        <div className="tw-main"><div className="tw-empty">No trace id in the URL.</div></div>
+        <EmptyState
+          icon={SearchX}
+          title={traceId
+            ? <>Trace <span className="mono break-all">{traceId}</span> not found</>
+            : 'No trace id in the URL'}
+          description={traceId
+            ? `Nothing in ${viewOpts.listLabel} carries this id. It may be mistyped, or belong to another dataset.`
+            : `Open a trace from ${viewOpts.listLabel} to see its waterfall.`}
+          action={
+            <button type="button" className="hbtn small" onClick={goList}>
+              Back to {viewOpts.listLabel}
+            </button>
+          }
+        />
       </>
     )
   }
@@ -658,11 +694,11 @@ export default function TraceDetail({ traceId, goHome, goTraces, goLogs, timeRan
       >
         <a onClick={goHome}>CubeAPM</a>
         <span className="sep">/</span>
-        {/* A trace is reached from the Traces explorer, and the sidebar keeps
-            that item lit while you are inside one — so the trail names the page
-            you came from and goes back to it, rather than to a section this
-            view no longer belongs to. */}
-        <a onClick={goTraces ?? goHome}>Traces</a>
+        {/* A trace is reached from an explorer — Traces, or Mobile Traces for
+            a device's request — and the sidebar keeps that item lit while you
+            are inside one, so the trail names the page you came from and goes
+            back to it, rather than to a section this view no longer belongs to. */}
+        <a onClick={goList}>{viewOpts.listLabel}</a>
         <span className="sep">/</span>
         <span className="current mono">Trace {trace.traceId.slice(0, 12)}…</span>
       </PageBar>
@@ -681,7 +717,7 @@ export default function TraceDetail({ traceId, goHome, goTraces, goLogs, timeRan
               <div className="tw-head-sub">
                 {clockLabel(trace.startTime)}
                 <span className="sep">&middot;</span>
-                {totalCount} spans across {shownServiceCount} service{shownServiceCount === 1 ? '' : 's'}
+                {plural(totalCount, 'span')} across {plural(shownServiceCount, 'service')}
               </div>
             </div>
             <div className="tw-head-actions">
@@ -694,10 +730,12 @@ export default function TraceDetail({ traceId, goHome, goTraces, goLogs, timeRan
               )}
               {/* The reverse of the link that got you here: the drawer sends you
                   to the trace, and the trace sends you back to every log it
-                  produced. */}
-              <button type="button" className="tw-checklogs" onClick={() => goLogs(trace.traceId)}>
-                Check Logs
-              </button>
+                  produced. Offered only where logs can carry the id. */}
+              {viewOpts.checkLogs && goLogs && (
+                <button type="button" className="tw-checklogs" onClick={() => goLogs(trace.traceId)}>
+                  Check Logs
+                </button>
+              )}
             </div>
           </div>
 
@@ -756,8 +794,8 @@ export default function TraceDetail({ traceId, goHome, goTraces, goLogs, timeRan
                   trace from looking like a short one. */}
               <span className="dim">
                 {visibleCount === totalCount
-                  ? `${totalCount} spans`
-                  : `showing ${visibleCount} of ${totalCount} spans`}
+                  ? plural(totalCount, 'span')
+                  : `showing ${visibleCount} of ${plural(totalCount, 'span')}`}
                 {depthCount > 0 && ` · ${depthCount} depth`}
               </span>
               <span className="tw-wf-actions">
@@ -770,7 +808,7 @@ export default function TraceDetail({ traceId, goHome, goTraces, goLogs, timeRan
               fields={searchFields}
               suggest
               valuesFor={valuesFor}
-              placeholder="Search spans ( eg. service:payment-service AND http.status_code:500 )"
+              placeholder={viewOpts.searchPlaceholder}
               status={queryText.trim() ? (
                 <div className="tw-search-status" role="status">
                   {matchList.length === 0

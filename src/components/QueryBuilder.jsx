@@ -641,8 +641,9 @@ export function landChips(chips, list, { editingPath = null, insertionPath = nul
  * so an omitted prop never falls back to its default and the builder calls the
  * native method instead — which threw and blanked the Logs page.
  *
- * The rest of the seam is opt-in, and every default is what Logs and Traces had
- * before it existed, so neither page passes any of it:
+ * The rest of the seam is opt-in, and every default is what Logs had before it
+ * existed. The span explorer (Traces, Mobile Traces) passes its own examples
+ * and free-text wording, since a span search reads span names, not messages:
  *   `exampleQueries`       the built-in examples listed after `savedQueries`
  *   `freeTextNoun/Meta`    what the free-text rows say they search
  *   `enterCommitsFreeText` Enter on typed free text commits its first reading

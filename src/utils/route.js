@@ -8,6 +8,12 @@
 // The service tab rides in the query string, as the production app does
 // (/apm?service=…&tab=red): /service/notify-service?tab=red. Overview is the
 // default and is left out, so a bare /service/:id still means Overview.
+//
+// A trace's dataset rides there too (production: /apm/inspect/<id>?datasource=
+// mobile). A trace id alone does not say which store holds it — a device's
+// request and a backend span are looked up in different places — so a mobile
+// trace is /trace/<id>?datasource=mobile, and the backend, being the default,
+// keeps the bare /trace/<id> it has always had.
 
 import { services } from '@/data/services'
 
@@ -20,6 +26,7 @@ const VIEW_PATHS = {
   home: '/home',
   logs: '/logs',
   traces: '/traces',
+  mtraces: '/mobile-traces',
   explore: '/explore',
   errors: '/errors',
   infra: '/infrastructure',
@@ -37,16 +44,32 @@ function segmentAfter(pathname, prefix) {
   }
 }
 
+// The datasources a trace URL can name besides the default backend one. Any
+// other value — a typo, or a dataset this build does not have — reads as the
+// backend, the same way an unknown tab reads as Overview.
+const TRACE_DATASOURCES = new Set(['mobile'])
+
+function traceDatasource(search) {
+  const ds = new URLSearchParams(search).get('datasource')
+  return TRACE_DATASOURCES.has(ds) ? ds : null
+}
+
 // An unknown service falls back to the first one, which is the most severe
 // (services are sorted critical-first), an unknown tab falls back to Overview,
-// and a trace URL with no id to the Traces list. Either way the result names
-// something the page can render.
+// and a trace URL with no id to the list its datasource belongs to. Either way
+// the result names something the page can render.
+//
+// The datasource key is only present on a mobile trace. A backend trace parses
+// to exactly the shape it always has, so nothing that compares routes has to
+// learn that `datasource: undefined` and no key at all mean the same thing.
 export function parseRoute(pathname, search = '') {
   const page = VIEW_FOR_PATH.get(pathname)
   if (page) return { view: page }
   if (pathname.startsWith('/trace/')) {
     const traceId = segmentAfter(pathname, '/trace/')
-    return traceId ? { view: 'trace', traceId } : { view: 'traces' }
+    const datasource = traceDatasource(search)
+    if (!traceId) return { view: datasource === 'mobile' ? 'mtraces' : 'traces' }
+    return datasource ? { view: 'trace', traceId, datasource } : { view: 'trace', traceId }
   }
   if (pathname.startsWith('/service/')) {
     const id = segmentAfter(pathname, '/service/')
@@ -65,23 +88,29 @@ export function serviceUrl(serviceId, subTab = DEFAULT_SERVICE_TAB) {
   return subTab && subTab !== DEFAULT_SERVICE_TAB ? `${path}?tab=${encodeURIComponent(subTab)}` : path
 }
 
-export function traceUrl(traceId) {
-  return `/trace/${encodeURIComponent(traceId)}`
+export function traceUrl(traceId, datasource) {
+  const path = `/trace/${encodeURIComponent(traceId)}`
+  return TRACE_DATASOURCES.has(datasource) ? `${path}?datasource=${datasource}` : path
 }
 
 // The one URL a route is spelled as.
 export function routeUrl(route) {
   if (route.view === 'service') return serviceUrl(route.serviceId, route.serviceSubTab)
-  if (route.view === 'trace') return traceUrl(route.traceId)
+  if (route.view === 'trace') return traceUrl(route.traceId, route.datasource)
   return VIEW_PATHS[route.view] ?? VIEW_PATHS.home
 }
 
-// What App corrects the address to. On a service it owns the whole URL — the
-// path and ?tab=. Anywhere else it owns only the path: the query string is
-// the page's (the Errors page keeps its filters there), so it is carried
-// across untouched rather than stripped.
+// What App corrects the address to. On a service or a trace it owns the whole
+// URL — the path and the ?tab= or ?datasource= that routeUrl already prints;
+// appending the search on top would spell the datasource twice, and the second
+// copy would be read back as part of the first. A trace URL with no id hands
+// over to a list, and the ?datasource= that picked which list was the trace
+// view's, so it is not carried onto the list either. Anywhere else it owns only
+// the path: the query string is the page's (the Errors page keeps its filters
+// there), so it is carried across untouched rather than stripped.
 export function canonicalUrl(pathname, search = '') {
   const route = parseRoute(pathname, search)
   const url = routeUrl(route)
-  return route.view === 'service' ? url : url + search
+  const ownsQuery = route.view === 'service' || route.view === 'trace' || pathname.startsWith('/trace/')
+  return ownsQuery ? url : url + search
 }

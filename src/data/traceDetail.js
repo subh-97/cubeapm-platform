@@ -132,7 +132,7 @@ function buildTree(rawSpans) {
     for (const c of children) walk(c, depth + 1)
   }
   roots.sort((a, b) => a.time - b.time).forEach(r => walk(r, 0))
-  return { ordered, t0 }
+  return { ordered }
 }
 
 export function buildTrace(traceId) {
@@ -171,23 +171,39 @@ export function buildTrace(traceId) {
       : s)
   }
 
-  const { ordered, t0 } = buildTree(raw)
-  if (ordered.length === 0) return null
+  const { ordered } = buildTree(raw)
+  return assembleTrace(traceId, ordered, { origin })
+}
 
-  const root = ordered[0]
-  const endMs = Math.max(...ordered.map(s => s.start + s.duration))
+/**
+ * The trace the inspect view renders, from spans already in view shape.
+ *
+ * Every dataset ends here, so the view reads one shape whichever store the
+ * spans came from: the backend's span stream above, or a device's request,
+ * which is a trace of one span. `spans` are view-model spans in waterfall
+ * order, root first —
+ * `{ id, parentId, depth, name, service, kind, category, start, startTime,
+ *    duration, status, httpStatus, db, exception, childIds, tags }`,
+ * with `start` in milliseconds from the trace's first span and `startTime` a
+ * Date. `origin` is the log record the trace was opened from, when there is one.
+ */
+export function assembleTrace(traceId, spans, { origin = null } = {}) {
+  if (!traceId || !spans?.length) return null
+
+  const root = spans[0]
+  const endMs = Math.max(...spans.map(s => s.start + s.duration))
 
   return {
     traceId,
     root,
-    spans: ordered,
-    byId: Object.fromEntries(ordered.map(s => [s.id, s])),
+    spans,
+    byId: Object.fromEntries(spans.map(s => [s.id, s])),
     totalMs: Math.max(endMs, root.duration),
-    failed: ordered.some(s => s.status === 'error'),
+    failed: spans.some(s => s.status === 'error'),
     origin,
-    startTime: new Date(t0),
-    services: [...new Set(ordered.map(s => s.service))],
-    errors: ordered.filter(s => s.exception),
+    startTime: new Date(Math.min(...spans.map(s => s.startTime.getTime()))),
+    services: [...new Set(spans.map(s => s.service))],
+    errors: spans.filter(s => s.exception),
   }
 }
 
@@ -204,8 +220,13 @@ export function buildTrace(traceId) {
  */
 export function traceSummary(trace) {
   const byOp = new Map()
+  // The root is left out because its duration is the whole trace, and a row
+  // at 100% would sit above every row that explains it. A trace that is only
+  // its root has nothing else to explain it with — a device's request is one
+  // span — so there the root is the row, rather than an empty table.
+  const skipRoot = trace.spans.length > 1
   for (const s of trace.spans) {
-    if (s === trace.root) continue
+    if (skipRoot && s === trace.root) continue
     const key = `${s.service}\u0000${s.name}`
     const e = byOp.get(key) ?? { key, service: s.service, name: s.name, count: 0, duration: 0, db: !!s.db, slowestId: null, slowestMs: -1 }
     e.count++; e.duration += s.duration
@@ -214,8 +235,10 @@ export function traceSummary(trace) {
     if (s.duration > e.slowestMs) { e.slowestMs = s.duration; e.slowestId = s.id }
     byOp.set(key, e)
   }
+  // A lone span is the whole of its trace even when nothing timed it (a
+  // device's install record has no duration), so it reads 100% rather than 0.
   return [...byOp.values()]
-    .map(e => ({ ...e, pct: trace.totalMs ? (e.duration / trace.totalMs) * 100 : 0 }))
+    .map(e => ({ ...e, pct: trace.totalMs ? (e.duration / trace.totalMs) * 100 : skipRoot ? 0 : 100 }))
     .sort((a, b) => b.duration - a.duration)
 }
 

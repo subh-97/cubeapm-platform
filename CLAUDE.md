@@ -26,12 +26,13 @@ npm run dev   # runs on localhost:3000
 All routes are children of `<AppShell />` via `<Outlet />`:
 - `/` → HomePage (services dashboard)
 - `/traces` → TracesPage
+- `/mobile-traces` → Mobile Traces (sidebar "MTraces"): the Traces explorer over the mobile dataset (`MOBILE_TRACES_SOURCE`); a request's trace opens at `/trace/<id>?datasource=mobile`
 - `/logs` → LogsPage  
 - `/metrics` → MetricsPage
 - `/alerts` → AlertsPage
 - `/settings` → SettingsPage
 
-The sidebar starts with Home, then follows the production app's list: APM & Services (a service's APM page), Logs, Infrastructure, Browser, Traces, MTraces, Profiles, Errors, Mobile, Dash, Explore, SLO, Alerts, Monitors, Investigation. Items not built yet (Browser, MTraces, Profiles, Mobile, Dash, SLO, Alerts, Monitors, Investigation) are stubbed with `opacity-.42` and no click handler.
+The sidebar starts with Home, then follows the production app's list: APM & Services (a service's APM page), Logs, Infrastructure, Browser, Traces, MTraces, Profiles, Errors, Mobile, Dash, Explore, SLO, Alerts, Monitors, Investigation. Items not built yet (Browser, Profiles, Mobile, Dash, SLO, Alerts, Monitors, Investigation) are stubbed with `opacity-.42` and no click handler.
 
 ### Data layer
 Mock data in `src/data/`, generated as a function of the selected time range rather than stored flat. `src/utils/timeRange.js` models the range (`{kind:'preset'}` or `{kind:'absolute'}`, owned by `App`); `src/data/timeWindow.js` turns it into a window and samples one shared incident profile for every series, aggregate and level mix. Last 1 hour reproduces the published figures exactly; wider ranges dilute the incident, and p90 falls off a cliff where a mean would fade. See `docs/decisions/time-range-windowing.md`. Every service has RED metrics (Rate, Error, Duration) computed through status resolution functions. Replace with real API calls when integrating with the CubeAPM backend.
@@ -138,6 +139,7 @@ Decisions worth not re-deriving. Read the relevant one before reworking that are
 - `docs/decisions/query-builder-phase8.md` — what has shipped on the Logs query builder, and the one piece that hasn't (URL state sync)
 - `docs/decisions/time-range-windowing.md` — how the time range drives the data: one incident profile, the one-hour calibration, and why a percentile behaves differently from a mean as the window widens
 - `docs/decisions/errors-page.md` — the `/errors` page: filter series then group, the errors variant of the query builder, the URL dialects it reads, and how it hands off to Traces and the service page
+- `docs/decisions/mobile-traces-page.md` — the `/mobile-traces` page: one explorer driven by a dataset `source`, the session-built mobile data and its decodable trace ids, severity bands for HTTP codes, the one-span mobile trace view, and every difference from production
 
 `docs/HANDOFF.md` describes where the project stands overall.
 

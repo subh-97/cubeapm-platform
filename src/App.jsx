@@ -21,6 +21,8 @@ import { TIME_PRESETS, DEFAULT_PRESET, rangeLabel } from '@/utils/timeRange'
 import { filtersToChips } from '@/utils/tracesHandoff'
 import { useTheme } from '@/hooks/useTheme'
 import { parseRoute, canonicalUrl, routeUrl, serviceUrl, traceUrl, DEFAULT_SERVICE_TAB } from '@/utils/route'
+import { traceViewFor } from '@/data/traceResolvers'
+import { MOBILE_TRACES_SOURCE } from '@/utils/explorerSources'
 
 function getInfraNavItems() {
   const items = []
@@ -113,6 +115,9 @@ export default function App() {
   const serviceId = route.serviceId ?? lastService.id
   const serviceSubTab = route.serviceSubTab ?? lastService.tab
   const traceId = route.traceId ?? ''
+  // Which dataset the open trace belongs to. Only a mobile trace's route names
+  // one; everything else is a backend trace.
+  const traceDatasource = route.datasource ?? 'traces'
 
   // Pushing the URL you are already on would add an entry Back steps through
   // for nothing.
@@ -132,8 +137,10 @@ export default function App() {
     go(serviceUrl(serviceId, tab))
   }, [go, serviceId])
 
-  const openTrace = useCallback((id) => {
-    go(traceUrl(id))
+  // The datasource travels in the URL beside the id, so a reload or a pasted
+  // link looks the id up in the same store the click did.
+  const openTrace = useCallback((id, datasource) => {
+    go(traceUrl(id, datasource))
     setSettingsOpen(false)
   }, [go])
 
@@ -143,7 +150,9 @@ export default function App() {
   const openLink = useCallback((link) => {
     if (!link) return
     if (link.view === 'traces') {
-      if (link.traceId) return openTrace(link.traceId)
+      // A record's trace link names no dataset of its own, so a page whose
+      // records are not backend spans (Mobile Traces) tags it on the way out.
+      if (link.traceId) return openTrace(link.traceId, link.datasource)
       // A link that names what it wants to see arrives as chips, so Traces
       // opens already filtered to it and says so in its own query bar —
       // rather than on every span in the window with the filter lost on the way.
@@ -186,6 +195,14 @@ export default function App() {
       showView('infra')
     }
   }, [openTrace, go, showView])
+
+  // Mobile Traces opens its trace ids as mobile traces: the table's trace_id
+  // cell directly, and the drawer's "Open this trace" by tagging the link,
+  // which names no dataset of its own. Every other link goes where it says.
+  const openMobileTrace = useCallback((id) => openTrace(id, 'mobile'), [openTrace])
+  const openMobileLink = useCallback((link) => {
+    openLink(link?.view === 'traces' && link.traceId ? { ...link, datasource: 'mobile' } : link)
+  }, [openLink])
 
   const openLogsForTrace = useCallback((id) => {
     setLogsQuery({ concept: 'traceId', field: 'trace_id', value: id })
@@ -255,6 +272,7 @@ export default function App() {
   const isService = view === 'service'
   const isLogs = view === 'logs'
   const isTraces = view === 'traces'
+  const isMTraces = view === 'mtraces'
   const isInfra = view === 'infra'
   const isTrace = view === 'trace'
   const isExplore = view === 'explore'
@@ -265,7 +283,9 @@ export default function App() {
       <Sidebar
         navCollapsed={navCollapsed}
         setNavCollapsed={setNavCollapsed}
-        view={view}
+        // A mobile trace is the trace view under another list, so the sidebar
+        // is told which one to keep lit.
+        view={isTrace && traceDatasource === 'mobile' ? 'mtrace' : view}
         goHome={goHome}
         setView={showView}
         onOpenHelp={openHelp}
@@ -349,10 +369,13 @@ export default function App() {
               />
             ) : isTrace ? (
               <TraceDetail
-                key={traceId}
+                // Keyed on the dataset too: the same id in two datasets is two
+                // different traces, and neither may inherit the other's state.
+                key={`${traceDatasource}:${traceId}`}
                 traceId={traceId}
+                datasource={traceDatasource}
                 goHome={goHome}
-                goTraces={() => showView('traces')}
+                goTraces={() => showView(traceViewFor(traceDatasource).listView)}
                 goLogs={openLogsForTrace}
                 timeRange={timeRange}
                 setTimeRange={setTimeRange}
@@ -361,11 +384,26 @@ export default function App() {
               />
             ) : isTraces ? (
               <TracesView
+                // Keyed per page, as the Mobile Traces instance is: both are the
+                // same component, and without a key React would hand one page's
+                // query, columns and saved queries to the other.
+                key="traces"
                 goHome={goHome} timeRange={timeRange} setTimeRange={setTimeRange} setToast={setToast}
                 onOpenLink={openLink}
                 onOpenTrace={openTrace}
                 incomingChip={tracesQuery}
                 onIncomingChipApplied={() => setTracesQuery(null)}
+              />
+            ) : isMTraces ? (
+              // The Mobile Traces explorer: the same page over the mobile
+              // dataset. No incomingChip — tracesQuery is a handoff to the
+              // backend Traces page, written in span fields.
+              <TracesView
+                key="mtraces"
+                source={MOBILE_TRACES_SOURCE}
+                goHome={goHome} timeRange={timeRange} setTimeRange={setTimeRange} setToast={setToast}
+                onOpenLink={openMobileLink}
+                onOpenTrace={openMobileTrace}
               />
             ) : isLogs ? (
               <LogsView

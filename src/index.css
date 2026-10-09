@@ -2345,6 +2345,7 @@ tbody tr:hover { background: var(--panel-2); }
 .span-empty { color: var(--text-muted); opacity: .6; }
 .span-status { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; font-weight: 600; }
 .span-status.status-critical { color: var(--critical); }
+.span-status.status-warning { color: var(--warning); }
 .span-status.status-healthy { color: var(--text-secondary); }
 .span-status.status-neutral { color: var(--text-muted); }
 
@@ -2362,6 +2363,7 @@ tbody tr:hover { background: var(--panel-2); }
    sits at the same low weight the info bar has on the log stream rather than
    painting a green stripe down every ordinary row. */
 .span-bar-critical { background: var(--critical); }
+.span-bar-warning { background: var(--warning); }
 .span-bar-healthy { background: var(--healthy); opacity: .32; }
 .span-bar-neutral { background: var(--border-strong); opacity: .5; }
 
