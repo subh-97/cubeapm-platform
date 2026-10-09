@@ -1,0 +1,22 @@
+/* LegendLineChart's own rules. Everything else it draws is the service page's
+ * RED chart markup (.red-chart-*, .drill2-*, in index.css), unchanged. */
+
+/* The legend rows are <button>s, so isolating a row works from the keyboard.
+ * .drill2-item already resets the chrome a button arrives with (background,
+ * border, font, colour, text-align); this is the one default it misses.
+ * Current Chrome lays a button out exactly like the div these rows used to be
+ * (measured: same box for every part of the row), but older browser
+ * stylesheets, WebKit's among them, give a button align-items: flex-start,
+ * which would shrink each row to its text and pull the value in from the
+ * right edge. Scoped to button.drill2-item, so the skeleton's div rows are
+ * untouched. */
+button.drill2-item { align-items: stretch; }
+button.drill2-item:focus-visible { outline: 2px solid var(--brand); outline-offset: 0; }
+
+/* legendScroll: a legend longer than its chart scrolls beside it instead of
+ * stretching the whole row. Size containment makes the legend count as empty
+ * when the row's height is worked out, so the chart alone sets it; the row's
+ * stretch then gives the legend that height and the rest scrolls. Rows keep
+ * their own height rather than shrinking to share what is left. */
+.drill2-legend.is-scroll { contain: size; overflow-y: auto; overscroll-behavior: contain; }
+.drill2-legend.is-scroll > * { flex-shrink: 0; }

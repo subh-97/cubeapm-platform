@@ -1,0 +1,11 @@
+/* TitleDropdown's menu from the keyboard: src/components/shared/TitleDropdown.jsx.
+
+   The menu is the panel-head dropdown's (.title-dropdown-menu / -item in
+   src/index.css) and is not restyled here. The menu takes focus as a listbox,
+   so its own outline would only frame the whole menu; the option the keys are
+   on is shown instead, with the look an option has under the pointer. The
+   component sets .is-hl only once the keyboard is in use, so a menu used with
+   the pointer alone is drawn exactly as before. */
+.title-dropdown-menu:focus { outline: none; }
+.title-dropdown-item.is-hl { background: var(--panel-2); }
+.title-dropdown-menu:focus-visible .title-dropdown-item.is-hl { box-shadow: inset 2px 0 0 var(--brand); }

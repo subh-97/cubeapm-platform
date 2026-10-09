@@ -1,0 +1,10 @@
+/* SortableTh's label button: src/components/shared/SortableTable.jsx.
+
+   The label of a sortable header is a <button> so the sort can be reached and
+   pressed from the keyboard, but it must look exactly like the text it
+   replaced — header type, colour, case and spacing all come from the <th>
+   (the global `th` rules), so everything a button brings of its own is unset
+   and the rest inherited. The one thing added is a focus ring, drawn only for
+   the keyboard. */
+.sortable-th-btn { all: unset; cursor: inherit; }
+.sortable-th-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 2px; }

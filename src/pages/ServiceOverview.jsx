@@ -1,5 +1,4 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
-import { createPortal } from 'react-dom'
 import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import {
   servicesForWindow, seriesForWindow, versionBandsForWindow, latencyDrilldownForWindow,
@@ -19,19 +18,25 @@ import ServicePicker from '@/components/ServicePicker'
 import CardMenu, { CardActionContext } from '@/components/CardMenu'
 import { explorePayloadForCard } from '@/utils/explore/editorState'
 import InfoTip from '@/components/shared/InfoTip'
+import SearchGlyph from '@/components/shared/SearchGlyph'
+import FilterSelect from '@/components/shared/FilterSelect'
+import ViewToggle from '@/components/shared/ViewToggle'
+import TitleDropdown from '@/components/shared/TitleDropdown'
 import { SortableTh, CellBar } from '@/components/shared/SortableTable'
 import { useSortedRows } from '@/hooks/useSortedRows'
-import Waterfall from '@/components/trace/Waterfall'
-import { buildTrace } from '@/data/traceDetail'
+import { useScrollReveal, revealClass } from '@/hooks/useScrollReveal'
+import RequestTraceSplit from '@/components/trace/RequestTraceSplit'
+import ErrorGroupsPanel from '@/components/errors/ErrorGroupsPanel'
 import { errorGroupsForWindow, tracesFiltersFor } from '@/data/errors'
-import { previousPeriodText, deltaChip } from '@/utils/errorsPage'
+import { previousPeriodText } from '@/utils/errorsPage'
 import { Gauge, Crosshair, ChartLine, Globe, Database, TriangleAlert, Cpu, ArrowUpRight } from 'lucide-react'
-import { GRID_PROPS, NO_ANIM, AREA_PROPS, LINE_PROPS, valueAxisProps, maxOf, niceAxis, formatDecimals, fmtCompact, fmtBytes, fmtCount } from '@/components/charts/chartDefaults'
+import { GRID_PROPS, NO_ANIM, AREA_PROPS, LINE_PROPS, valueAxisProps, maxOf, niceAxis, formatDecimals, fmtCompact, fmtBytes, fmtCount, fmtRedMs, fmtRedRpm, fmtRedPct } from '@/components/charts/chartDefaults'
 import { buildTimeAxis, withX } from '@/components/charts/timeAxis'
 import { useMeasuredWidth, useSeriesHover } from '@/components/charts/useTimeFocus'
 import ChartTooltip from '@/components/charts/ChartTooltip'
 import { TimeChart, SvcTooltip, rowInstant } from '@/components/charts/TimeChart'
-import ErrorSpark from '@/components/errors/ErrorSpark'
+import LegendLineChart from '@/components/charts/LegendLineChart'
+import MiniChart from '@/components/charts/MiniChart'
 // For .errp-delta, the Errors page's count chip, so the Errors tab's counts
 // read the same as the page its "Open in Errors" button lands on. Imported
 // here rather than relied on through ErrorsView; every rule in it is
@@ -40,7 +45,7 @@ import '@/components/errors/errors.css'
 import { useSeriesBudget } from '@/components/charts/useSeriesBudget'
 import SeriesBudgetFooter from '@/components/charts/SeriesBudgetFooter'
 import { fixesAxis, TOOLTIP_ROWS } from '@/components/charts/seriesBudget'
-import { cycledColor } from '@/utils/chartPalette'
+import { epColor } from '@/utils/chartPalette'
 import { KpiCardsSkeleton, LatencyDrilldownSkeleton, TrendChartsSkeleton } from '@/pages/ServiceOverviewSkeleton'
 
 // Which tabs there are, and their order, is SERVICE_TABS in utils/route — the
@@ -56,24 +61,6 @@ const VIEW_META = {
   runtime: { label: 'Runtime', Icon: Cpu },
 }
 const SERVICE_VIEWS = SERVICE_TABS.map(id => ({ id, ...VIEW_META[id] }))
-
-
-const RED_EP_COLORS = ['#3B82F6', '#34D399', '#F472B6', '#A78BFA', '#06B6D4', '#6366F1']
-
-// An endpoint's line colour: the seventh endpoint is visibly not the first
-// (see cycledColor), and it is never `undefined`, which is what indexing the
-// six colours directly gave the RED charts once more than six could draw.
-const epColor = i => cycledColor(RED_EP_COLORS, i)
-
-// The magnifier every search box on this page carries. Its size comes from the
-// box it sits in (13px in all of them), so one glyph serves every variant.
-function SearchGlyph() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" />
-    </svg>
-  )
-}
 
 // Floating mini-chart that renders beside a hovered cell. The parent attaches
 // `onMouseEnter`/`onMouseLeave` on the cells and keeps the hovered cell in
@@ -120,9 +107,6 @@ function HoverChartPopover({ anchor, title, series, win, color = '#3B82F6', form
     </div>
   )
 }
-const fmtRedMs = v => `${Math.round(v)} ms`
-const fmtRedRpm = v => v >= 1000 ? `${(v / 1000).toFixed(1)}K` : Math.round(v).toString()
-const fmtRedPct = v => `${v.toFixed(2)}%`
 
 function DrilldownTooltip({ active, payload, nowMs, hoverKey, colors, suppressed }) {
   if (!active || !payload?.length) return null
@@ -141,27 +125,6 @@ function DrilldownTooltip({ active, payload, nowMs, hoverKey, colors, suppressed
       items={items}
       hoverKey={hoverKey}
       suppressed={suppressed}
-    />
-  )
-}
-
-function RedChartTooltip({ active, payload, eps, fmtFn, nowMs, hoverKey, suppressed }) {
-  if (!active || !payload?.length) return null
-  const items = payload.map(p => {
-    const ei = parseInt(p.dataKey.replace('ep', ''), 10)
-    const ep = eps[ei]?.endpoint || ''
-    const short = ep.length > 28 ? ep.slice(0, 26) + '…' : ep
-    return { key: p.dataKey, label: short, value: fmtFn(p.value), color: epColor(ei) }
-  })
-  return (
-    <ChartTooltip
-      tMs={rowInstant(payload[0])}
-      nowMs={nowMs ?? Date.now()}
-      items={items}
-      hoverKey={hoverKey}
-      suppressed={suppressed}
-      limit={TOOLTIP_ROWS}
-      minWidth={180}
     />
   )
 }
@@ -284,8 +247,8 @@ function EndpointTab({ data, endpoint, onOpenUpstream, onOpenTrace, syncId, win,
           </table>
         </div>
       )} />
-      <SlowRequests onOpenTrace={onOpenTrace} data={data.slow} />
-      <SlowRequests onOpenTrace={onOpenTrace} data={data.errors} title="Requests with Errors" initialSort="none" />
+      <RequestTraceSplit onOpenTrace={onOpenTrace} data={data.slow} />
+      <RequestTraceSplit onOpenTrace={onOpenTrace} data={data.errors} title="Requests with Errors" initialSort="none" />
       <InfraCorrelation hosts={data.infra} win={win} />
     </>
   )
@@ -620,114 +583,6 @@ function TrendCharts({ bands, syncId, win, onFocus, aside }) {
   )
 }
 
-const SLOWREQ_SORTS = [
-  { id: 'latency', label: 'Latency' },
-  { id: 'time', label: 'Time' },
-  { id: 'none', label: 'None' },
-]
-
-function SlowRequests({ onOpenTrace, data, title = 'Slow Requests', initialSort = 'latency' }) {
-  const [sortBy, setSortBy] = useState(initialSort)
-  const [selected, setSelected] = useState(null)
-  const [collapsed, setCollapsed] = useState(() => new Set())
-  const [span, setSpan] = useState(null)
-
-  const rows = useMemo(() => {
-    if (sortBy === 'none') return data
-    const list = [...data]
-    if (sortBy === 'latency') list.sort((a, b) => b.latencyMs - a.latencyMs)
-    else list.sort((a, b) => parseInt(a.timestamp, 10) - parseInt(b.timestamp, 10))
-    return list
-  }, [sortBy, data])
-
-  const row = selected ? rows.find(r => r.traceId === selected) : null
-
-  const trace = useMemo(() => row ? buildTrace(row.traceId) : null, [row?.traceId])
-
-  const toggle = useCallback(id => setCollapsed(prev => {
-    const next = new Set(prev)
-    if (next.has(id)) next.delete(id)
-    else next.add(id)
-    return next
-  }), [])
-
-  return (
-    <div className="panel">
-      <div className="panel-head is-divided">
-        <div className="panel-head-left">{title}</div>
-        <div className="panel-head-right">
-          <span className="sort-lbl">Sort by</span>
-          <div className="seg-toggle">
-            {SLOWREQ_SORTS.map(s => (
-              <div key={s.id} className={`seg${sortBy === s.id ? ' active' : ''}`} onClick={() => setSortBy(s.id)}>{s.label}</div>
-            ))}
-          </div>
-          <CardMenu kind="list" title={title} />
-        </div>
-      </div>
-      <div className="slowreq-split">
-        <div className="slowreq-list">
-          {rows.map(r => (
-            <button
-              type="button"
-              className={`slowreq-row${r.traceId === selected ? ' selected' : ''}`}
-              key={r.traceId}
-              onClick={() => setSelected(r.traceId)}
-              aria-pressed={r.traceId === selected}
-            >
-              <div>
-                <div className="ep">{r.endpoint}</div>
-                <div className="meta">{r.timestamp} · trace <span className="mono">{r.traceId}</span></div>
-              </div>
-              <div className="dur">{r.latencyMs} ms</div>
-            </button>
-          ))}
-        </div>
-        <div className="slowreq-preview">
-          {row ? (
-            <>
-              <div className="slowreq-preview-head">
-                <span className="slowreq-preview-ep">{row.endpoint}</span>
-                <button
-                  type="button"
-                  className="slowreq-trace-link"
-                  onClick={() => onOpenTrace?.(row.traceId)}
-                  title={`Open trace ${row.traceId} in trace details`}
-                >
-                  Trace ID · <span className="mono">{row.traceId}</span>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M14 4h6v6M20 4l-8 8M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5" />
-                  </svg>
-                </button>
-              </div>
-              {trace ? (
-                <div className="slowreq-waterfall">
-                  <Waterfall
-                    trace={trace}
-                    selected={span}
-                    onSelect={setSpan}
-                    collapsed={collapsed}
-                    onToggle={toggle}
-                  />
-                </div>
-              ) : (
-                <div className="drill2-empty">No spans recorded for this trace.</div>
-              )}
-            </>
-          ) : (
-            <div className="slowreq-empty">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M3 12h4l3-9 4 18 3-9h4" />
-              </svg>
-              <span>Select a request to view its trace</span>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
 const INFRA_METRICS = {
   rpm:          { label: 'RPM',           color: '#3B82F6', unit: '',     fmt: v => Math.round(v).toLocaleString() },
   latencyP90:   { label: 'p90 Latency',   color: '#A78BFA', unit: ' ms',  fmt: v => Math.round(v) },
@@ -840,146 +695,6 @@ function InfraCorrelation({ hosts, win }) {
   )
 }
 
-// The table/graph choice belongs to the page rather than the panel - it now
-// sits in the filter strip beside Category, Host and Version, which is where a
-// reader already goes to change what the page is showing.
-function RedViewToggle({ view, setView }) {
-  const isGraph = view === 'graph'
-  return (
-    <div className="view-toggle">
-      <button
-        type="button"
-        className={`view-toggle-btn${!isGraph ? ' active' : ''}`}
-        onClick={() => setView('table')}
-        title="Table view"
-        aria-pressed={!isGraph}
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18M3 15h18M9 3v18" /></svg>
-        <span>Table</span>
-      </button>
-      <button
-        type="button"
-        className={`view-toggle-btn${isGraph ? ' active' : ''}`}
-        onClick={() => setView('graph')}
-        title="Graph view"
-        aria-pressed={isGraph}
-      >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg>
-        <span>Graph</span>
-      </button>
-    </div>
-  )
-}
-
-// One line per endpoint, under a series budget of its own: the chart draws the
-// first endpoints its width can make legible and its footer says how many it is
-// holding back. Each chart has its own search and legend, so each keeps its own
-// budget — and the search runs over EVERY endpoint, so a held-back one is a
-// few keystrokes away without pressing Show all.
-function RedDrilldownChart({ title, eps, epSeries, dataKey, fmtFn, syncId, win, onFocus }) {
-  const [selected, setSelected] = useState(null)
-  const [hoverKey, setHoverKey] = useState(null)
-  const [search, setSearch] = useState('')
-  const [plotWidth, setPlotWidth] = useState(0)
-  const dimOpacityFor = (key) => (hoverKey == null || hoverKey === key ? 1 : 0.22)
-
-  const q = search.trim().toLowerCase()
-  const shownIdxs = useMemo(() => {
-    const all = eps.map((_, i) => i)
-    return q ? all.filter(i => eps[i].endpoint.toLowerCase().includes(q)) : all
-  }, [eps, q])
-  const budget = useSeriesBudget(shownIdxs.length, plotWidth)
-  const drawnIdxs = shownIdxs.slice(0, budget.count)
-  // A selection only counts while its endpoint is drawn. "Show fewer" or a new
-  // search can take it off the chart, and a stale one would dim every legend
-  // row against a line that is not there.
-  const sel = selected != null && drawnIdxs.includes(selected) ? selected : null
-  const chartIdxs = sel != null ? [sel] : drawnIdxs
-
-  const data = useMemo(() => {
-    const base = epSeries[0]?.series ?? []
-    return withX(base.map((pt, i) => {
-      const entry = { t: pt.t, label: pt.label, exactTime: pt.exactTime }
-      epSeries.forEach((ep, ei) => { entry[`ep${ei}`] = ep.series[i]?.value })
-      return entry
-    }), win)
-  }, [epSeries, win])
-
-  // An isolated endpoint gets the axis fitted to it, as it always has. Otherwise,
-  // while the budget is holding endpoints back, the axis spans every matching
-  // endpoint so Show all adds lines without rescaling the ones already drawn.
-  const y = useMemo(() => (
-    sel == null && fixesAxis(budget.status)
-      ? niceAxis(maxOf(data, shownIdxs.map(i => `ep${i}`)), 4, { decimals: formatDecimals(fmtFn) })
-      : null
-  ), [sel, budget.status, data, shownIdxs, fmtFn])
-
-  return (
-    <div className="red-chart-section">
-      <div className="red-chart-head">
-        <span>{title}</span>
-        <CardMenu kind="chart" title={title} />
-      </div>
-      <div className="drill2">
-        <div className="drill2-chart">
-          <TimeChart win={win} onFocus={onFocus} height={260} onWidth={setPlotWidth}>
-            {(axis, focus) => (
-              <LineChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
-                <CartesianGrid {...GRID_PROPS} />
-                <XAxis {...axis.props} />
-                <YAxis {...valueAxisProps({ format: fmtFn, maxValue: y?.top ?? maxOf(data, chartIdxs.map(i => `ep${i}`)), domain: y ? [0, y.top] : undefined })} ticks={y?.ticks} />
-                <Tooltip content={p => <RedChartTooltip {...p} eps={eps} fmtFn={fmtFn} nowMs={win.end * 1000} hoverKey={hoverKey} suppressed={!focus.hovered} />} {...NO_ANIM} />
-                {chartIdxs.map(ei => (
-                  <Line key={ei} {...LINE_PROPS} dataKey={`ep${ei}`} stroke={epColor(ei)}
-                    strokeOpacity={dimOpacityFor(`ep${ei}`)}
-                    strokeWidth={1.5} dot={false} activeDot={{ r: 3, strokeWidth: 0 }}
-                    onMouseEnter={() => setHoverKey(`ep${ei}`)}
-                    onMouseLeave={() => setHoverKey(null)} />
-                ))}
-                {focus.overlay}
-              </LineChart>
-            )}
-          </TimeChart>
-        </div>
-        <div className="drill2-legend">
-          <div className="drill2-search">
-            <SearchGlyph />
-            <input
-              type="search"
-              aria-label="Search endpoints"
-              placeholder="Search endpoints…"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
-          </div>
-          {drawnIdxs.map(ei => {
-            const dimmed = sel != null && sel !== ei
-            return (
-              <div
-                className={`drill2-item${dimmed ? ' dimmed' : ''}`}
-                key={ei}
-                onClick={() => setSelected(sel === ei ? null : ei)}
-                onMouseEnter={() => setHoverKey(`ep${ei}`)}
-                onMouseLeave={() => setHoverKey(null)}
-              >
-                <div className="drill2-row">
-                  <span className="drill2-swatch" style={{ background: epColor(ei) }} />
-                  <span className="drill2-label">{eps[ei].endpoint}</span>
-                  <span className="drill2-val">{fmtFn(eps[ei][dataKey])}</span>
-                </div>
-              </div>
-            )
-          })}
-          {shownIdxs.length === 0 && (
-            <div className="drill2-empty">No endpoints match "{search.trim()}"</div>
-          )}
-        </div>
-      </div>
-      <SeriesBudgetFooter budget={budget} noun="endpoints" />
-    </div>
-  )
-}
-
 function SlowQueriesTable() {
   const { rows, sort, toggle } = useSortedRows(slowQueries, 'duration', 'desc')
   const Hdr = ({ sortKey, align, children }) => {
@@ -1051,7 +766,7 @@ function RedTab({ win, endpoints, syncId, onFocus }) {
     <div className="panel">
       <div className="panel-head is-divided red-table-head">
         <div className="panel-head-left red-head-left">
-          <RedViewToggle view={view} setView={setView} />
+          <ViewToggle view={view} setView={setView} />
         </div>
         {!isGraph && <CardMenu kind="table" title="RED" columns={RED_COLUMNS} />}
       </div>
@@ -1072,10 +787,10 @@ function RedTab({ win, endpoints, syncId, onFocus }) {
       )}
       {isGraph ? (
         <>
-          <RedDrilldownChart title="RPM" eps={eps} epSeries={series.rpm} dataKey="rpm" fmtFn={fmtRedRpm} syncId={syncId} win={win} onFocus={onFocus} />
-          <RedDrilldownChart title="Response Time (p90)" eps={eps} epSeries={series.p90} dataKey="p90" fmtFn={fmtRedMs} syncId={syncId} win={win} onFocus={onFocus} />
-          <RedDrilldownChart title="Response Time (avg)" eps={eps} epSeries={series.avg} dataKey="avg" fmtFn={fmtRedMs} syncId={syncId} win={win} onFocus={onFocus} />
-          <RedDrilldownChart title="Error %" eps={eps} epSeries={series.errPct} dataKey="errPct" fmtFn={fmtRedPct} syncId={syncId} win={win} onFocus={onFocus} />
+          <LegendLineChart title="RPM" eps={eps} epSeries={series.rpm} dataKey="rpm" fmtFn={fmtRedRpm} syncId={syncId} win={win} onFocus={onFocus} />
+          <LegendLineChart title="Response Time (p90)" eps={eps} epSeries={series.p90} dataKey="p90" fmtFn={fmtRedMs} syncId={syncId} win={win} onFocus={onFocus} />
+          <LegendLineChart title="Response Time (avg)" eps={eps} epSeries={series.avg} dataKey="avg" fmtFn={fmtRedMs} syncId={syncId} win={win} onFocus={onFocus} />
+          <LegendLineChart title="Error %" eps={eps} epSeries={series.errPct} dataKey="errPct" fmtFn={fmtRedPct} syncId={syncId} win={win} onFocus={onFocus} />
         </>
       ) : (
         <RedEndpointsTable rows={filtered} />
@@ -1130,24 +845,6 @@ function RedEndpointsTable({ rows: input }) {
         </tbody>
       </table>
     </div>
-  )
-}
-
-function MiniChart({ series, color, unit = '', formatVal, height = 182, syncId, win, onFocus }) {
-  const data = useMemo(() => withX(series, win), [series, win])
-  return (
-    <TimeChart win={win} onFocus={onFocus} height={height}>
-      {(axis, focus) => (
-        <AreaChart data={data} margin={{ top: 4, right: 4, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
-          <CartesianGrid {...GRID_PROPS} />
-          <XAxis {...axis.props} />
-          <YAxis {...valueAxisProps({ maxValue: maxOf(data, 'value') })} />
-          <Tooltip content={p => <SvcTooltip {...p} color={color} unit={unit} formatVal={formatVal} nowMs={win.end * 1000} suppressed={!focus.hovered} />} {...NO_ANIM} />
-          <Area {...AREA_PROPS} dataKey="value" stroke={color} strokeWidth={1.6} fill={color} dot={false} activeDot={{ r: 3 }} />
-          {focus.overlay}
-        </AreaChart>
-      )}
-    </TimeChart>
   )
 }
 
@@ -1480,54 +1177,6 @@ function EndpointBreakdownRows({ rows }) {
   )
 }
 
-// Simple inline dropdown for a panel-head title. Lightweight sibling of
-// FilterSelect - renders a bold label with a caret, pops a short menu on
-// click, closes on outside click. No search or multi-select.
-function TitleDropdown({ value, options, onChange }) {
-  const [open, setOpen] = useState(false)
-  const btnRef = useRef(null)
-  const menuRef = useRef(null)
-  useEffect(() => {
-    if (!open) return
-    const handler = e => {
-      if (!btnRef.current?.contains(e.target) && !menuRef.current?.contains(e.target)) setOpen(false)
-    }
-    document.addEventListener('click', handler)
-    return () => document.removeEventListener('click', handler)
-  }, [open])
-  const rect = btnRef.current?.getBoundingClientRect()
-  return (
-    <>
-      <button
-        ref={btnRef}
-        type="button"
-        className={`title-dropdown${open ? ' open' : ''}`}
-        onClick={e => { e.stopPropagation(); setOpen(o => !o) }}
-      >
-        <span>{value}</span>
-        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
-      </button>
-      {open && rect && (
-        <div
-          ref={menuRef}
-          className="title-dropdown-menu"
-          style={{ position: 'fixed', top: rect.bottom + 4, left: rect.left, minWidth: rect.width }}
-        >
-          {options.map(o => (
-            <div
-              key={o}
-              className={`title-dropdown-item${o === value ? ' active' : ''}`}
-              onClick={() => { onChange(o); setOpen(false) }}
-            >
-              {o}
-            </div>
-          ))}
-        </div>
-      )}
-    </>
-  )
-}
-
 const DB_FILTER_OPTIONS = ['All Database Calls', 'MySQL', 'Redis']
 const DB_KIND_FOR_FILTER = { 'MySQL': 'mysql', 'Redis': 'redis' }
 
@@ -1661,6 +1310,10 @@ const CLIENT_ERRORS_BY = ['side', 'service', 'spanName', 'exception']
 
 // The side is App's when App passes it, so a link naming a side lands on it
 // even with the tab already mounted; standing alone, the tab keeps its own.
+//
+// What the tab draws is ErrorGroupsPanel (shared with the Browser page's Errors
+// tab); what stays here is the service page's own part of it — which groups,
+// and where a row, an exception and the head's button go.
 function ErrorsTab({ win, timeRange, serviceId, onFocus, syncId, onOpenLink, side: sideProp, onSide }) {
   const [ownSide, setOwnSide] = useState('server')
   const side = sideProp ?? ownSide
@@ -1668,16 +1321,10 @@ function ErrorsTab({ win, timeRange, serviceId, onFocus, syncId, onOpenLink, sid
   // What each count's chip compares against, worded from the picked range
   // ("the previous hour") as the Errors page words it (rule 6).
   const prevText = previousPeriodText(timeRange)
-  const [q, setQ] = useState('')
   const groups = useMemo(
     () => errorGroupsForWindow(win, { side, service: serviceId, by: side === 'client' ? CLIENT_ERRORS_BY : undefined }),
     [win, side, serviceId],
   )
-  // What the Endpoint column names: the route on Server, the call on Client.
-  const where = e => (side === 'client' ? e.spanName : e.endpoint)
-  const filtered = q
-    ? groups.filter(e => (where(e) + ' ' + e.exception + ' ' + e.message).toLowerCase().includes(q.toLowerCase()))
-    : groups
   // A row click lands on the Traces page filtered to exactly the spans the row
   // counts: this service, this side, failed, this span, this exception. The
   // Traces stream carries a span for every error group, so it is never empty.
@@ -1690,87 +1337,31 @@ function ErrorsTab({ win, timeRange, serviceId, onFocus, syncId, onOpenLink, sid
     ...(side === 'client' ? { spanName: e.spanName } : { endpoint: e.endpoint }),
     open: true,
   })
+  // The panel's default sides (Server | Client) and Endpoint column (the route
+  // on Server, the call on Client) are this tab's, so neither is passed.
   return (
-    <div className="panel">
-      <div className="panel-head">
-        <div className="panel-head-left">
-          <div className="seg-toggle">
-            <div className={`seg${side === 'server' ? ' active' : ''}`} onClick={() => setSide('server')}>Server</div>
-            <div className={`seg${side === 'client' ? ' active' : ''}`} onClick={() => setSide('client')}>Client</div>
-          </div>
-        </div>
-        <div className="panel-head-right">
-          <button
-            type="button"
-            className="hbtn small"
-            title={`Open ${serviceId}'s ${side} errors on the Errors page`}
-            onClick={() => onOpenLink?.({ view: 'errors', service: serviceId, kind: side })}
-          >
-            Open in Errors
-            <ArrowUpRight size={12} strokeWidth={2} aria-hidden="true" />
-          </button>
-        </div>
-      </div>
-      <div className="split-endpoints-search" style={{ borderTop: '1px solid var(--border-subtle)' }}>
-        <div className="search-with-icon">
-          <SearchGlyph />
-          <input placeholder="Search endpoints or exceptions…" aria-label="Search endpoints or exceptions" value={q} onChange={e => setQ(e.target.value)} />
-        </div>
-      </div>
-      <div className="err-head">
-        <span>Endpoint</span><span>Error</span><span>Count</span><span />
-      </div>
-      {filtered.map(e => {
-        const delta = deltaChip(e.count, e.prevCount, prevText)
-        return (
-          <div
-            key={e.id}
-            className="err-row is-clickable"
-            role="button"
-            tabIndex={0}
-            onClick={() => openRow(e)}
-            onKeyDown={ev => {
-              // Keys pressed on the exception button are that button's own.
-              if (ev.target !== ev.currentTarget) return
-              if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openRow(e) }
-            }}
-          >
-            <div className="err-endpoint" title={where(e)}>{where(e)}</div>
-            <div className="err-exc">
-              {/* The row goes to Traces; the exception goes to its details and
-                  stack trace. Two destinations in one row, so this one is its
-                  own control. */}
-              <button
-                type="button"
-                className="err-exc-cls"
-                onClick={ev => { ev.stopPropagation(); openDetails(e) }}
-                title={`Show the details and stack trace for ${e.exception}`}
-              >
-                {e.exception}
-              </button>
-              <span className="err-exc-msg">{e.message}</span>
-            </div>
-            {/* The chip sits under the number, as on the Errors page, so the
-                count keeps its size in the narrow column. Stacked flush right,
-                anything wider than the column (a 7d "12,239") spills left into
-                the gap rather than right into the spark (errors.css). */}
-            <div className="err-count">
-              <span>{e.count.toLocaleString()}</span>
-              <span className="errp-delta" data-dir={delta.dir} title={delta.title}>{delta.label}</span>
-            </div>
-            <div className="err-spark" onClick={ev => ev.stopPropagation()}>
-              <ErrorSpark series={e.series} win={win} onFocus={onFocus} syncId={syncId} />
-            </div>
-          </div>
-        )
-      })}
-      {filtered.length === 0 && (
-        <div className="err-empty">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
-          <div>{groups.length === 0 ? `No ${side} errors in ${win.label}` : `No errors match "${q}"`}</div>
-        </div>
+    <ErrorGroupsPanel
+      side={side}
+      onSide={setSide}
+      groups={groups}
+      prevText={prevText}
+      win={win}
+      onFocus={onFocus}
+      syncId={syncId}
+      onOpenRow={openRow}
+      onOpenException={openDetails}
+      headRight={(
+        <button
+          type="button"
+          className="hbtn small"
+          title={`Open ${serviceId}'s ${side} errors on the Errors page`}
+          onClick={() => onOpenLink?.({ view: 'errors', service: serviceId, kind: side })}
+        >
+          Open in Errors
+          <ArrowUpRight size={12} strokeWidth={2} aria-hidden="true" />
+        </button>
       )}
-    </div>
+    />
   )
 }
 
@@ -1813,7 +1404,7 @@ function OverviewTab({ svc, data, win, syncId, onFocus, onOpenTrace, onOpenUpstr
           <TrendChartsSkeleton />
         </>
       )}
-      <SlowRequests onOpenTrace={onOpenTrace} data={data.slow} />
+      <RequestTraceSplit onOpenTrace={onOpenTrace} data={data.slow} />
       <InfraCorrelation hosts={data.infra} win={win} />
     </>
   )
@@ -2107,17 +1698,9 @@ function RuntimeTab({ syncId, win, onFocus }) {
   // The scope strip behaves like the Detail tab's endpoint strip: it slides away
   // while the charts scroll down and back as soon as they scroll up. The charts
   // column is the scroller here, not .svc-main, so it keeps its own copy of the
-  // same rule.
-  const lastScrollRef = useRef(0)
-  const [stripReveal, setStripReveal] = useState('natural')
-  const onChartsScroll = useCallback((e) => {
-    const t = e.currentTarget.scrollTop
-    const dy = t - lastScrollRef.current
-    lastScrollRef.current = t
-    if (t < 48) { setStripReveal('natural'); return }
-    if (dy > 2) setStripReveal('hidden')
-    else if (dy < -2) setStripReveal('revealed')
-  }, [])
+  // same rule. No reset key, as before: the tab is keyed on the service, so a
+  // new service mounts it, and with it the strip, afresh.
+  const { reveal: stripReveal, onScroll: onChartsScroll } = useScrollReveal()
 
   /**
    * The panel, as a list. Order, headers and legend labels are the reference
@@ -2222,117 +1805,6 @@ function RuntimeTab({ syncId, win, onFocus }) {
   )
 }
 
-// Opening one FilterSelect closes any other open one on the page. The nonce
-// avoids every instance reacting to its own open event.
-const FILTER_SELECT_EVENT = 'cube:filter-select-open'
-let filterSelectNonce = 0
-
-function FilterSelect({ label, value, options, onSelect, className }) {
-  const [open, setOpen] = useState(false)
-  const [search, setSearch] = useState('')
-  const ref = useRef(null)
-  const btnRef = useRef(null)
-  const idRef = useRef(null)
-
-  const filtered = search
-    ? options.filter(o => o.toLowerCase().includes(search.toLowerCase()))
-    : options
-
-  const close = useCallback(() => { setOpen(false); setSearch('') }, [])
-
-  // Only one FilterSelect may be open at a time. Opening one dispatches an
-  // event the others listen for and respond to by closing themselves.
-  useEffect(() => {
-    const handler = (e) => {
-      if (e.detail?.id !== idRef.current && open) close()
-    }
-    window.addEventListener(FILTER_SELECT_EVENT, handler)
-    return () => window.removeEventListener(FILTER_SELECT_EVENT, handler)
-  }, [open, close])
-
-  const openPanel = useCallback(() => {
-    idRef.current = ++filterSelectNonce
-    window.dispatchEvent(new CustomEvent(FILTER_SELECT_EVENT, { detail: { id: idRef.current } }))
-    setOpen(true)
-  }, [])
-
-  useEffect(() => {
-    if (!open) return
-    const handler = (e) => {
-      if (!ref.current?.contains(e.target) && !btnRef.current?.contains(e.target)) close()
-    }
-    // The panel is placed once from the trigger's rect, so a scroll anywhere
-    // outside it would leave it floating detached; close instead of chasing.
-    const onScroll = (e) => { if (!ref.current?.contains(e.target)) close() }
-    document.addEventListener('click', handler)
-    window.addEventListener('scroll', onScroll, true)
-    return () => {
-      document.removeEventListener('click', handler)
-      window.removeEventListener('scroll', onScroll, true)
-    }
-  }, [open, close])
-
-  const rect = btnRef.current?.getBoundingClientRect()
-  // The panel widens to fit the longest option so the list never has to wrap or
-  // ellipsize. 7.4px/char is a conservative estimate for Rubik at 12px; the
-  // extra 72px covers the check icon, horizontal padding and the search row.
-  const longestOption = useMemo(
-    () => options.reduce((m, o) => Math.max(m, o.length), 0),
-    [options]
-  )
-  const panelW = Math.max(rect?.width || 160, Math.round(longestOption * 7.4 + 72))
-  const overflows = rect && rect.left + panelW > window.innerWidth - 8
-
-  return (
-    <>
-      <div
-        ref={btnRef}
-        className={`filter-select${className ? ` ${className}` : ''}${open ? ' dd-open' : ''}`}
-        title={`${label}: ${value}`}
-        onClick={(e) => { e.stopPropagation(); if (open) close(); else openPanel() }}
-      >
-        <span className="filter-label">{label}</span>
-        <span className="filter-value">
-          <span>{value}</span>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6" /></svg>
-        </span>
-      </div>
-      {/* Portalled because a transformed ancestor (the sliding endpoint strip)
-          becomes the containing block for position: fixed, which would offset
-          the panel from its trigger. */}
-      {open && rect && createPortal(
-        <div
-          ref={ref}
-          className="dd-panel"
-          style={{
-            position: 'fixed',
-            top: rect.bottom + 4,
-            ...(overflows
-              ? { right: window.innerWidth - rect.right, width: panelW }
-              : { left: rect.left, width: panelW }),
-            zIndex: 500,
-          }}
-          onClick={e => e.stopPropagation()}
-        >
-          <div className="dd-search">
-            <SearchGlyph />
-            <input placeholder="Search…" value={search} onChange={e => setSearch(e.target.value)} autoFocus />
-          </div>
-          <div className="dd-list">
-            {filtered.map(o => (
-              <div key={o} className={`dd-item${o === value ? ' active' : ''}`} onClick={() => { onSelect(o); close() }}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="dd-item-check"><path d="M20 6L9 17l-5-5" /></svg>
-                {o}
-              </div>
-            ))}
-          </div>
-        </div>,
-        document.body
-      )}
-    </>
-  )
-}
-
 export default function ServiceOverview({ serviceId, onSelectService, onOpenTrace, goHome, serviceSubTab, setServiceSubTab, serviceEndpoint, setServiceEndpoint, errorsSide, onErrorsSide, timeRange, setTimeRange, settingsOpen, setSettingsOpen, setToast, onOpenLink }) {
   // Everything this page draws comes out of one window, built once. The tables
   // and the charts are the same profiles reduced and sampled, so a headline
@@ -2364,19 +1836,9 @@ export default function ServiceOverview({ serviceId, onSelectService, onOpenTrac
   // from the top when the user starts scrolling up again. 'natural' = sitting
   // in flow at scroll top; 'hidden' = out of view (scrolling down); 'revealed'
   // = sticky overlay slid back down (scrolling up while past the natural pos).
+  // It starts over in its place whenever the tab or the endpoint changes.
   const svcMainRef = useRef(null)
-  const lastScrollRef = useRef(0)
-  const [stripReveal, setStripReveal] = useState('natural')
-  const onSvcScroll = useCallback((e) => {
-    const t = e.target.scrollTop
-    const last = lastScrollRef.current
-    const dy = t - last
-    lastScrollRef.current = t
-    if (t < 48) { setStripReveal('natural'); return }
-    if (dy > 2) setStripReveal('hidden')
-    else if (dy < -2) setStripReveal('revealed')
-  }, [])
-  useEffect(() => { setStripReveal('natural'); lastScrollRef.current = 0 }, [serviceSubTab, serviceEndpoint])
+  const { reveal: stripReveal, onScroll: onSvcScroll } = useScrollReveal(`${serviceSubTab}:${serviceEndpoint}`)
 
   const endpoint = serviceEndpoint || data.red[0].endpoint
   const setEndpoint = setServiceEndpoint
@@ -2497,7 +1959,7 @@ export default function ServiceOverview({ serviceId, onSelectService, onOpenTrac
         onScroll={onSvcScroll}
       >
         {serviceSubTab === 'detail' && (
-          <div className={`endpoint-strip is-sticky${stripReveal === 'hidden' ? ' is-hidden' : ''}${stripReveal === 'revealed' ? ' is-revealed' : ''}`}>
+          <div className={`endpoint-strip is-sticky${revealClass(stripReveal)}`}>
             <FilterSelect
               className="is-endpoint"
               label="Endpoint"

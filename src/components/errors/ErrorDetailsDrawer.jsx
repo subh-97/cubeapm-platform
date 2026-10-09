@@ -21,7 +21,10 @@ import { TIME_PRESETS } from '@/utils/timeRange'
 import { copyText } from '@/utils/clipboard'
 import { fullInstant, timeAgo } from '@/components/charts/ChartTooltip'
 import { msLabel } from '@/components/trace/Waterfall'
-import { classifyStackLines, countFrames, foldStack, FOLD_FRAMES } from './stackTrace'
+// The stack, classified and folded (stackTrace.js). Named StackTraceView, not
+// StackTrace, because beside stackTrace.js a case-blind disk would resolve one
+// to the other; see the component.
+import StackTraceView from './StackTraceView'
 import { sharePercents, shareText } from './shares'
 // errors.css for .errp-delta, the table row's count chip, which the summary
 // reuses; said here rather than left to the page having loaded it first.
@@ -141,38 +144,6 @@ function Distribution({ title, rows, total, renderValue }) {
         <div className="errd-dist-more">
           {rest.length} more · {restCount.toLocaleString()} errors · {shareText(pcts[shown.length], restCount)}
         </div>
-      )}
-    </div>
-  )
-}
-
-// The stack, one line per line so each can say what it is: the throw in red,
-// the application's own frames at full strength (that is where a fix goes),
-// library frames stepped back, and each wrapped cause as a heading. Folded to a
-// dozen frames in a way that keeps the root cause on screen; see foldStack.
-function StackTrace({ text, expanded, onToggle }) {
-  const lines = useMemo(() => classifyStackLines(text), [text])
-  const frames = countFrames(lines)
-  const foldable = frames > FOLD_FRAMES
-  const shown = expanded || !foldable ? lines : foldStack(lines)
-
-  if (!lines.length) return <div className="errd-none-note">No stack trace was recorded on this occurrence.</div>
-  return (
-    <div className="errd-stack-box">
-      {/* Focusable because it scrolls both ways: a keyboard reader has to be
-          able to reach the end of a long frame. ←/→ scroll it rather than
-          stepping samples while it has focus. */}
-      <pre className="errd-stack mono" tabIndex={0} role="region" aria-label="Stack trace">
-        {shown.map((l, i) => (
-          l.kind === 'fold'
-            ? <span key={i} className="errd-stack-line is-fold">{`… ${l.hidden} frame${l.hidden === 1 ? '' : 's'} folded`}</span>
-            : <span key={i} className={`errd-stack-line is-${l.kind}`}>{l.text}</span>
-        ))}
-      </pre>
-      {foldable && (
-        <button type="button" className="errd-stack-toggle" aria-expanded={expanded} onClick={onToggle}>
-          {expanded ? 'Show fewer frames' : `Show all ${frames} frames`}
-        </button>
       )}
     </div>
   )
@@ -507,7 +478,7 @@ export default function ErrorDetailsDrawer({ group, win, onClose, onOpenTrace, o
                   </button>
                 )}
               </div>
-              <StackTrace text={sample.stacktrace} expanded={allFrames} onToggle={() => setAllFrames(v => !v)} />
+              <StackTraceView text={sample.stacktrace} expanded={allFrames} onToggle={() => setAllFrames(v => !v)} />
             </section>
 
             <section className="errd-section">

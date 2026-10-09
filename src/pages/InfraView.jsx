@@ -19,8 +19,7 @@ import { useSeriesBudget } from '@/components/charts/useSeriesBudget'
 import SeriesBudgetFooter from '@/components/charts/SeriesBudgetFooter'
 import { fixesAxis, TOOLTIP_ROWS } from '@/components/charts/seriesBudget'
 import { cycledColor } from '@/utils/chartPalette'
-import { SortableTh, CellBar } from '@/components/shared/SortableTable'
-import { useSortedRows } from '@/hooks/useSortedRows'
+import { SortableTable, CellBar } from '@/components/shared/SortableTable'
 
 // The window every chart on this page draws, the setter a drag commits to, and
 // the syncId that lines the charts of one view up on the same instant.
@@ -42,50 +41,14 @@ const InfraTime = createContext({ win: null, setTimeRange: () => {}, syncId: und
  */
 /* ============ Tables ============ */
 
-// Every list on this page is this one table, built the way the service page's
-// are (components/shared/SortableTable): a plain <table> whose headers sort,
-// names and identifiers in mono on the left, figures right-aligned in the body
-// face, a percentage as its figure over a brand bar, and nothing that colours
-// or marks a row by how bad its values are. A column is
-//   { key, label, render?, align?: 'left', mono?, sortKey?, sortable?, clip?, title? }
-// `sortKey` names the field to order by when what is shown is formatted (bytes,
-// a rate with its unit); `sortable: false` marks a column with nothing to order
-// by. `clip` caps a long name at that many px and ends it in an ellipsis, with
-// `title` giving the whole of it on hover, as the service page's Endpoint
-// column does. A table of one record, or of none, passes sortable={false}.
-function InfraTable({ columns, rows, rowKey, defaultSort = null, onRowClick, empty, sortable = true }) {
-  const { rows: sorted, sort, toggle } = useSortedRows(rows, defaultSort, 'desc')
-  return (
-    <div className="table-scroll">
-      <table>
-        <thead>
-          <tr>
-            {columns.map(c => (sortable && c.sortable !== false
-              ? <SortableTh key={c.key} sortKey={c.sortKey ?? c.key} sort={sort} onToggle={toggle} align={c.align ?? 'right'}>{c.label}</SortableTh>
-              : <th key={c.key} style={c.align === 'left' ? { textAlign: 'left' } : undefined}>{c.label}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.map(r => (
-            <tr key={rowKey(r)} onClick={onRowClick ? () => onRowClick(r) : undefined}>
-              {columns.map(c => (
-                <td key={c.key} className={c.mono ? 'mono' : undefined} style={c.align === 'left' ? { textAlign: 'left' } : undefined}>
-                  {c.clip
-                    ? <span className="cell-clip" style={{ maxWidth: c.clip }} title={c.title?.(r)}>{c.render ? c.render(r) : r[c.key]}</span>
-                    : (c.render ? c.render(r) : r[c.key])}
-                </td>
-              ))}
-            </tr>
-          ))}
-          {sorted.length === 0 && (
-            <tr className="svc-empty-row"><td colSpan={columns.length}>{empty}</td></tr>
-          )}
-        </tbody>
-      </table>
-    </div>
-  )
-}
+// Every list on this page is one table, SortableTable
+// (components/shared/SortableTable), built the way the service page's are: a
+// plain <table> whose headers sort, names and identifiers in mono on the left,
+// figures right-aligned in the body face, a percentage as its figure over a
+// brand bar, and nothing that colours or marks a row by how bad its values are.
+// The column lists below are its `columns` (the fields are documented there);
+// a table of one record, or of none, passes sortable={false}. It began on this
+// page and moved there when the Browser page's tables were built from it.
 
 // A host's or node's network figure is printed in its own unit (K or M); the
 // rate behind it is what a column of them is ordered by.
@@ -739,12 +702,12 @@ function K8sClusterView({ namespace, setNamespace }) {
       {detail ? (
         <div className="panel">
           <div className="panel-head">Pods <span className="hint">{detail.podsTotal} in {namespace}</span></div>
-          <InfraTable columns={NAMESPACE_POD_COLUMNS} rows={detail.pods} rowKey={p => p.name} />
+          <SortableTable columns={NAMESPACE_POD_COLUMNS} rows={detail.pods} rowKey={p => p.name} />
         </div>
       ) : (
         <div className="panel">
           <div className="panel-head">Summary <span className="hint">Resource usage by namespace &middot; click a row to scope</span></div>
-          <InfraTable columns={NAMESPACE_COLUMNS} rows={k8sNamespaceSummary} rowKey={n => n.namespace} onRowClick={n => setNamespace(n.namespace)} />
+          <SortableTable columns={NAMESPACE_COLUMNS} rows={k8sNamespaceSummary} rowKey={n => n.namespace} onRowClick={n => setNamespace(n.namespace)} />
         </div>
       )}
 
@@ -761,7 +724,7 @@ function K8sClusterView({ namespace, setNamespace }) {
             Search in Logs
           </a>
         </div>
-        <InfraTable columns={EVENT_COLUMNS} rows={[]} rowKey={e => e.id} sortable={false} empty="No abnormal events in the selected time range" />
+        <SortableTable columns={EVENT_COLUMNS} rows={[]} rowKey={e => e.id} sortable={false} empty="No abnormal events in the selected time range" />
       </div>
     </>
   )
@@ -791,7 +754,7 @@ function K8sDeploymentView() {
       </div>
       <div className="panel">
         <div className="panel-head">Summary <span className="hint">Deployments by namespace</span></div>
-        <InfraTable columns={DEPLOYMENT_COLUMNS} rows={k8sDeploymentSummary} rowKey={n => n.namespace} />
+        <SortableTable columns={DEPLOYMENT_COLUMNS} rows={k8sDeploymentSummary} rowKey={n => n.namespace} />
       </div>
     </>
   )
@@ -808,7 +771,7 @@ function K8sPodDetail({ pod }) {
 
       <div className="k8s-containers-table">
         <div className="k8s-containers-head">Containers</div>
-        <InfraTable columns={CONTAINER_COLUMNS} rows={[pod]} rowKey={p => p.containerName} sortable={false} />
+        <SortableTable columns={CONTAINER_COLUMNS} rows={[pod]} rowKey={p => p.containerName} sortable={false} />
       </div>
 
       <div className="infra-detail-grid">
@@ -900,7 +863,7 @@ function K8sNodeDetail({ node, pods, onSelectPod }) {
           </div>
           <TableQuerySearch onApply={setPodQuery} fields={POD_FIELDS} />
         </div>
-        <InfraTable
+        <SortableTable
           columns={[
             { key: 'name', label: 'Pod', align: 'left', mono: true, clip: 300, title: p => p.name, render: p => <PodName pod={p} hits={hits} tagHits={tagHits} /> },
             { key: 'namespace', label: 'Namespace', align: 'left', mono: true, render: p => highlightTerms(p.namespace, hits.namespace, 'svc-hit') },
@@ -945,7 +908,7 @@ function K8sNodeView({ nodes, pods, selectedNode, setSelectedNode, selectedPod, 
       </div>
       <div className="panel">
         <div className="panel-head">Summary <span className="hint">{nodes.length} nodes · click a row to drill in</span></div>
-        <InfraTable columns={NODE_COLUMNS} rows={nodes.map(withNetRates)} rowKey={n => n.name} onRowClick={n => setSelectedNode(n.name)} />
+        <SortableTable columns={NODE_COLUMNS} rows={nodes.map(withNetRates)} rowKey={n => n.name} onRowClick={n => setSelectedNode(n.name)} />
       </div>
     </>
   )
@@ -979,7 +942,7 @@ function K8sPodListView({ nodes, pods, selectedPod, setSelectedPod }) {
         </div>
         <TableQuerySearch onApply={setQuery} fields={POD_NODE_FIELDS} />
       </div>
-      <InfraTable
+      <SortableTable
         columns={[
           { key: 'name', label: 'Pod', align: 'left', mono: true, clip: 300, title: p => p.name, render: p => <PodName pod={p} hits={hits} tagHits={tagHits} /> },
           { key: 'namespace', label: 'Namespace', align: 'left', mono: true, render: p => highlightTerms(p.namespace, hits.namespace, 'svc-hit') },
@@ -1014,7 +977,7 @@ function K8sNamespaceGateView({ resourceLabel }) {
           <div className="k8s-selector"><span className="k8s-selector-lbl">Namespace</span><span className="k8s-selector-val">{namespace}</span></div>
         </div>
         <div className="infra-empty-table">
-          <InfraTable columns={emptyColumns([resourceLabel, 'Used', 'Capacity'])} rows={[]} rowKey={r => r.name} sortable={false} empty={`No ${resourceLabel.toLowerCase()} resources in "${namespace}"`} />
+          <SortableTable columns={emptyColumns([resourceLabel, 'Used', 'Capacity'])} rows={[]} rowKey={r => r.name} sortable={false} empty={`No ${resourceLabel.toLowerCase()} resources in "${namespace}"`} />
         </div>
       </div>
     )
@@ -1074,7 +1037,7 @@ function InfraEmptyView({ columns }) {
         {['Requests per Minute', 'Errors', 'Latency'].map(t => <NoDataChart key={t} title={t} />)}
       </div>
       <div className="infra-empty-table">
-        <InfraTable columns={emptyColumns(columns)} rows={[]} rowKey={r => r.name} sortable={false} empty="No data" />
+        <SortableTable columns={emptyColumns(columns)} rows={[]} rowKey={r => r.name} sortable={false} empty="No data" />
       </div>
     </>
   )
@@ -1095,7 +1058,7 @@ function MySQLView() {
       </div>
       <div className="panel">
         <div className="panel-head">Summary</div>
-        <InfraTable columns={MYSQL_COLUMNS} rows={[s]} rowKey={r => r.host} sortable={false} />
+        <SortableTable columns={MYSQL_COLUMNS} rows={[s]} rowKey={r => r.host} sortable={false} />
       </div>
     </>
   )
@@ -1114,7 +1077,7 @@ function RedisView() {
       </div>
       <div className="panel">
         <div className="panel-head">Summary <span className="hint">{s.status === 'critical' ? 'Connection pool under pressure - see payment-service incident' : ''}</span></div>
-        <InfraTable columns={REDIS_COLUMNS} rows={[s]} rowKey={r => r.host} sortable={false} />
+        <SortableTable columns={REDIS_COLUMNS} rows={[s]} rowKey={r => r.host} sortable={false} />
       </div>
     </>
   )
@@ -1262,7 +1225,7 @@ export default function InfraView({ goHome, source, resource, selectedHost, setS
 
         <div className="panel">
           <div className="panel-head">Summary <span className="hint">{hosts.length} hosts · sortable · click a row to drill in</span></div>
-          <InfraTable
+          <SortableTable
             columns={HOST_COLUMNS}
             rows={hosts.map(withNetRates)}
             rowKey={h => h.host}

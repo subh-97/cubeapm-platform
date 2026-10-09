@@ -11,7 +11,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { BASE_TIME } from '@/data/observability'
 import {
-  eventsFor, getField, incidentFactor,
+  eventsFor, getField, incidentFactor, rumExploreQuery, RUM_LOG_SERVICES,
   LOG_FIELDS, TRACE_FIELDS, LOG_STREAM_FIELDS, TRACE_STREAM_FIELDS,
 } from './eventsStore.js'
 
@@ -282,5 +282,24 @@ test('the field the default query groups by is on every record', () => {
     // single line, which is no more use than no grouping at all.
     const values = new Set(rows.map(r => getField(r, field)))
     assert.ok(values.size >= 3, `${datasource}: ${field} takes ${values.size} values, wanted a few`)
+  }
+})
+
+// The Browser page's card menus open Explore on an app's RUM events only when
+// rumExploreQuery has a query for it, and say so otherwise. That is a promise
+// about this store: an app it names has PageActions here, and every
+// PageAction here belongs to an app it names - else the gate opens an empty
+// chart for one app, or hides the events of another.
+test('rumExploreQuery names exactly the apps whose PageActions are here', () => {
+  const actions = eventsFor('vlogs', hour).filter(r => r.eventType === 'PageAction')
+  assert.ok(actions.length > 0, 'the store has RUM events at all')
+  const services = new Set(actions.map(r => r.service))
+  assert.deepEqual([...services].sort(), [...RUM_LOG_SERVICES].sort())
+  for (const app of RUM_LOG_SERVICES) {
+    assert.equal(rumExploreQuery(app), `service:${app} | stats count()`)
+  }
+  // The Browser page's back office sends none here, and nor does a stranger.
+  for (const app of ['cubedemo-admin', 'payment-service', '', undefined]) {
+    assert.equal(rumExploreQuery(app), null, String(app))
   }
 })

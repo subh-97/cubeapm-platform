@@ -1,4 +1,5 @@
 import { TIME_PRESETS } from '@/utils/timeRange'
+import { encodeValue } from '@/utils/searchParams'
 
 /**
  * The Errors page's URL: which side, which facet values, the search text and —
@@ -95,16 +96,10 @@ export function parseErrorsSearch(search) {
   }
 }
 
-// encodeURIComponent, minus the escapes a query string does not need, so a
-// shared link reads `span_name=POST+api.stripe.com/v1/charges` rather than
-// `POST%20api.stripe.com%2Fv1%2Fcharges`. URLSearchParams reads either.
-function encodeValue(v) {
-  return encodeURIComponent(String(v))
-    .replace(/%20/g, '+')
-    .replace(/%2F/gi, '/')
-    .replace(/%3A/gi, ':')
-    .replace(/%2C/gi, ',')
-}
+// encodeValue writes values in their readable spelling, so a shared link reads
+// `span_name=POST+api.stripe.com/v1/charges`. It lives in searchParams.js,
+// shared with the Browser page's URL, and is re-exported here under its name.
+export { encodeValue }
 
 /**
  * State → search string: `?…`, or '' when there is nothing to say, so the page

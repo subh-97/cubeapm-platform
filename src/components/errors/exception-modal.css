@@ -1,0 +1,54 @@
+/* The exception modal's tabbed shape: src/components/errors/ExceptionModal.jsx.
+
+   The shell is the trace modal's (.tw-modal-* in src/index.css) and is not
+   restyled here; with a stack alone the modal carries none of these classes and
+   looks exactly as it always has. What is here only lays out the tabs a browser
+   exception adds — the tab row, a body that scrolls, the note shown when no
+   source map can un-minify the stack. Every colour is a token, so both themes
+   follow. */
+
+/* As tall as what the open tab holds, up to 640px, past which the tab's
+   body scrolls. The floor keeps a switch from a twenty-frame stack to three
+   lines of un-minified one from collapsing the modal under the pointer that
+   just clicked the tab, without boxing a short stack in a tall empty frame. */
+.tw-modal.excm { max-height: min(640px, 100%); min-height: min(320px, 100%); }
+
+/* The tab row scrolls sideways inside the modal rather than running past its
+   edge when the window is narrower than the three tabs. */
+.excm-tabs {
+  flex-shrink: 0;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  overflow-x: auto;
+}
+.excm-tabs .tabbar { max-width: none; flex-wrap: nowrap; }
+.excm-tabs .tab { white-space: nowrap; }
+.excm-tabs .tab:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+
+/* The tab's content takes the height left under the tabs and scrolls inside
+   it, as the original stack's pre does. */
+.excm-body {
+  flex: 1; min-height: 0;
+  display: flex; flex-direction: column;
+  padding: 14px 16px;
+  overflow: auto;
+}
+/* The drawer bounds its stack at 320px; here the stack has the modal, so the
+   box shrinks to the body and the pre scrolls both ways inside it — its
+   horizontal scrollbar and the fold toggle stay in view. */
+.excm-body > .errd-stack-box { display: flex; flex-direction: column; min-height: 0; }
+.excm-body > .errd-stack-box > .errd-stack { flex: 1 1 auto; min-height: 0; max-height: none; }
+/* A list clips its rounded corners with overflow, which would also let it be
+   squeezed below its rows; it keeps its height and the body scrolls instead.
+   A value keeps its own line breaks — exception.stacktrace is the stack as
+   sent, one frame a line — and wraps where a line is wider than the column. */
+.excm-body > .errd-attrs { flex-shrink: 0; }
+.excm-body .errd-attr dd { white-space: pre-wrap; }
+
+.excm-note { font-size: 12px; line-height: 1.55; color: var(--text-secondary); }
+
+.tw-modal.excm .tw-modal-stack:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.tw-modal.excm .tw-modal-copy:disabled { opacity: .5; cursor: default; }
+.tw-modal.excm .tw-modal-copy:disabled:hover {
+  color: var(--text-secondary); border-color: var(--border-subtle); background: var(--panel);
+}

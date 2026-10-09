@@ -14,6 +14,11 @@
 // request and a backend span are looked up in different places — so a mobile
 // trace is /trace/<id>?datasource=mobile, and the backend, being the default,
 // keeps the bare /trace/<id> it has always had.
+//
+// Errors and Browser own their whole query string instead, in the production
+// app's own dialect (errorsUrl.js, browserUrl.js), so this module names only
+// their paths. /browser is production's path too, so a link copied out of it
+// (/browser?service=cubedemo-web&tab=traces…) lands here as it is.
 
 import { services } from '@/data/services'
 
@@ -29,6 +34,7 @@ const VIEW_PATHS = {
   mtraces: '/mobile-traces',
   explore: '/explore',
   errors: '/errors',
+  browser: '/browser',
   infra: '/infrastructure',
 }
 const VIEW_FOR_PATH = new Map(Object.entries(VIEW_PATHS).map(([view, path]) => [path, view]))

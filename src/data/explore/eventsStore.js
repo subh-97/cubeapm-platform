@@ -360,6 +360,28 @@ function makeK8sEvent({ rnd, tMs, weight }) {
   }, LOG_STREAM_KEYS)
 }
 
+// The browser apps whose RUM events (PageActions) this store generates. Only
+// the storefront sends any here yet; the back office, the Browser page's
+// other app, does not.
+export const RUM_LOG_SERVICES = ['cubedemo-web']
+
+/**
+ * The Explore logs query that shows one browser app's RUM events, or null
+ * when this store holds none for it - the Browser page's card menus open
+ * Explore on it, and say so instead for an app it is null for, rather than
+ * landing the reader on an empty chart under a heading that promised their
+ * app's events.
+ *
+ * It lives beside the generator rather than on the page so the gate and the
+ * events cannot drift apart: an app given PageActions here gets its Explore
+ * item with it. The stats pipe is not decoration. Explore charts a logs query
+ * only once it is reduced; a bare filter answers with the server's error, not
+ * with the events.
+ */
+export function rumExploreQuery(appId) {
+  return RUM_LOG_SERVICES.includes(appId) ? `service:${appId} | stats count()` : null
+}
+
 function makeRumLog({ rnd, tMs, weight }) {
   const action = pick(rnd, RUM_ACTIONS)
   return withStream({
@@ -367,7 +389,7 @@ function makeRumLog({ rnd, tMs, weight }) {
     _weight: weight,
     _msg: action,
     env: ENV,
-    service: 'cubedemo-web',
+    service: RUM_LOG_SERVICES[0],
     'event.domain': 'nr.browser.page_action',
     eventType: 'PageAction',
     actionName: action,

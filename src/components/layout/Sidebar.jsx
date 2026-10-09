@@ -41,7 +41,7 @@ const NAV_GROUPS = [
     { id: 'services', label: 'APM & Services', icon: 'pulse', enabled: true },
     { id: 'logs', label: 'Logs', icon: 'fileSearch', enabled: true },
     { id: 'infra', label: 'Infrastructure', icon: 'server', enabled: true },
-    { id: 'rum', label: 'Browser', title: 'Browser (RUM)', icon: 'appWindow' },
+    { id: 'rum', label: 'Browser', title: 'Browser (RUM)', icon: 'appWindow', enabled: true },
     { id: 'traces', label: 'Traces', icon: 'textSearch', enabled: true },
     { id: 'mtraces', label: 'MTraces', title: 'Mobile Traces', icon: 'phoneCode', enabled: true },
     { id: 'profiles', label: 'Profiles', icon: 'flame' },
@@ -60,11 +60,13 @@ const NAV_GROUPS = [
 
 // The view each enabled item opens. Home is the exception: it goes through
 // goHome, which also closes the settings drawer. APM & Services opens the service
-// page, on the service and tab it was last left on.
+// page, on the service and tab it was last left on, and Browser reopens the
+// screen it was left on - its app, tab and filters.
 const NAV_VIEWS = {
   services: 'service',
   logs: 'logs',
   infra: 'infra',
+  rum: 'browser',
   traces: 'traces',
   mtraces: 'mtraces',
   errors: 'errors',
@@ -78,7 +80,7 @@ const ACTIVE_ITEM = {
   home: 'home', service: 'services',
   logs: 'logs', infra: 'infra', traces: 'traces', trace: 'traces',
   mtraces: 'mtraces', mtrace: 'mtraces',
-  errors: 'errors', explore: 'explore',
+  errors: 'errors', explore: 'explore', browser: 'rum',
 }
 
 export default function Sidebar({ navCollapsed, setNavCollapsed, view, goHome, setView, onOpenHelp, onLogout, theme, setTheme }) {

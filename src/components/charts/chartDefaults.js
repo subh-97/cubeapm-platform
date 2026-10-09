@@ -10,7 +10,8 @@
 //     read, and these charts are read while something is on fire.
 //
 // Axis formatting lives here too, so that 0.05 and 12400 are written the same
-// way on every page rather than per chart.
+// way on every page rather than per chart, and so do the two rules a legend
+// keeps (what its search matches, and how it scrolls a row into view).
 
 export const AXIS_TICK = { fontSize: 10, fill: 'var(--text-muted)' }
 export const GRID_PROPS = { strokeDasharray: '3 3', stroke: 'var(--border-subtle)', vertical: false }
@@ -48,6 +49,81 @@ export function fmtCount(v) {
 
 export const fmtMs = v => fmtCompact(v)
 export const fmtPct = v => fmtCompact(v)
+
+// The APM RED tab's figures: its legend values, axis ticks and tooltip rows.
+// Moved here out of ServiceOverview unchanged when the Browser page drew the
+// same charts. They are what the service page has always printed, so they keep
+// their quirks: RPM rounds to a whole number, and none of them expects a
+// missing reading.
+export const fmtRedMs = v => `${Math.round(v)} ms`
+export const fmtRedRpm = v => v >= 1000 ? `${(v / 1000).toFixed(1)}K` : Math.round(v).toString()
+export const fmtRedPct = v => `${v.toFixed(2)}%`
+
+// The Browser page's figures. Each one prints a missing reading as nothing
+// rather than as a zero, because a page that has not loaded yet is not a page
+// that loaded instantly.
+
+// A page load or an ajax call. Milliseconds up to a second and seconds past
+// it, with a space before the unit as the service page writes "612 ms". The
+// switch is on the ROUNDED value, so 999.6 reads "1.00 s" rather than the
+// "1000 ms" a test on the raw number would print.
+export function fmtLoadTime(ms) {
+  if (ms == null || Number.isNaN(ms)) return ''
+  return Math.round(ms) < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(2)} s`
+}
+
+// Requests per minute to two decimals. Browser traffic is per page, so most
+// routes run at single or low double digits a minute, and fmtRedRpm's whole
+// numbers would print five quiet category pages as the same "9".
+export function fmtRpm2(v) {
+  if (v == null || Number.isNaN(v)) return ''
+  return v >= 1000 ? `${(v / 1000).toFixed(2)}K` : v.toFixed(2)
+}
+
+// Cumulative Layout Shift is a unitless score whose thresholds sit at 0.1 and
+// 0.25, so two decimals are the precision it is judged at.
+export function fmtCls(v) {
+  if (v == null || Number.isNaN(v)) return ''
+  return v.toFixed(2)
+}
+
+// The Browser page's AXIS ticks. A legend value or a tooltip is one reading,
+// and its two decimals are the reading's precision ("110.89"); a tick is a
+// round step on a scale, and the same two decimals only add noise down the
+// axis ("0.00, 30.00, 60.00"). So a tick prints the fewest decimals that still
+// say it (up to two, the steps niceAxis picks for these charts), as the
+// service page's RED axes print "0, 30, 60".
+const tickNumber = v => String(+v.toFixed(2))
+
+/** A rate tick: '0', '30', '2.5', and '1.5K' past a thousand. */
+export function fmtRateTick(v) {
+  if (v == null || Number.isNaN(v)) return ''
+  return Math.abs(v) >= 1000 ? `${tickNumber(v / 1000)}K` : tickNumber(v)
+}
+
+/** A percentage tick: '0%', '2.5%', '24%'. */
+export function fmtPctTick(v) {
+  if (v == null || Number.isNaN(v)) return ''
+  return `${tickNumber(v)}%`
+}
+
+/** A unitless tick (a CLS score): '0', '0.1', '0.25'. */
+export function fmtPlainTick(v) {
+  if (v == null || Number.isNaN(v)) return ''
+  return tickNumber(v)
+}
+
+/**
+ * A load-time tick, in ONE unit for the whole axis: seconds when the axis tops
+ * out at a second or more ('0 s, 0.75 s, 1.5 s, 3 s'), milliseconds otherwise
+ * ('0 ms, 250 ms, 500 ms'). fmtLoadTime switches unit per value, which down an
+ * axis reads '750 ms' under '1.50 s'. The chart passes its axis top as the
+ * second argument; without one the tick's own size decides, as fmtLoadTime's.
+ */
+export function fmtLoadTimeTick(v, top = v) {
+  if (v == null || Number.isNaN(v)) return ''
+  return Math.abs(top) >= 1000 ? `${tickNumber(v / 1000)} s` : `${Math.round(v)} ms`
+}
 
 export function fmtBytes(v) {
   if (v == null || Number.isNaN(v)) return ''
@@ -139,6 +215,47 @@ export function niceAxis(max, count = 4, { decimals = Infinity } = {}) {
   const ticks = []
   for (let t = 0; t <= top + step / 2; t += step) ticks.push(Number(t.toPrecision(12)))
   return { top, ticks }
+}
+
+// ---- legends ----
+
+/**
+ * Whether a row answers a search: its label contains the query, either as
+ * stored (`row[labelKey]`) or as the chart shows it (`formatLabel(full, row)`),
+ * ignoring case. An empty or blank query matches every row.
+ *
+ * One test, used by a chart's legend search (LegendLineChart) and by the table
+ * search of the page the chart sits on (the Browser tabs' filterByLabel), so the
+ * two can never disagree on a query. They did once: an Ajax legend row reads
+ * 'GET payment.cubedemo.com/v1/payments' (the label without its ':443'), the
+ * legend search only tried the stored label, and typing what was on screen
+ * found the row in the table but not in the chart beside it.
+ */
+export function labelMatches(row, query, formatLabel, labelKey = 'endpoint') {
+  const q = String(query ?? '').trim().toLowerCase()
+  if (!q) return true
+  const full = String(row?.[labelKey] ?? '')
+  if (full.toLowerCase().includes(q)) return true
+  return formatLabel ? String(formatLabel(full, row) ?? '').toLowerCase().includes(q) : false
+}
+
+/**
+ * Where a scrolling legend must scroll to so one of its rows shows whole, or
+ * null when it already does. `top` and `bottom` are the row's edges measured
+ * in the legend's scrolled content (0 at the top of the content, not of the
+ * viewport); `scrollTop` and `height` are the legend's scroll position and
+ * visible height. `edge` keeps the row that far off the rim, so it does not
+ * sit flush against the fold where it reads as cut off.
+ *
+ * It moves the least it can: a row above the view comes to the top, a row
+ * below it to the bottom, and a row taller than the view shows its top. A
+ * legend that scrolls to the row's top every time would jump a row that was
+ * already in view by a pixel too few.
+ */
+export function scrollTopToReveal({ top, bottom, scrollTop, height, edge = 8 }) {
+  if (top - edge < scrollTop) return Math.max(0, top - edge)
+  if (bottom + edge > scrollTop + height) return Math.max(0, Math.min(top - edge, bottom + edge - height))
+  return null
 }
 
 // Largest value a series (or a set of stacked keys) reaches, for the gutter.

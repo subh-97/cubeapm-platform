@@ -1,0 +1,68 @@
+/* The Browser page's Errors and Traces tabs, and the exception modal they
+   share: BrowserErrorsTab.jsx, BrowserTracesTab.jsx, BrowserExceptionModal.jsx.
+
+   Almost nothing is drawn here. The Errors tab is the APM page's error-groups
+   panel, the Traces tab its Slow Requests split, the Ajax error cell the
+   Errors page's status chip, the empty list the Errors page's empty state and
+   the modal the trace page's — each keeps its own classes. What is here is
+   only what those pieces do not already say. Every colour is a token, so both
+   themes follow. */
+
+/* The Errors tab's Endpoint column wraps rather than ellipsizing. The APM
+   tab's routes fit; an Ajax call is `GET search.cubedemo.com:443/v1/search/
+   wealth`, and cut to the column it reads "GET search.cubedemo.com…" on four
+   rows in a row — the path, the one part that tells them apart, is the part
+   cut. A browser finds no break in a URL by itself, so the tab marks one after
+   every '/' (<wbr>) and the path keeps its segments whole; `break-word` only
+   splits a single segment wider than the column.
+
+   The column is also wider than APM's, and the chart lower: an Ajax endpoint
+   is three times the length of a route, and at APM's 132px chart ten rows
+   took a whole screen and a half. The Error column keeps its share, so a
+   script error's message is cut no shorter than before. */
+.brw-errors .err-endpoint { white-space: normal; overflow-wrap: break-word; text-overflow: clip; }
+.brw-errors :is(.err-head, .err-row) {
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) 68px minmax(260px, 1.6fr);
+}
+.brw-errors .err-spark { height: 88px; }
+
+/* The Traces tab's preview sticks beside a long list (RequestTraceSplit's
+   stickyPreview) just under the Endpoint strip: the strip is 51px tall from
+   the scroller's top edge, and sticky `top` is measured from its content
+   edge, --svc-pad-top lower — so this is the strip, an 8px gap, less that. */
+.brw-traces { --rts-sticky-top: calc(59px - var(--svc-pad-top, 18px)); }
+
+/* The Endpoint strip above that list, slid away on the way down, comes back
+   while focus is in it (browser.css, :focus-within). Opening its select moves
+   focus out of it, though: the select's list is portalled to the end of
+   <body>, and its search box takes focus there. The strip, with nothing
+   focused inside it any more, slid away again under the open list — and the
+   list, placed from the trigger's rect on every render, followed it off the
+   top of the screen at the first key typed into the search. The trigger says
+   it is open (.dd-open), and that holds the strip in view until the list
+   closes. Browser-scoped (.brw-strip): the service page's strip is not
+   touched. */
+.endpoint-strip.is-sticky.brw-strip:has(.filter-select.dd-open) {
+  transform: translateY(0); transition: transform 240ms ease-out;
+}
+
+/* The Traces panel's "10 results" picker. The shared TitleDropdown is drawn
+   as a panel title (13px, bold, primary); in the head's right-hand cluster it
+   sits between the sort toggle and the card menu, so it takes the toggle's
+   weight instead and does not out-shout the panel's own title on the left.
+   Hover and open keep the dropdown's brand colour. */
+.title-dropdown.brw-limit {
+  font-size: 11.5px; font-weight: 500;
+  color: var(--text-secondary);
+  padding: 4px 6px; margin-left: 4px;
+}
+.title-dropdown.brw-limit:hover,
+.title-dropdown.brw-limit.open { color: var(--brand); }
+.title-dropdown.brw-limit:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+
+/* The un-minified tab with no source map to read the stack through: what is
+   missing, then the one way to fix it. The text keeps the modal note's type
+   (.excm-note); this only stacks the button under it. */
+.brw-srcmap-note { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; max-width: 560px; }
+.brw-srcmap-note p { margin: 0; }
+.brw-srcmap-note .mono { color: var(--text-primary); overflow-wrap: anywhere; }

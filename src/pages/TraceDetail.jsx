@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import PageBar from '@/components/layout/PageBar'
-import { FileText, Database as DatabaseIcon, CircleAlert, Flame, Maximize2, Copy, X, Download, SearchX } from 'lucide-react'
+import { FileText, Database as DatabaseIcon, CircleAlert, Flame, Maximize2, Download, SearchX } from 'lucide-react'
 import { traceSummary, traceDatabase } from '@/data/traceDetail'
 import { resolveTrace, traceViewFor } from '@/data/traceResolvers'
 import EmptyState from '@/components/shared/EmptyState'
@@ -8,6 +8,9 @@ import { colorForName } from '@/utils/chartPalette'
 import Waterfall, { msLabel, visibleSpans } from '@/components/trace/Waterfall'
 import { spanSearchFields, spanSearchRow, spanValueIndex } from '@/utils/traceFields'
 import TableQuerySearch from '@/components/TableQuerySearch'
+import SpanExceptionModal from '@/components/errors/SpanExceptionModal'
+import BrowserExceptionModal from '@/components/browser/BrowserExceptionModal'
+import { browserExceptionFor } from '@/data/browser'
 import { matchesPod } from '@/utils/tableQuery'
 
 /* The icon is a second handle on the tab, not decoration: at 12px the four
@@ -190,75 +193,6 @@ function ErrorsTab({ trace, onFocus, onOpenStack }) {
 }
 
 /**
- * The full stack trace for one failed span.
- *
- * A stack trace is the one piece of a span that cannot be read in a table cell
- * or a side panel: it is forty lines wide and tall, and truncating it hides the
- * frame that matters, which is rarely the first one. So it gets the screen.
- *
- * Copy is here because it is what anyone actually does with a stack trace next
- * — paste it into a ticket or a search.
- */
-function StackModal({ span, onClose }) {
-  const [copied, setCopied] = useState(false)
-  const closeRef = useRef(null)
-
-  useEffect(() => {
-    closeRef.current?.focus()
-    const onKey = e => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
-
-  const stack = span.exception.stack || 'No stack trace was recorded on this span.'
-  const copy = () => {
-    try {
-      navigator.clipboard.writeText(`${span.exception.type}: ${span.exception.message}\n${stack}`)?.catch(() => {})
-    } catch (_) { /* clipboard blocked — the text is on screen either way */ }
-    setCopied(true)
-    window.setTimeout(() => setCopied(false), 1400)
-  }
-
-  return (
-    <div className="tw-modal-overlay" onClick={onClose}>
-      <div
-        className="tw-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label={`Stack trace for ${span.name}`}
-        onClick={e => e.stopPropagation()}
-      >
-        <div className="tw-modal-head">
-          <div className="tw-modal-titles">
-            <div className="tw-modal-type mono">{span.exception.type}</div>
-            <div className="tw-modal-sub">
-              {span.service}
-              <span className="sep">&middot;</span>
-              <span className="mono">{span.name}</span>
-              <span className="sep">&middot;</span>
-              {msLabel(span.duration)}
-            </div>
-          </div>
-          <div className="tw-modal-acts">
-            <button type="button" className="tw-modal-copy" onClick={copy}>
-              <Copy size={12} strokeWidth={2} aria-hidden="true" />
-              {copied ? 'Copied' : 'Copy'}
-            </button>
-            <button ref={closeRef} type="button" className="tw-modal-close" onClick={onClose} aria-label="Close">
-              <X size={15} strokeWidth={2} aria-hidden="true" />
-            </button>
-          </div>
-        </div>
-        {span.exception.message && (
-          <div className="tw-modal-msg">{span.exception.message}</div>
-        )}
-        <pre className="tw-modal-stack mono">{stack}</pre>
-      </div>
-    </div>
-  )
-}
-
-/**
  * Profiles.
  *
  * The control and the count are the product's; the body is empty because
@@ -356,9 +290,18 @@ const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
  * are offered, whether Check Logs is, and the search example (traceResolvers).
  * `goLogs` is optional; without it there is no Check Logs button to press.
  */
-export default function TraceDetail({ traceId, datasource = 'traces', goHome, goTraces, goLogs, timeRange, setTimeRange, settingsOpen, setSettingsOpen }) {
+export default function TraceDetail({
+  traceId, datasource = 'traces', goHome, goTraces, goLogs, timeRange, setTimeRange, settingsOpen, setSettingsOpen,
+  origin, sourceMaps, onOpenSourceMaps,
+}) {
   const trace = useMemo(() => resolveTrace(traceId, datasource), [traceId, datasource])
   const viewOpts = traceViewFor(datasource)
+  // A browser script error's exception, when this is one: the trace page then
+  // opens the same modal the Browser page does for it — the un-minified stack
+  // when Settings › Source Maps has the bundle's map — so one exception never
+  // reads two ways on two screens. Null for every other trace, and never looked
+  // up for a dataset that is not the backend's, where browser ids do not live.
+  const browserEx = useMemo(() => (datasource === 'traces' ? browserExceptionFor(traceId) : null), [traceId, datasource])
   const [selectedId, setSelectedId] = useState(null)
   const [tab, setTab] = useState('summary')
   // Lives here rather than in the tab so the choice survives a trip to the
@@ -697,8 +640,13 @@ export default function TraceDetail({ traceId, datasource = 'traces', goHome, go
         {/* A trace is reached from an explorer — Traces, or Mobile Traces for
             a device's request — and the sidebar keeps that item lit while you
             are inside one, so the trail names the page you came from and goes
-            back to it, rather than to a section this view no longer belongs to. */}
-        <a onClick={goList}>{viewOpts.listLabel}</a>
+            back to it, rather than to a section this view no longer belongs to.
+            A page that opened the trace itself (the Browser page's Traces tab)
+            passes `origin` — { label, href, onOpen } — and the trail leads back
+            to that screen instead. */}
+        {origin
+          ? <a href={origin.href} onClick={e => { e.preventDefault(); origin.onOpen() }}>{origin.label}</a>
+          : <a onClick={goList}>{viewOpts.listLabel}</a>}
         <span className="sep">/</span>
         <span className="current mono">Trace {trace.traceId.slice(0, 12)}…</span>
       </PageBar>
@@ -843,7 +791,22 @@ export default function TraceDetail({ traceId, datasource = 'traces', goHome, go
         </div>
         <SpanDetails span={span} trace={trace} />
       </div>
-      {stackSpan && <StackModal span={stackSpan} onClose={() => setStackSpan(null)} />}
+      {/* A failed span's full stack trace: the modal this page has always
+          opened (it lives with the errors components now, because the Browser
+          page opens the same one) — or, for the page-load span of a browser
+          script error, the Browser page's own modal over the same trace. */}
+      {stackSpan && (
+        browserEx && stackSpan.service === browserEx.appId && stackSpan.exception?.type === browserEx.type ? (
+          <BrowserExceptionModal
+            traceId={traceId}
+            sourceMaps={sourceMaps}
+            onClose={() => setStackSpan(null)}
+            onOpenSourceMaps={onOpenSourceMaps}
+          />
+        ) : (
+          <SpanExceptionModal span={stackSpan} onClose={() => setStackSpan(null)} />
+        )
+      )}
     </>
   )
 }

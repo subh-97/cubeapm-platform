@@ -1,0 +1,90 @@
+/* Browser (RUM) page frame and its settings drawer.
+ *
+ * Additive only: every rule is brw- scoped, never restyles an index.css class
+ * on another page, and every colour is a token, so both themes follow
+ * html[data-theme] with nothing here to keep in step. The page itself is built
+ * from the service page's classes (card-tab-strip, view-tabs, svc-main,
+ * endpoint-strip); what is here is only what those do not already say. The
+ * tabs' own rules live beside them (browser-metrics.css, browser-traces.css). */
+
+/* ---- refresh ----
+ * A refresh dims the tab while it "runs", as .logs-results.is-stale does on the
+ * Errors page. The scroller itself is not dimmed or frozen - the reader can
+ * still scroll - and neither is the Traces filter strip: a filter is not part
+ * of the result being refreshed. Nor is an open exception modal: the tabs
+ * render it (unportalled) as a sibling of their panels, and with Auto on it
+ * would otherwise blink under the reader every few seconds. */
+.svc-main.brw-stale > :not(.endpoint-strip):not(.tw-modal-overlay) { opacity: .55; pointer-events: none; }
+
+/* ---- the Traces tab's Endpoint strip ----
+ * Slid out of view on the way down, the strip's select is still in the Tab
+ * order, and Shift+Tab from the list lands on it. Focus inside brings the
+ * strip back, so what has focus is never off-screen. */
+.endpoint-strip.is-sticky.brw-strip:focus-within { transform: translateY(0); transition: transform 240ms ease-out; }
+
+/* The Endpoint select is the one filter on its strip, and an Ajax endpoint is
+ * a long thing to filter by ('GET search.cubedemo.com:443/v1/search/wealth').
+ * At the service page's fixed 329px the part that tells one call from the
+ * next was cut off; here the select grows with its value, from that width up
+ * to one that fits the longest call. */
+.endpoint-strip.brw-strip .filter-select.is-endpoint { width: auto; min-width: 329px; max-width: min(640px, 100%); }
+
+/* ---- settings drawer ---- */
+
+/* Search and New on one row. The drawer's search box is drawn for a spot
+ * right under a links row, hence its negative top margin; beside a button it
+ * sits level. */
+.brw-set-toolbar { display: flex; align-items: center; gap: 8px; }
+.brw-set-toolbar .drawer-nav-search { flex: 1; min-width: 0; margin-top: 0; }
+.brw-set-toolbar .hbtn { flex-shrink: 0; }
+.brw-set-toolbar .hbtn svg,
+.brw-set-form .hbtn svg { margin-right: 0; }
+
+/* The inline Add form: an outlined group, so it reads as one thing being
+ * filled in between the toolbar and the list it adds to. */
+.brw-set-form { display: flex; flex-direction: column; gap: 14px; padding: 14px;
+  border: 1px solid var(--border-panel); border-radius: var(--radius-md); }
+.brw-set-form-title { font-size: 12.5px; font-weight: 600; color: var(--text-primary); }
+.brw-set-form .drawer-section { position: relative; gap: 6px; }
+/* The drawer's inputs are sized for a number beside a unit; these hold a host,
+ * a path or a URL, so they take the row. */
+.brw-set-form .drawer-input-wrap input { flex: 1; width: 100%; min-width: 0; }
+.brw-set-form .drawer-input-wrap input.mono { font-family: var(--font-mono); font-size: 11.5px; }
+.brw-set-form .drawer-input-wrap:has(input[aria-invalid="true"]) { border-color: var(--critical); }
+.brw-set-form .drawer-select { flex: none; width: 100%; }
+.brw-set-optional { margin-left: 6px; font-weight: 400; color: var(--text-muted); }
+.brw-set-help { margin: 0; font-size: 11px; line-height: 1.5; }
+.brw-set-error { margin: 0; font-size: 11px; line-height: 1.5; color: var(--critical-fg); }
+/* Empty, the message is taken out of the column's flow - a flex gap would
+ * still be spent on it - but kept in the document, so the live region is in
+ * place when a problem is written into it and gets announced. */
+.brw-set-error:empty { position: absolute; }
+.brw-set-note { margin: 0; font-size: 11px; line-height: 1.5; color: var(--text-secondary); }
+
+/* The file picker: a real <input type=file>, visually hidden, under a label
+ * drawn as a small button, with the chosen file's name beside it. */
+.brw-set-file { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.brw-set-file label.hbtn { flex-shrink: 0; }
+.brw-set-file:focus-within label.hbtn { border-color: var(--brand); color: var(--text-primary); }
+.brw-set-file-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 11.5px; color: var(--text-muted); }
+.brw-set-file-name.mono { color: var(--text-primary); }
+
+/* The lists: one bordered list, rows divided by hairlines, the value in mono
+ * and wrapping where it must - a bundle URL is long, and every part of it is
+ * the part someone is looking for. */
+.brw-set-list { list-style: none; margin: 0; padding: 0;
+  border: 1px solid var(--border-subtle); border-radius: var(--radius-md); }
+.brw-set-row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 8px 10px 12px; }
+.brw-set-row + .brw-set-row { border-top: 1px solid var(--border-subtle); }
+.brw-set-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.brw-set-row-title { font-family: var(--font-mono); font-size: 11.5px; line-height: 1.5;
+  color: var(--text-primary); overflow-wrap: break-word; }
+.brw-set-row-meta { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 11px; color: var(--text-muted); }
+.brw-set-row-meta .mono { color: var(--text-secondary); overflow-wrap: anywhere; }
+.brw-set-row-desc { font-size: 11.5px; line-height: 1.5; color: var(--text-secondary); }
+.brw-set-del { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; padding: 0; border: none; border-radius: var(--radius-sm);
+  background: none; color: var(--text-muted); cursor: pointer; }
+.brw-set-del:hover { background: var(--panel); color: var(--text-primary); }
+.brw-set-del:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }

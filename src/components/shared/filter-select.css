@@ -1,0 +1,18 @@
+/* FilterSelect's open panel: src/components/shared/FilterSelect.jsx.
+
+   The panel is the shared dropdown (.dd-panel / .dd-item in src/index.css) and
+   is not restyled here. What is here is what the keyboard and a long value add
+   to it. Every colour is a token, so both themes follow. */
+
+/* The row the arrow keys are on: the look a row has under the pointer, so the
+   keyboard's place reads the same as the mouse's. The chosen row keeps its
+   own fill and takes a brand rule on its left instead. The component only
+   sets .is-hl once a key has been pressed in this opening of the panel, so a
+   panel used with the pointer alone is drawn exactly as before. */
+.dd-item.is-hl:not(.active) { background: var(--panel-2); color: var(--text-primary); }
+.dd-item.is-hl.active { box-shadow: inset 2px 0 0 var(--brand); }
+
+/* A row longer than the panel (which never outgrows the window) ends in an
+   ellipsis; the rows of a panel cut that way carry their whole value as a
+   title. */
+.dd-item-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
