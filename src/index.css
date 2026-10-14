@@ -98,6 +98,12 @@
   --brand-on-muted: var(--blue-200);
   /* Hairline border used by every card/panel/chart surface */
   --card-border: var(--slate-870);
+  /* Behind every chart's plot area (the grid's own background, GRID_PROPS):
+     the lightest grey the palette has, which is the canvas. In light that is
+     #F5F7FB; in dark the canvas is the step lighter than the card, so the plot
+     reads as a well in the card either way. Re-pointed per theme through
+     --canvas, so neither theme block repeats it. */
+  --chart-plot-bg: var(--canvas);
   --card-shadow: 0 4px 20px 0 var(--slate-925);
   /* Status foregrounds — text/icon color when sitting on a status tint */
   --critical-fg: var(--red-300);
