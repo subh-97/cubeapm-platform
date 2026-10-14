@@ -14,7 +14,10 @@
 // keeps (what its search matches, and how it scrolls a row into view).
 
 export const AXIS_TICK = { fontSize: 10, fill: 'var(--text-muted)' }
-export const GRID_PROPS = { strokeDasharray: '3 3', stroke: 'var(--border-subtle)', vertical: false }
+// The grid also paints the plot area's background (--chart-plot-bg, at 64%),
+// and since every chart on the platform draws its grid from here, every plot
+// area is the same grey.
+export const GRID_PROPS = { strokeDasharray: '3 3', stroke: 'var(--border-subtle)', vertical: false, fill: 'var(--chart-plot-bg)', fillOpacity: 0.64 }
 
 // Spread onto every series and every Tooltip.
 export const NO_ANIM = { isAnimationActive: false }

@@ -11,19 +11,27 @@ component reaches both pages.
 
 | Infra chart | Component | Service page origin |
 |---|---|---|
-| Host list and K8s Node list: CPU, Memory, Disk, one line per host or node | `LegendLineChart`, three in one panel (`FleetCharts`) | RED tab, Graph view |
+| Host list and K8s Node list: CPU, Memory, Disk, one line per host or node, three cards in one row with no legends | `CardChart` (`InfraCard`, `legend={false}`, `tooltipLimit`, `budgetNoun`), via `FleetCards` | Runtime tab's chart card |
+| K8s Pod list, per namespace and Filter: CPU Used (cores), Memory Remaining (bytes), Disk Used %, one line per pod (a pod with no memory limit has no Memory Remaining line), and the Pods count, in a 2×2 grid with no legends | `CardChart` (`InfraCard`, `legend={false}`) | Runtime tab's chart card |
 | Every other chart: host disk/network/disk I/O, node and pod charts, cluster allocation and containers, deployment, MySQL, Redis | `CardChart` (`InfraCard`) | Runtime tab's chart card |
 | Host CPU and Memory, beside the host's top processes | `.panel` + `.drill2` frame (`ProcessChartPanel`) | Detail tab's Latency Drilldown |
 | A source with no integration (AWS, GCP, empty K8s resources) | `NoDataChart`, in the Runtime card's chrome | — |
 
 `CardChart` is the Runtime tab's `RuntimeChart`, moved out of `ServiceOverview`
 unchanged. The Runtime tab renders the same markup it did before; this was
-checked byte for byte when it moved. It also gained three optional props that
-the Runtime tab leaves out:
+checked byte for byte when it moved. It also gained optional props that the
+Runtime tab leaves out:
 
 - `value`: the window's reading beside the title.
 - `span="full"`: a card that spans the whole grid row.
 - `allowDecimals`: lets a count's axis tick at whole numbers only.
+- `legend={false}`: no legend under the plot, for a card whose lines are a
+  list of things the tooltip names (the Host, Node and Pod lists), as
+  production draws them.
+- `tooltipLimit`: the most series the tooltip lists before it counts the rest
+  (`ChartTooltip`'s `limit`); the Host list passes `TOOLTIP_ROWS` (12).
+- `budgetNoun`: puts the card under a series budget (`useSeriesBudget`, with
+  `SeriesBudgetFooter` under the plot), worded with that noun ("hosts").
 
 `RT_COLORS`, `LIMIT_DASH` and `fmtRuntimePct` moved with it, as
 `RESOURCE_COLORS` (`utils/chartPalette`), `LIMIT_DASH` and `fmtPct1`
@@ -31,18 +39,29 @@ the Runtime tab leaves out:
 
 ## Decisions
 
-- **The fleet legends sort busiest first** (`legendSort="valueDesc"`). This is
-  the same order as the hosts table, and the series budget draws in legend
-  order. So a chart that can't draw all 64 hosts holds back the quiet ones, not
-  whichever hosts come last in the data. A legend figure is the window mean and
-  matches the table row exactly (`fmtPct2`).
-- **Isolation is shared across the three fleet charts**, by host name. This is
-  how the Browser page's metric tabs work: click a host in any legend, and CPU,
-  memory and disk all show only that host.
+- **The fleets are cards without legends.** The Host and Node lists draw CPU,
+  memory and disk as three cards in one row; the Pod list follows production
+  with four cards, two by two. A line is named by the tooltip only. The cost:
+  there is no legend search and no isolating one host across the charts; the
+  table under them is where a host is found and opened. Each fleet card keeps
+  the series budget the legend charts had (`budgetNoun`): it draws the busiest
+  8 at a third's width and offers "Show 20 more · Show all" under its plot,
+  each card on its own, with the axis fixed over every host while any are held
+  back.
+- **A fleet is listed busiest first.** Each card orders its hosts by the
+  window's mean, the order the tables sort by, which is also the order its
+  budget draws in, so the quiet hosts are the ones held back. Once more than 12
+  are drawn the tooltip lists the busiest 12 (`TOOLTIP_ROWS`), always keeps the
+  line under the pointer, and counts the rest, and its figure matches the table
+  row (`fmtPct2`). A host keeps its colour on every card, keyed on its place in the
+  data, not its rank.
+- **The Pod list narrows by its Filter** (a workload kind, then one workload of
+  it). A pod keeps its colour while the Filter narrows, keyed on its place in
+  the namespace.
 - **Charts and table both stay visible.** The RED tab and the Browser page put
   their charts and table behind a Graph | Table switch. Infra doesn't, because
   its table is how you drill into a host, and before this change both were
-  visible. The cost is that the table now sits below three full-height charts.
+  visible. The fleets' cards keep the charts to one row above the table.
 - **No status hues on series (rule 2).** Infra used to draw CPU in amber,
   memory in red and disk in green, and the process list used reds, oranges and
   yellows. Now:

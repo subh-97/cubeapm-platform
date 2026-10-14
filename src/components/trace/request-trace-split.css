@@ -43,3 +43,40 @@
   position: sticky; top: var(--rts-sticky-top, 0px);
   max-height: calc(100vh - 180px); overflow-y: auto;
 }
+
+/* The list on its own (RequestTraceList): a section of the column it sits in,
+   the service page's split charts, so it is drawn the way that column's
+   sections are: a rule above it, their 14px inset, a head set like their chart
+   titles, and the card menu showing on hover. The rows are the split's own
+   (.slowreq-row in index.css); only the split's divider beside or under the
+   list, which has nothing on its other side here, is taken away. */
+.rts-list {
+  /* Two columns, over the rows and in the header alike: what a row is, then
+     its duration. The duration column is sized so the first is 15% narrower
+     than when the row was a flex of the two with a 12px gap and a ~39px
+     duration between them: (100% - 51px) x .85 leaves 15% + 31px. */
+  --rts-cols: minmax(0, 1fr) calc(15% + 31px);
+  border-top: 1px solid var(--border-subtle);
+}
+.rts-list-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 10px 14px 6px;
+}
+.rts-list-title { font-size: 11.5px; font-weight: 600; color: var(--text-primary); white-space: nowrap; }
+.rts-list:hover .card-menu-btn { opacity: 1; }
+/* The column names, in the endpoint lists' header type (.split-ep-head). No
+   rule between them and the title: the two are one header, and the one rule
+   under it is a panel head's (--border-head), lighter than the rows'. */
+.rts-list-cols {
+  display: grid; grid-template-columns: var(--rts-cols); gap: 12px;
+  padding: 4px 14px 8px;
+  font-size: 10px; font-weight: 600; letter-spacing: .5px; text-transform: uppercase;
+  color: var(--text-muted);
+}
+.rts-list-cols > :last-child { text-align: right; }
+.rts-list .slowreq-list { border-right: none; border-bottom: none; }
+.rts-list .slowreq-row { display: grid; grid-template-columns: var(--rts-cols); padding: 10px 14px; }
+.rts-list .slowreq-row .dur { text-align: right; }
+.rts-list .slowreq-list .slowreq-row:first-child { border-top: 1px solid var(--border-head); }
+/* A query is read in full: it wraps rather than running under the duration. */
+.rts-list .slowreq-row .ep { overflow-wrap: anywhere; }

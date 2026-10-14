@@ -98,6 +98,12 @@
   --brand-on-muted: var(--blue-200);
   /* Hairline border used by every card/panel/chart surface */
   --card-border: var(--slate-870);
+  /* Behind every chart's plot area (the grid's own background, GRID_PROPS):
+     the lightest grey the palette has, which is the canvas. In light that is
+     #F5F7FB; in dark the canvas is the step lighter than the card, so the plot
+     reads as a well in the card either way. Re-pointed per theme through
+     --canvas, so neither theme block repeats it. */
+  --chart-plot-bg: var(--canvas);
   --card-shadow: 0 4px 20px 0 var(--slate-925);
   /* Status foregrounds — text/icon color when sitting on a status tint */
   --critical-fg: var(--red-300);
@@ -448,6 +454,8 @@ a { color: inherit; }
 .card-crumbs a { color: var(--text-secondary); text-decoration: none; cursor: pointer; }
 .card-crumbs a:hover { color: var(--text-primary); text-decoration: underline; }
 .card-crumbs .sep { color: var(--border-strong); font-size: 10px; }
+/* A section name with no page behind it: drawn like a link, but inert. */
+.card-crumbs .crumb-static { color: var(--text-secondary); cursor: default; }
 .card-crumbs .current { color: var(--text-primary); font-size: 14px; font-weight: 600; letter-spacing: -.2px; }
 .crumb-select { display: inline-flex; align-items: center; gap: 3px; cursor: pointer; padding: 2px 4px; margin: -2px -4px; border-radius: 5px; }
 .crumb-select:hover, .crumb-select.open { background: var(--panel); }
@@ -748,13 +756,13 @@ td { padding: 11px 16px; border-top: 1px solid var(--border-subtle); text-align:
    exactly where the gap left it. content-box keeps any declared width or
    height meaning the content, so no column or chart changes size. The log and
    span tables do the same next to the .span-cell rules. */
-:is(.split-ep-head, .split-ep-row, .slowq-row, .err-head, .err-row,
+:is(.split-ep-head, .split-ep-row, .err-head, .err-row,
     .ds-theme-row, .errp-head, .errp-row) > * {
   box-sizing: content-box; align-self: stretch; align-content: center;
   margin-top: calc(var(--row-py) * -1); margin-bottom: calc(var(--row-py) * -1);
   padding-top: var(--row-py); padding-bottom: var(--row-py);
 }
-:is(.split-ep-head, .split-ep-row, .slowq-row, .err-head, .err-row,
+:is(.split-ep-head, .split-ep-row, .err-head, .err-row,
     .ds-theme-row, .errp-head, .errp-row) > * + * {
   margin-left: calc(var(--col-gap) / -2 - 1px); padding-left: calc(var(--col-gap) / 2);
   border-left: 1px solid var(--border-subtle);
@@ -1091,15 +1099,6 @@ tbody tr:hover { background: var(--panel-2); }
 .title-dropdown-item { font-size: 12.5px; color: var(--text-primary); padding: 7px 10px; border-radius: 4px; cursor: pointer; }
 .title-dropdown-item:hover { background: var(--panel-2); }
 .title-dropdown-item.active { color: var(--brand); font-weight: 600; }
-
-/* Slow Queries table */
-.slowq-row { --row-py: 10px; --col-gap: 12px; display: grid; grid-template-columns: 130px 1fr 84px; gap: var(--col-gap); padding: var(--row-py) 16px; border-top: 1px solid var(--border-subtle); align-items: center; font-size: 12px; }
-.slowq-row .t { color: var(--text-muted); font-size: 10.5px; }
-.slowq-row .q { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.slowq-row .d { text-align: right; font-weight: 400; color: var(--text-primary); }
-/* The header borrows the endpoint lists' sortable head, but its columns have
-   to fall on the rows' grid or the column rules jog where the two meet. */
-.split-ep-head.slowq-head { --col-gap: 12px; grid-template-columns: 130px 1fr 84px; padding-left: 16px; padding-right: 16px; }
 
 /* ============ Errors tab ============ */
 /* Endpoint .6fr (40% narrower than its old 1fr) and Error .875fr (20% narrower
@@ -3597,6 +3596,12 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 @container infra (max-width: 560px) {
   .infra-card-grid > * { grid-column: span 6; }
 }
+/* A fleet's three readings (FleetCards) stay one row, at their own height,
+   until the column is too narrow for any card to share a row. */
+@container infra (min-width: 561px) and (max-width: 900px) {
+  .infra-card-grid.is-fleet .rt-third { grid-column: span 2; }
+  .infra-card-grid.is-fleet .rt-third .chart-host { height: 180px; }
+}
 
 /* Host detail */
 .infra-host-detail { }
@@ -3631,6 +3636,12 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
  * section's footer meets the legend column's divider in a T. */
 .red-chart-section > .series-budget { margin: 0; padding: 7px 16px 8px; }
 .split-charts > .series-budget { margin: 0; padding: 7px 14px 8px; }
+/* A third-width card has no room for the count and its actions side by side.
+ * Each stays whole: the actions wrap as one line under the count, at the right,
+ * rather than the count breaking mid-phrase and a dot left dangling. */
+.runtime-chart-card > .series-budget { flex-wrap: wrap; row-gap: 3px; }
+.runtime-chart-card > .series-budget > :not(.series-budget-actions) { white-space: nowrap; }
+.runtime-chart-card > .series-budget > .series-budget-actions { margin-left: auto; flex-wrap: nowrap; }
 .series-budget-btn { background: none; border: none; padding: 0; color: var(--brand); font-family: inherit; font-size: 10.5px;
   font-weight: 600; cursor: pointer; flex-shrink: 0; }
 .series-budget-btn:hover { color: var(--brand-active); }
@@ -3660,7 +3671,6 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 .infra-namespace-search input { width: 100%; background: var(--panel); border: 1px solid var(--border-subtle); color: var(--text-primary); font-family: inherit; font-size: 11.5px; border-radius: var(--radius-sm); padding: 6px 10px; outline: none; }
 .infra-namespace-search input:focus { border-color: var(--brand); }
 .infra-namespace-opt { display: flex; align-items: center; gap: 9px; padding: 8px 4px; cursor: pointer; font-size: 12px; color: var(--text-secondary); border-radius: var(--radius-sm); }
-.infra-namespace-opt:hover { background: var(--panel-2); color: var(--text-primary); }
 .infra-namespace-opt input { accent-color: var(--brand); }
 
 /* Kubernetes cluster dashboard */
@@ -3688,10 +3698,22 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 .k8s-selector { display: inline-flex; align-items: center; gap: 8px; background: var(--panel); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 6px 12px; font-size: 12px; }
 .k8s-selector-lbl { color: var(--text-muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: .4px; font-weight: 600; }
 .k8s-selector-val { color: var(--text-primary); font-family: 'JetBrains Mono', monospace; font-weight: 600; }
+/* The way back from the chip to the namespace choice: a square the chip's
+   height, in its border, so the two read as one control. */
+.infra-back { display: inline-flex; align-items: center; justify-content: center; width: 29px; height: 29px; padding: 0;
+  background: var(--card); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);
+  color: var(--text-secondary); cursor: pointer; }
+.infra-back svg { width: 14px; height: 14px; }
+.infra-back:hover { color: var(--text-primary); border-color: var(--border-strong); }
+.infra-back:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
 
 /* Containers table (Pod detail) */
 .k8s-containers-table { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); overflow: hidden; margin-bottom: 20px; }
-.k8s-containers-head { padding: 12px 16px; font-size: 13px; font-weight: 600; border-bottom: 1px solid var(--border-subtle); }
+.k8s-containers-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 16px; font-size: 13px; font-weight: 600; border-bottom: 1px solid var(--border-subtle); }
+/* Clear Container, at the head's right. The negative margins take back its
+   padding, so its text lines up on the head's inset and showing it does not
+   make the head any taller. */
+.k8s-containers-head .split-ep-clear { margin: -1px -4px; white-space: nowrap; }
 
 
 /* ============ Runtime tab ============ */
@@ -3771,7 +3793,9 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 }
 
 .runtime-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.runtime-chart-card { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); padding: 12px 14px 8px; }
+/* --card-pad-*: the padding, named, so a series-budget footer (a fleet card
+   under a budget) reaches the card's edges like a legend chart's does. */
+.runtime-chart-card { --card-pad-x: 14px; --card-pad-b: 8px; background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); padding: 12px var(--card-pad-x) var(--card-pad-b); }
 .runtime-chart-card .clbl { font-size: 11.5px; font-weight: 600; margin-bottom: 8px; color: var(--text-primary); display: flex; align-items: center; justify-content: space-between; }
 .runtime-chart-card .cval { font-size: 12px; color: var(--text-secondary); font-weight: 500; }
 .runtime-chart-card .chart-host { height: 200px; }
