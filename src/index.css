@@ -748,13 +748,13 @@ td { padding: 11px 16px; border-top: 1px solid var(--border-subtle); text-align:
    exactly where the gap left it. content-box keeps any declared width or
    height meaning the content, so no column or chart changes size. The log and
    span tables do the same next to the .span-cell rules. */
-:is(.split-ep-head, .split-ep-row, .slowq-row, .err-head, .err-row,
+:is(.split-ep-head, .split-ep-row, .err-head, .err-row,
     .ds-theme-row, .errp-head, .errp-row) > * {
   box-sizing: content-box; align-self: stretch; align-content: center;
   margin-top: calc(var(--row-py) * -1); margin-bottom: calc(var(--row-py) * -1);
   padding-top: var(--row-py); padding-bottom: var(--row-py);
 }
-:is(.split-ep-head, .split-ep-row, .slowq-row, .err-head, .err-row,
+:is(.split-ep-head, .split-ep-row, .err-head, .err-row,
     .ds-theme-row, .errp-head, .errp-row) > * + * {
   margin-left: calc(var(--col-gap) / -2 - 1px); padding-left: calc(var(--col-gap) / 2);
   border-left: 1px solid var(--border-subtle);
@@ -1091,15 +1091,6 @@ tbody tr:hover { background: var(--panel-2); }
 .title-dropdown-item { font-size: 12.5px; color: var(--text-primary); padding: 7px 10px; border-radius: 4px; cursor: pointer; }
 .title-dropdown-item:hover { background: var(--panel-2); }
 .title-dropdown-item.active { color: var(--brand); font-weight: 600; }
-
-/* Slow Queries table */
-.slowq-row { --row-py: 10px; --col-gap: 12px; display: grid; grid-template-columns: 130px 1fr 84px; gap: var(--col-gap); padding: var(--row-py) 16px; border-top: 1px solid var(--border-subtle); align-items: center; font-size: 12px; }
-.slowq-row .t { color: var(--text-muted); font-size: 10.5px; }
-.slowq-row .q { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.slowq-row .d { text-align: right; font-weight: 400; color: var(--text-primary); }
-/* The header borrows the endpoint lists' sortable head, but its columns have
-   to fall on the rows' grid or the column rules jog where the two meet. */
-.split-ep-head.slowq-head { --col-gap: 12px; grid-template-columns: 130px 1fr 84px; padding-left: 16px; padding-right: 16px; }
 
 /* ============ Errors tab ============ */
 /* Endpoint .6fr (40% narrower than its old 1fr) and Error .875fr (20% narrower

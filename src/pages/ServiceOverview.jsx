@@ -25,7 +25,7 @@ import TitleDropdown from '@/components/shared/TitleDropdown'
 import { SortableTh, CellBar } from '@/components/shared/SortableTable'
 import { useSortedRows } from '@/hooks/useSortedRows'
 import { useScrollReveal, revealClass } from '@/hooks/useScrollReveal'
-import RequestTraceSplit from '@/components/trace/RequestTraceSplit'
+import RequestTraceSplit, { RequestTraceList } from '@/components/trace/RequestTraceSplit'
 import ErrorGroupsPanel from '@/components/errors/ErrorGroupsPanel'
 import BreakAtSlashes from '@/components/browser/BreakAtSlashes'
 import { errorGroupsForWindow, tracesFiltersFor } from '@/data/errors'
@@ -696,43 +696,18 @@ function InfraCorrelation({ hosts, win }) {
   )
 }
 
-function SlowQueriesTable() {
-  const { rows, sort, toggle } = useSortedRows(slowQueries, 'duration', 'desc')
-  const Hdr = ({ sortKey, align, children }) => {
-    const active = sort?.key === sortKey
-    const dir = active ? sort.dir : null
-    return (
-      <span className="split-ep-head-cell" onClick={() => toggle(sortKey)} style={{ justifyContent: align === 'left' ? 'flex-start' : 'flex-end' }}>
-        <span>{children}</span>
-        <svg className={`sortable-th-arrow${active ? ' active' : ''}${dir === 'asc' ? ' asc' : ''}`}
-          viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor"
-          strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <circle cx="12" cy="12" r="9" /><path d="M12 8v8M9 13l3 3 3-3" />
-        </svg>
-      </span>
-    )
-  }
-  return (
-    <div className="panel">
-      <div className="panel-head is-divided">
-        <div className="panel-head-left">Slow Queries</div>
-        <CardMenu kind="list" title="Slow Queries" />
-      </div>
-      <div className="split-ep-head slowq-head is-sortable">
-        <Hdr sortKey="time" align="left">Time</Hdr>
-        <Hdr sortKey="query" align="left">Query</Hdr>
-        <Hdr sortKey="duration">Duration</Hdr>
-      </div>
-      {rows.map((q, i) => (
-        <div key={i} className="slowq-row">
-          <div className="t">{q.time}</div>
-          <div className="q" title={q.query}>{q.query}</div>
-          <div className="d">{q.duration} ms</div>
-        </div>
-      ))}
-    </div>
-  )
+// The DB tab's Slow Queries, as rows of the Slow Requests list: the query is
+// what a row names, and it opens the trace of the request it ran in. `timeMs`
+// is read off the stamp ("Jul 15, 22:38pm") so the Time sort is newest first;
+// the stamps carry no year, and every row shares one.
+const STAMP_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+function stampMs(stamp) {
+  const m = /^(\w{3}) (\d+), (\d+):(\d+)/.exec(stamp)
+  return m ? Date.UTC(2000, STAMP_MONTHS.indexOf(m[1]), +m[2], +m[3], +m[4]) : NaN
 }
+const SLOW_QUERY_ROWS = slowQueries.map(q => ({
+  endpoint: q.query, latencyMs: q.duration, timestamp: q.time, timeMs: stampMs(q.time), traceId: q.traceId,
+}))
 
 const RED_COLUMNS = ['Total Requests', 'Time Consumed %', 'RPM', 'Response Time (p90)', 'Response Time (avg)', 'Error %']
 
@@ -1181,7 +1156,7 @@ function EndpointBreakdownRows({ rows }) {
 const DB_FILTER_OPTIONS = ['All Database Calls', 'MySQL', 'Redis']
 const DB_KIND_FOR_FILTER = { 'MySQL': 'mysql', 'Redis': 'redis' }
 
-function DbTab({ svc, data, syncId, win, onFocus }) {
+function DbTab({ svc, data, syncId, win, onFocus, onOpenTrace }) {
   const [sel, setSel] = useState(null)
   const [hoverKey, setHoverKey] = useState(null)
   const [filter, setFilter] = useState('All Database Calls')
@@ -1290,10 +1265,13 @@ function DbTab({ svc, data, syncId, win, onFocus }) {
             </div>
           )}
           {!ep && <SeriesBudgetFooter budget={budget} noun="operations" />}
+          {/* Under the charts, half the page wide, so the list without the
+              waterfall the Slow Requests panel shows beside it: a row opens
+              its trace. Above an operation's callers when one is picked. */}
+          <RequestTraceList title="Slow Queries" columns={['Query', 'Duration']} data={SLOW_QUERY_ROWS} onOpenTrace={onOpenTrace} />
           {ep && <EndpointBreakdownRows rows={callers} />}
         </div>
       </div>
-      <SlowQueriesTable />
     </>
   )
 }
@@ -1732,7 +1710,7 @@ export default function ServiceOverview({ serviceId, onSelectService, onOpenTrac
   } else if (serviceSubTab === 'external') {
     body = <ExternalTab svc={svc} data={data} syncId={syncId} win={win} onFocus={setTimeRange} />
   } else if (serviceSubTab === 'db') {
-    body = <DbTab svc={svc} data={data} syncId={syncId} win={win} onFocus={setTimeRange} />
+    body = <DbTab svc={svc} data={data} syncId={syncId} win={win} onFocus={setTimeRange} onOpenTrace={onOpenTrace} />
   } else if (serviceSubTab === 'errors') {
     body = <ErrorsTab win={win} serviceId={svc.id} onFocus={setTimeRange} syncId={syncId} onOpenLink={onOpenLink} side={errorsSide} onSide={onErrorsSide} />
   } else if (serviceSubTab === 'runtime') {
