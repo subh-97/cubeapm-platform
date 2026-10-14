@@ -12,7 +12,8 @@
 // the picture beside it.
 
 import { clsx } from 'clsx'
-import { isSelectMode, legendClick, SHOW_ALL } from '@/utils/explore/series'
+import { isSelectMode, legendClick, SHOW_ALL, LEGEND_LIMIT } from '@/utils/explore/series'
+import { budgetOffer } from '@/components/charts/seriesBudget'
 import { formatValue } from '@/utils/explore/format'
 import './explore-results.css'
 
@@ -26,7 +27,9 @@ const CLICK_HELP = 'Click to show only this series. Click it again to show all. 
  * @param {(next:string) => void} props.onSearchChange
  * @param {{defaultShow:boolean, inverts:string[]}} props.selection
  * @param {(next:object) => void} props.onSelectionChange
- * @param {() => void} [props.onShowAll]             lifts the 20-series limit
+ * @param {() => void} [props.onShowMore]            lists the next 20 series
+ * @param {() => void} [props.onShowAll]             lifts the limit
+ * @param {() => void} [props.onShowFewer]           back to the first 20
  * @param {string|null} [props.hoverKey]
  * @param {(key:string|null) => void} [props.onHoverKey]
  * @param {boolean} [props.comparing]                show the delta chips
@@ -34,9 +37,25 @@ const CLICK_HELP = 'Click to show only this series. Click it again to show all. 
  */
 export default function ExploreLegend({
   model, unit = 'number', search, onSearchChange, selection = SHOW_ALL, onSelectionChange,
-  onShowAll, hoverKey = null, onHoverKey, comparing = false, compareLabel = '',
+  onShowMore, onShowAll, onShowFewer, hoverKey = null, onHoverKey, comparing = false, compareLabel = '',
 }) {
   const selecting = isSelectMode(selection) || selection.inverts.length > 0
+  // The same offer as every other chart's series budget (seriesBudget.js):
+  // twenty more while more than twenty are left, all, and the way back once
+  // the legend lists more than its first twenty. An isolated series pinned
+  // past the limit is the selection's doing, not a request, so it is left out
+  // of the count the offer is made on.
+  const offer = budgetOffer({
+    status: model.matchCount <= LEGEND_LIMIT ? 'all' : model.limited ? 'capped' : 'expanded',
+    count: Math.min(model.limit, model.matchCount),
+    total: model.matchCount,
+    cap: LEGEND_LIMIT,
+  })
+  const fewer = offer.fewer && onShowFewer && (
+    <button type="button" className="ex-link" onClick={onShowFewer} title={`List the first ${LEGEND_LIMIT} series again`}>
+      Hide all
+    </button>
+  )
 
   return (
     <div className="ex-legend">
@@ -117,15 +136,24 @@ export default function ExploreLegend({
         {model.limited ? (
           <>
             <span>Showing {model.shownCount} of {model.matchCount}</span>
+            {offer.more > 0 && onShowMore && (
+              <button type="button" className="ex-link" onClick={onShowMore} title={`List the next ${offer.more} series`}>
+                Show {offer.more} more
+              </button>
+            )}
             <button type="button" className="ex-link" onClick={() => onShowAll?.()} title="List every series, however many there are">
               Show all
             </button>
+            {fewer}
           </>
         ) : (
-          <span>
-            {model.matchCount} series
-            {model.matchCount !== model.total && ` of ${model.total}`}
-          </span>
+          <>
+            <span>
+              {model.matchCount} series
+              {model.matchCount !== model.total && ` of ${model.total}`}
+            </span>
+            {fewer}
+          </>
         )}
         {selecting && (
           <button

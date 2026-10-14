@@ -214,8 +214,9 @@ export function legendClick(sel, key, event) {
  * @property {number} total              series in the result
  * @property {number} matchCount         series matching the legend search
  * @property {number} shownCount         series listed (excluding "Others")
- * @property {boolean} limited           the 20-series limit is cutting the list: "Showing 20 of {matchCount}"
- * @property {number} limit
+ * @property {boolean} limited           the limit is cutting the list: "Showing 20 of {matchCount}"
+ * @property {number} limit              how many the legend lists before "Others": LEGEND_LIMIT, raised
+ *                                       a step at a time by "Show 20 more", Infinity after "Show all"
  */
 
 function othersDataset(rest) {
@@ -242,7 +243,9 @@ function othersDataset(rest) {
  * @param {'last'|'avg'|'sum'} [args.formula]
  * @param {boolean} [args.stack]
  * @param {string} [args.search]        legend search: filters the legend AND the lines
- * @param {boolean} [args.limitOn]      false after "Show all"
+ * @param {number} [args.limit]        series the legend lists: LEGEND_LIMIT to begin with, raised by
+ *                                      the platform's series step ("Show 20 more"), Infinity after
+ *                                      "Show all". Never fewer than LEGEND_LIMIT.
  * @param {Selection} [args.selection]
  * @param {Array|null} [args.prevSeries]  the comparison window's series; null = Compare off
  * @param {boolean} [args.prevFailed]
@@ -250,7 +253,7 @@ function othersDataset(rest) {
  * @returns {ChartModel}
  */
 export function buildChartModel({
-  series, legendLabel = '', formula = 'avg', stack = false, search = '', limitOn = true,
+  series, legendLabel = '', formula = 'avg', stack = false, search = '', limit = LEGEND_LIMIT,
   selection = SHOW_ALL, prevSeries = null, prevFailed = false, compareShiftSec = 0,
 }) {
   const sorted = reduceSeries(series, formula)
@@ -286,10 +289,11 @@ export function buildChartModel({
   for (const d of all) (!q || d.label.toLowerCase().includes(q) ? shown : rest).push(d)
   const matchCount = shown.length
 
-  const limited = limitOn && shown.length > LEGEND_LIMIT
+  const listed = Math.max(LEGEND_LIMIT, limit)
+  const limited = shown.length > listed
   if (limited) {
-    // An isolated series stays listed (and drawn) even past the top 20.
-    for (const o of shown.splice(LEGEND_LIMIT)) {
+    // An isolated series stays listed (and drawn) even past the limit.
+    for (const o of shown.splice(listed)) {
       if (isSelectMode(selection) && shouldShow(selection, o.label)) shown.push(o)
       else rest.push(o)
     }
@@ -316,7 +320,7 @@ export function buildChartModel({
   return {
     datasets, drawn, drawOrder: stack ? [...drawn].reverse() : drawn, ghost,
     labelsSet, commonLabels: labelsToString(common), showCommon: !legendLabel,
-    total: all.length, matchCount, shownCount, limited, limit: LEGEND_LIMIT,
+    total: all.length, matchCount, shownCount, limited, limit: listed,
   }
 }
 

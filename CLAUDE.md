@@ -141,6 +141,7 @@ Decisions worth not re-deriving. Read the relevant one before reworking that are
 - `docs/decisions/errors-page.md` — the `/errors` page: filter series then group, the errors variant of the query builder, the URL dialects it reads, and how it hands off to Traces and the service page
 - `docs/decisions/mobile-traces-page.md` — the `/mobile-traces` page: one explorer driven by a dataset `source`, the session-built mobile data and its decodable trace ids, severity bands for HTTP codes, the one-span mobile trace view, and every difference from production
 - `docs/decisions/browser-page.md` — the `/browser` (RUM) page: the original's URL dialect as its only state, the service page's frame and panels reused, synced legend isolation, vitals bands, the source-map-gated exception modal, and the trace's way back to Browser
+- `docs/decisions/infra-charts.md` — every Infrastructure chart is a service-page chart (`LegendLineChart` for fleets, `CardChart` — the Runtime card — for the rest, the Latency Drilldown frame for a host's CPU and memory), no status hues on series, and what each choice cost
 
 `docs/HANDOFF.md` describes where the project stands overall.
 

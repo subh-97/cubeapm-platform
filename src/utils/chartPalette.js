@@ -88,6 +88,39 @@ export const BROWSER_COLORS = [
 export const browserColor = i => cycledColor(BROWSER_COLORS, i)
 
 /**
+ * The Infrastructure page's per-entity colours: a host or a node, one line
+ * each, on the fleet charts. The Browser palette, for the same two reasons it
+ * exists: a fleet is a long list (64 hosts), and none of its lines may wear a
+ * status hue — Infra paints severity on the same screen, in the hosts table's
+ * status dots. The colour is keyed on a host's place in the data's own order,
+ * so it is the same host on the CPU, memory and disk charts.
+ */
+export const infraColor = i => cycledColor(BROWSER_COLORS, i)
+
+/**
+ * Series identity for a resource and the ceilings configured around it: the
+ * Runtime tab's heap, eden and buffer charts, and Infra's CPU and memory
+ * allocation. Moved here out of ServiceOverview (RT_COLORS) unchanged.
+ *
+ * Several charts draw some combination of a limit, a committed (or requested)
+ * and a used line, and they have to agree about which colour is which. A
+ * reader who learns "blue is what is actually held" on one chart must not have
+ * to relearn it on the next, so the colour is keyed on the series' ROLE rather
+ * than on the chart it happens to sit in. `alt` is the second reading of a
+ * chart that has two (unloaded classes, transmit beside receive).
+ *
+ * Blues, teals, purples and pinks only. Red, amber and green mean severity
+ * everywhere else on this platform, and "which series is this" is not a
+ * severity.
+ */
+export const RESOURCE_COLORS = {
+  used: '#3B82F6',
+  committed: '#06B6D4',
+  limit: '#A78BFA',
+  alt: '#F472B6',
+}
+
+/**
  * A stable colour per name within one list.
  *
  * Keyed on position in the caller's list rather than on a hash of the name, so
