@@ -9,6 +9,8 @@ import {
 import { resolveWindow } from '@/data/timeWindow'
 import PageBar from '@/components/layout/PageBar'
 import TableQuerySearch from '@/components/TableQuerySearch'
+import FilterSelect from '@/components/shared/FilterSelect'
+import { useScrollReveal, revealClass } from '@/hooks/useScrollReveal'
 import { parsePodQuery, matchesPod, highlightsFor, tagHighlightsFor, tagTerms, POD_FIELDS, POD_NODE_FIELDS } from '@/utils/tableQuery'
 import { highlightTerms } from '@/utils/highlight'
 import { buildTimeAxis, withX } from '@/components/charts/timeAxis'
@@ -762,11 +764,27 @@ function K8sDeploymentView() {
 
 /* ============ Kubernetes: Node → Pod drill-in ============ */
 
-function K8sPodDetail({ pod }) {
+// `pods` are the ones this pod could be swapped for: the node's, when it was
+// reached through a node, or every pod. A pod lives in exactly one namespace,
+// so picking another opens the first of those pods that lives there. The strip
+// is the service page's Endpoint strip, sliding away and back with `reveal`.
+function K8sPodDetail({ pod, pods, onSelectPod, reveal }) {
+  const namespaces = useMemo(() => [...new Set(pods.map(p => p.namespace))].sort(), [pods])
+  const pickNamespace = ns => {
+    const first = ns !== pod.namespace && pods.find(p => p.namespace === ns)
+    if (first) onSelectPod(first.name)
+  }
+
   return (
     <div>
-      <div className="infra-host-meta">
-        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>namespace <span className="mono" style={{ color: 'var(--text-secondary)' }}>{pod.namespace}</span></span>
+      <div className={`endpoint-strip is-sticky${revealClass(reveal)}`}>
+        <FilterSelect
+          className="is-endpoint"
+          label="Namespace"
+          value={pod.namespace}
+          options={namespaces}
+          onSelect={pickNamespace}
+        />
       </div>
 
       <div className="k8s-containers-table">
@@ -883,9 +901,10 @@ function K8sNodeDetail({ node, pods, onSelectPod }) {
   )
 }
 
-function K8sNodeView({ nodes, pods, selectedNode, setSelectedNode, selectedPod, setSelectedPod }) {
+function K8sNodeView({ nodes, pods, selectedNode, setSelectedNode, selectedPod, setSelectedPod, reveal }) {
   if (selectedPod) {
-    return <K8sPodDetail pod={selectedPod} />
+    const onNode = selectedNode ? pods.filter(p => p.node === selectedNode.name) : pods
+    return <K8sPodDetail pod={selectedPod} pods={onNode} onSelectPod={setSelectedPod} reveal={reveal} />
   }
   if (selectedNode) {
     return <K8sNodeDetail node={selectedNode} pods={pods} onSelectPod={setSelectedPod} />
@@ -914,7 +933,7 @@ function K8sNodeView({ nodes, pods, selectedNode, setSelectedNode, selectedPod, 
   )
 }
 
-function K8sPodListView({ nodes, pods, selectedPod, setSelectedPod }) {
+function K8sPodListView({ nodes, pods, selectedPod, setSelectedPod, reveal }) {
   const [query, setQuery] = useState('')
 
   const { node: queryNode, ok } = parsePodQuery(query, POD_NODE_FIELDS)
@@ -928,7 +947,7 @@ function K8sPodListView({ nodes, pods, selectedPod, setSelectedPod }) {
   )
   const tagHits = useMemo(() => (ok ? tagHighlightsFor(queryNode, POD_NODE_FIELDS) : {}), [queryNode, ok])
 
-  if (selectedPod) return <K8sPodDetail pod={selectedPod} />
+  if (selectedPod) return <K8sPodDetail pod={selectedPod} pods={pods} onSelectPod={setSelectedPod} reveal={reveal} />
   return (
     <div className="panel">
       <div className="panel-head is-stacked">
@@ -1202,6 +1221,12 @@ export default function InfraView({ goHome, source, resource, selectedHost, setS
   )
   const time = useMemo(() => ({ win, setTimeRange, syncId }), [win, setTimeRange, syncId])
 
+  // A pod's Namespace strip slides away and back as the body scrolls, as the
+  // service page's Endpoint strip does. Only a pod has the strip, so only a
+  // pod's scrolling is followed: every reveal re-renders this page, and the
+  // fleet views under it draw dozens of series.
+  const { reveal: stripReveal, onScroll: onStripScroll } = useScrollReveal(syncId)
+
   let body
   if (host) {
     body = <HostDetail host={host} />
@@ -1242,9 +1267,9 @@ export default function InfraView({ goHome, source, resource, selectedHost, setS
   } else if (source === 'k8s-cluster') {
     body = <K8sClusterView namespace={k8sNamespace} setNamespace={setK8sNamespace} />
   } else if (source === 'k8s-node') {
-    body = <K8sNodeView nodes={nodes} pods={pods} selectedNode={k8sNode} setSelectedNode={setK8sNodeName} selectedPod={k8sPod} setSelectedPod={setK8sPodName} />
+    body = <K8sNodeView nodes={nodes} pods={pods} selectedNode={k8sNode} setSelectedNode={setK8sNodeName} selectedPod={k8sPod} setSelectedPod={setK8sPodName} reveal={stripReveal} />
   } else if (source === 'k8s-pod') {
-    body = <K8sPodListView nodes={nodes} pods={pods} selectedPod={k8sPod} setSelectedPod={setK8sPodName} />
+    body = <K8sPodListView nodes={nodes} pods={pods} selectedPod={k8sPod} setSelectedPod={setK8sPodName} reveal={stripReveal} />
   } else if (source === 'k8s-deployment') {
     body = <K8sDeploymentView />
   } else if (source === 'k8s-pvc') {
@@ -1356,7 +1381,7 @@ export default function InfraView({ goHome, source, resource, selectedHost, setS
           </>
         )}
       </PageBar>
-      <div className="svc-main">
+      <div className="svc-main" onScroll={k8sPod ? onStripScroll : undefined}>
         {body}
       </div>
     </InfraTime.Provider>
