@@ -616,14 +616,17 @@ export function k8sNodesForWindow(win) {
 
 export const k8sNodes = k8sNodesForWindow(REFERENCE_WINDOW)
 
-// `labels` are the pod column's tags, searched as `pod.app:redis`.
+// `labels` are the pod column's tags, searched as `pod.app:redis`. `owners`
+// are the workloads above a pod, by the kind the Pod page's Filter names them:
+// a Deployment's pod is its ReplicaSet's too. storage-provisioner is a bare
+// pod with no controller, so no kind lists it.
 const K8S_POD_ROWS = [
-  { name: 'payment-service-7d8b9c-4vk2q', labels: { app: 'payment', tier: 'backend', team: 'payments' }, namespace: 'default', node: 'ip-10-0-142-133', cpuUsed: 0.09, cpuRequest: 0.25, cpuLimit: 0.25, memUsed: 418_800_000, memRequest: 536_900_000, memLimit: 536_900_000, netIn: 12.4, netOut: 8.9 },
-  { name: 'redis-0', labels: { app: 'redis', tier: 'cache', team: 'platform' }, namespace: 'default', node: 'ip-10-0-142-133', cpuUsed: 0.04, cpuRequest: 0.1, cpuLimit: 0.1, memUsed: 210_500_000, memRequest: 256_000_000, memLimit: 256_000_000, netIn: 40.2, netOut: 38.7 },
-  { name: 'coredns-66bc5c9577-zkrnm', labels: { app: 'coredns', tier: 'system' }, namespace: 'kube-system', node: 'ip-10-0-142-133', cpuUsed: 0.0012, cpuRequest: 0.1, cpuLimit: 0.1, memUsed: 19_400_000, memRequest: 70_000_000, memLimit: 170_000_000, netIn: 1.1, netOut: 0.9 },
-  { name: 'kube-proxy-784j7', labels: { app: 'kube-proxy', tier: 'system' }, namespace: 'kube-system', node: 'ip-10-0-143-40', cpuUsed: 0.0002, cpuRequest: 0, cpuLimit: 0, memUsed: 20_500_000, memRequest: 0, memLimit: 0, netIn: 0.4, netOut: 0.3 },
-  { name: 'order-service-6c8f4b-8ct9x', labels: { app: 'order', tier: 'backend', team: 'checkout' }, namespace: 'default', node: 'ip-10-0-143-40', cpuUsed: 0.05, cpuRequest: 0.2, cpuLimit: 0.2, memUsed: 180_200_000, memRequest: 256_000_000, memLimit: 256_000_000, netIn: 9.6, netOut: 7.1 },
-  { name: 'storage-provisioner', labels: { app: 'storage', tier: 'system' }, namespace: 'kube-system', node: 'ip-10-0-143-40', cpuUsed: 0.0016, cpuRequest: 0, cpuLimit: 0, memUsed: 13_100_000, memRequest: 0, memLimit: 0, netIn: 0.2, netOut: 0.2 },
+  { name: 'payment-service-7d8b9c-4vk2q', labels: { app: 'payment', tier: 'backend', team: 'payments' }, owners: { Deployment: 'payment-service', Replicaset: 'payment-service-7d8b9c' }, namespace: 'default', node: 'ip-10-0-142-133', cpuUsed: 0.09, cpuRequest: 0.25, cpuLimit: 0.25, memUsed: 418_800_000, memRequest: 536_900_000, memLimit: 536_900_000, netIn: 12.4, netOut: 8.9 },
+  { name: 'redis-0', labels: { app: 'redis', tier: 'cache', team: 'platform' }, owners: { Statefulset: 'redis' }, namespace: 'default', node: 'ip-10-0-142-133', cpuUsed: 0.04, cpuRequest: 0.1, cpuLimit: 0.1, memUsed: 210_500_000, memRequest: 256_000_000, memLimit: 256_000_000, netIn: 40.2, netOut: 38.7 },
+  { name: 'coredns-66bc5c9577-zkrnm', labels: { app: 'coredns', tier: 'system' }, owners: { Deployment: 'coredns', Replicaset: 'coredns-66bc5c9577' }, namespace: 'kube-system', node: 'ip-10-0-142-133', cpuUsed: 0.0012, cpuRequest: 0.1, cpuLimit: 0.1, memUsed: 19_400_000, memRequest: 70_000_000, memLimit: 170_000_000, netIn: 1.1, netOut: 0.9 },
+  { name: 'kube-proxy-784j7', labels: { app: 'kube-proxy', tier: 'system' }, owners: { Daemonset: 'kube-proxy' }, namespace: 'kube-system', node: 'ip-10-0-143-40', cpuUsed: 0.0002, cpuRequest: 0, cpuLimit: 0, memUsed: 20_500_000, memRequest: 0, memLimit: 0, netIn: 0.4, netOut: 0.3 },
+  { name: 'order-service-6c8f4b-8ct9x', labels: { app: 'order', tier: 'backend', team: 'checkout' }, owners: { Deployment: 'order-service', Replicaset: 'order-service-6c8f4b' }, namespace: 'default', node: 'ip-10-0-143-40', cpuUsed: 0.05, cpuRequest: 0.2, cpuLimit: 0.2, memUsed: 180_200_000, memRequest: 256_000_000, memLimit: 256_000_000, netIn: 9.6, netOut: 7.1 },
+  { name: 'storage-provisioner', labels: { app: 'storage', tier: 'system' }, owners: {}, namespace: 'kube-system', node: 'ip-10-0-143-40', cpuUsed: 0.0016, cpuRequest: 0, cpuLimit: 0, memUsed: 13_100_000, memRequest: 0, memLimit: 0, netIn: 0.2, netOut: 0.2 },
 ]
 
 // No pod carries the incident: the outage is in the Redis connection POOL, not
@@ -643,18 +646,27 @@ const POD_PROFILES = K8S_POD_ROWS.map((p, i) => ({
 export function k8sPodsForWindow(win) {
   return K8S_POD_ROWS.map((p, i) => {
     const pr = POD_PROFILES[i]
+    const memUsed = Math.round(windowMean(win, pr.memUsed))
+    const memSeries = windowSeries(win, pr.memUsed, { round: 0 })
     return {
       ...p,
       containerName: p.name.split('-')[0],
       cpuUsed: round4(windowMean(win, pr.cpuUsed)),
-      memUsed: Math.round(windowMean(win, pr.memUsed)),
+      memUsed,
+      // What is left under the pod's memory limit. A pod with no limit has
+      // nothing to be left under, so both read null rather than a figure.
+      memRemaining: p.memLimit ? p.memLimit - memUsed : null,
+      memRemainingSeries: p.memLimit
+        ? memSeries.map(pt => ({ ...pt, value: pt.value == null ? null : p.memLimit - pt.value }))
+        : null,
+      disk: round2(windowMean(win, pr.disk)),
       netIn: round2(windowMean(win, pr.netIn)),
       netOut: round2(windowMean(win, pr.netOut)),
       // Pod CPU is in cores, and a system pod sits at 0.0002 of one. The old
       // generator rounded every series to two decimals, which drew those pods
       // as a flat zero line under an axis formatted to three.
       cpuSeries: windowSeries(win, pr.cpuUsed, { round: 5 }),
-      memSeries: windowSeries(win, pr.memUsed, { round: 0 }),
+      memSeries,
       diskSeries: windowSeries(win, pr.disk),
       restartsSeries: windowSeries(win, flat(0), { round: 0 }),
       netInSeries: windowSeries(win, pr.netIn),

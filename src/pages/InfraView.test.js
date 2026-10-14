@@ -8,9 +8,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { renderToStaticMarkup } from 'react-dom/server.browser'
-import { INFRA_SOURCES, infraHostsForWindow, k8sNodesForWindow, k8sPodsForWindow } from '@/data/observability'
+import { INFRA_SOURCES, k8sNodesForWindow, k8sPodsForWindow } from '@/data/observability'
 import { REFERENCE_WINDOW } from '@/data/timeWindow'
-import { infraColor } from '@/utils/chartPalette'
 import InfraView from './InfraView.jsx'
 
 const noop = () => {}
@@ -52,7 +51,6 @@ function frames(html) {
 // ambers and reds Infra's charts used to draw its series in.
 const STATUS_HEX = /#(22C55E|F59E0B|EF4444|34D399|EAB308|F97316|FB7185)\b/i
 
-const hosts = infraHostsForWindow(REFERENCE_WINDOW)
 const node = k8sNodesForWindow(REFERENCE_WINDOW)[0]
 const pod = k8sPodsForWindow(REFERENCE_WINDOW)[0]
 
@@ -107,9 +105,9 @@ test('the views with data draw the charts they did, in the service page\'s frame
     const { cards, legendCharts, panels } = frames(view(v))
     return { cards, legendCharts, panels }
   }
-  assert.deepEqual(shape({ source: 'host' }), { cards: 0, legendCharts: 3, panels: 0 })
+  assert.deepEqual(shape({ source: 'host' }), { cards: 3, legendCharts: 0, panels: 0 })
   assert.deepEqual(shape({ source: 'host', selectedHost: 'ip-10-0-142-133' }), { cards: 3, legendCharts: 0, panels: 2 })
-  assert.deepEqual(shape({ source: 'k8s-node' }), { cards: 0, legendCharts: 3, panels: 0 })
+  assert.deepEqual(shape({ source: 'k8s-node' }), { cards: 3, legendCharts: 0, panels: 0 })
   assert.deepEqual(shape({ source: 'k8s-node', resource: node.name }), { cards: 4, legendCharts: 0, panels: 0 })
   assert.deepEqual(shape({ source: 'k8s-pod', resource: pod.name }), { cards: 5, legendCharts: 0, panels: 0 })
   assert.deepEqual(shape({ source: 'k8s-cluster' }), { cards: 3, legendCharts: 0, panels: 0 })
@@ -119,18 +117,18 @@ test('the views with data draw the charts they did, in the service page\'s frame
   assert.deepEqual(shape({ source: 'redis' }), { cards: 3, legendCharts: 0, panels: 0 })
 })
 
-test('a fleet chart lists every host, busiest first, each in its own identity colour', () => {
-  const html = view({ source: 'host' })
-  assert.match(html, /aria-label="Search hosts" placeholder="Search hosts…"/)
-  const cpu = html.slice(html.indexOf('>CPU Used %<'), html.indexOf('>Memory Used %<'))
-  const rows = [...cpu.matchAll(/<span class="drill2-swatch" style="background:([^"]+)"><\/span><span class="drill2-label">([^<]+)<\/span><span class="drill2-val">([^<]+)<\/span>/g)]
-    .map(([, color, label, value]) => ({ color, label, value }))
-  const busiest = hosts.map((h, i) => ({ ...h, i })).sort((a, b) => b.cpu - a.cpu)
-  assert.ok(rows.length >= 8, 'the series budget draws at least its narrowest cap')
-  assert.deepEqual(rows.map(r => r.label), busiest.slice(0, rows.length).map(h => h.host))
-  assert.deepEqual(rows.map(r => r.color), busiest.slice(0, rows.length).map(h => infraColor(h.i)), 'colour follows the host, not its rank')
-  assert.equal(rows[0].value, `${busiest[0].cpu.toFixed(2)}%`, 'the figure is the table row\'s')
-  assert.match(html, /<div class="drill2-legend is-scroll">/, 'a fleet\'s legend scrolls beside its chart')
+test('a fleet is three cards in one row, with no legend, each holding back what it cannot draw', () => {
+  for (const source of ['host', 'k8s-node']) {
+    const html = view({ source })
+    assert.equal(count(html, 'class="runtime-chart-card rt-third"'), 3, source)
+    assert.doesNotMatch(html, /class="runtime-legend"|class="drill2-legend/, source)
+  }
+  // Each card keeps its own series budget: 64 hosts are held to a third's
+  // eight, with the rest offered under the plot; two nodes need no footer.
+  const hostHtml = view({ source: 'host' })
+  assert.equal(count(hostHtml, '<span aria-hidden="true">Showing 8 of 64 hosts</span>'), 3)
+  assert.equal(count(hostHtml, '>Show 20 more</button>'), 3)
+  assert.equal(count(view({ source: 'k8s-node' }), 'class="series-budget"'), 0)
 })
 
 test('a host\'s CPU and memory sit beside its top processes, with production\'s other CPU views stubbed', () => {

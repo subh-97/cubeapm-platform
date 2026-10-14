@@ -18,6 +18,7 @@ import { highlightTerms } from '@/utils/highlight'
 import { withX } from '@/components/charts/timeAxis'
 import { TimeChart, SvcTooltip } from '@/components/charts/TimeChart'
 import CardChart from '@/components/charts/CardChart'
+import { TOOLTIP_ROWS } from '@/components/charts/seriesBudget'
 import LegendLineChart from '@/components/charts/LegendLineChart'
 import { GRID_PROPS, NO_ANIM, LINE_PROPS, LIMIT_DASH, valueAxisProps, maxOf, fmtBytes, fmtCount, fmtCompact, fmtPct1, fmtPct2, fmtPctTick } from '@/components/charts/chartDefaults'
 import { infraColor, RESOURCE_COLORS } from '@/utils/chartPalette'
@@ -154,8 +155,8 @@ const emptyColumns = labels => labels.map((label, i) => ({ key: label, label, al
 // Every chart on this page is one of the APM service page's, so the two read as
 // one product rather than two that drift apart:
 //
-//   - A fleet — every host, every node — is the RED tab's legend chart: a line
-//     per host, with a searchable legend beside it (FleetCharts).
+//   - A fleet — every host, every node — is three of the Runtime tab's cards
+//     in a row, a line per host on each and no legend (FleetCards).
 //   - Anything else is the Runtime tab's card (CardChart): a title with its ⋮
 //     menu and the window's reading beside it, the plot, and a legend under any
 //     chart that draws more than one series.
@@ -187,6 +188,9 @@ const netSeries = e => [
 
 const fmtCores2 = v => (v == null || Number.isNaN(v) ? '' : `${v.toFixed(2)} cores`)
 const fmtCores3 = v => (v == null || Number.isNaN(v) ? '' : `${v.toFixed(3)} cores`)
+// A cores tick with the figures to tell ticks apart: a system pod's axis steps
+// by 0.00005, which four decimals print as 0.0001 twice.
+const fmtCoresTick = v => (v == null || Number.isNaN(v) ? '' : v === 0 ? '0' : String(+v.toPrecision(3)))
 
 /**
  * The newest value a series actually holds.
@@ -210,49 +214,37 @@ const FLEET_METRICS = [
 ]
 
 /**
- * A fleet's CPU, memory and disk, a line per host (or node) on each: the
- * service page's RED charts (LegendLineChart), in one panel.
+ * A fleet's CPU, memory and disk (every host, or every node) as three cards in
+ * a row, a line per host on each, with no legend: the tooltip names the lines.
  *
- * Each legend lists the fleet busiest-first by its own figure. That is the
- * order the hosts table sorts by, and the order the series budget draws in, so
- * a chart that cannot draw all 64 hosts holds back the quiet ones rather than
- * whichever came last in the data. A legend's figure is the window's mean, the
- * same number as the host's table row, and it scrolls beside the chart rather
- * than growing the row to the length of the fleet.
- *
- * A host keeps its colour on all three charts (it is keyed on the host's place
- * in the data's own order), and isolating it in one legend isolates it in all
- * three: the choice is held here, by name, as the Browser page's metric tabs
- * hold theirs.
+ * A host keeps its colour on all three cards (it is keyed on the host's place
+ * in the data's own order). Each card lists its hosts busiest first by the
+ * window's mean, the order the tables sort by, and keeps a series budget of
+ * its own, as the legend charts did: it draws the busiest its width can make
+ * legible and offers the rest under the plot ("Show 20 more · Show all"). Its
+ * tooltip lists the busiest TOOLTIP_ROWS of what is drawn, keeps the one under
+ * the pointer, and counts the rest.
  */
-function FleetCharts({ rows, nameKey, noun }) {
-  const { win, setTimeRange, syncId } = useContext(InfraTime)
-  const [isolated, setIsolated] = useState(null)
-  const series = useMemo(() => Object.fromEntries(FLEET_METRICS.map(m => [
-    m.dataKey,
-    rows.map(r => ({ [nameKey]: r[nameKey], series: r[m.seriesKey] })),
-  ])), [rows, nameKey])
+function FleetCards({ rows, nameKey, noun }) {
+  const series = useMemo(() => Object.fromEntries(FLEET_METRICS.map(m => {
+    const busiest = rows.map((r, i) => i).sort((a, b) => rows[b][m.dataKey] - rows[a][m.dataKey])
+    return [m.dataKey, busiest.map(i => ({
+      key: rows[i][nameKey], label: rows[i][nameKey], color: infraColor(i), rows: rows[i][m.seriesKey],
+    }))]
+  })), [rows, nameKey])
   return (
-    <div className="panel">
+    <div className="infra-card-grid is-fleet">
       {FLEET_METRICS.map(m => (
-        <LegendLineChart
+        <InfraCard
           key={m.dataKey}
           title={m.title}
-          eps={rows}
-          epSeries={series[m.dataKey]}
-          dataKey={m.dataKey}
-          labelKey={nameKey}
-          fmtFn={fmtPct2}
-          axisFormat={fmtPctTick}
-          colorFor={infraColor}
-          legendSort="valueDesc"
-          legendScroll
-          noun={noun}
-          selected={isolated}
-          onSelect={setIsolated}
-          syncId={syncId}
-          win={win}
-          onFocus={setTimeRange}
+          span="third"
+          legend={false}
+          tooltipLimit={TOOLTIP_ROWS}
+          budgetNoun={noun}
+          fmt={fmtPctTick}
+          tipFmt={fmtPct2}
+          series={series[m.dataKey]}
         />
       ))}
     </div>
@@ -530,15 +522,30 @@ function K8sDeploymentView() {
 /* ============ Kubernetes: Node → Pod drill-in ============ */
 
 // `pods` are the ones this pod could be swapped for: the node's, when it was
-// reached through a node, or every pod. A pod lives in exactly one namespace,
-// so picking another opens the first of those pods that lives there. The strip
-// is the service page's Endpoint strip, sliding away and back with `reveal`.
+// reached through a node, or every pod. The strip is the service page's
+// Endpoint strip, sliding away and back with `reveal`, and holds the page's
+// two choices: the namespace, then a pod in it (the breadcrumb only names the
+// page). A pod lives in exactly one namespace, so picking another opens the
+// first of those pods that lives there.
+//
+// A row of the Containers table picks that container, and the page below it
+// turns to the container (K8sContainerDetail) until Clear Container on the
+// table's head, or another pod, puts it back.
 function K8sPodDetail({ pod, pods, onSelectPod, reveal }) {
   const namespaces = useMemo(() => [...new Set(pods.map(p => p.namespace))].sort(), [pods])
+  const inNamespace = useMemo(
+    () => pods.filter(p => p.namespace === pod.namespace).map(p => p.name),
+    [pods, pod.namespace],
+  )
   const pickNamespace = ns => {
     const first = ns !== pod.namespace && pods.find(p => p.namespace === ns)
     if (first) onSelectPod(first.name)
   }
+  // Held with the pod it was picked on, so a pod switched in the strip opens
+  // with no container picked rather than with a name it does not run.
+  const [picked, setPicked] = useState({ pod: pod.name, container: null })
+  const container = picked.pod === pod.name ? picked.container : null
+  const pickContainer = name => setPicked({ pod: pod.name, container: name })
 
   return (
     <div>
@@ -550,21 +557,119 @@ function K8sPodDetail({ pod, pods, onSelectPod, reveal }) {
           options={namespaces}
           onSelect={pickNamespace}
         />
+        <FilterSelect
+          className="is-endpoint"
+          label="Pod"
+          value={pod.name}
+          options={inNamespace}
+          onSelect={onSelectPod}
+        />
       </div>
 
       <div className="k8s-containers-table">
-        <div className="k8s-containers-head">Containers</div>
-        <SortableTable columns={CONTAINER_COLUMNS} rows={[pod]} rowKey={p => p.containerName} sortable={false} />
+        {/* Clear Container sits on the table it undoes the pick in, as the
+            service page's Clear Endpoint sits on its endpoint list. */}
+        <div className="k8s-containers-head">
+          <span>Containers</span>
+          {container && (
+            <button type="button" className="split-ep-clear" onClick={() => pickContainer(null)}>Clear Container</button>
+          )}
+        </div>
+        <SortableTable
+          columns={CONTAINER_COLUMNS}
+          rows={[pod]}
+          rowKey={p => p.containerName}
+          sortable={false}
+          onRowClick={p => pickContainer(p.containerName)}
+          selectedKey={container}
+        />
       </div>
 
-      <div className="infra-card-grid">
-        <InfraCard title="CPU Used (cores)" fmt={fmtCompact} tipFmt={fmtCores3} series={one(pod.name, pod.cpuSeries)} />
-        <InfraCard title="Memory Used (bytes)" fmt={fmtBytes} series={one(pod.name, pod.memSeries)} />
-        <InfraCard title="Disk Used %" span="third" fmt={fmtPct1} series={one(pod.name, pod.diskSeries)} />
-        <InfraCard title="Container Restarts" span="third" allowDecimals={false} fmt={fmtCount} series={one(pod.name, pod.restartsSeries)} />
-        <InfraCard title="Network Traffic (bytes/s)" span="third" area fmt={fmtBytes} series={netSeries(pod)} />
-      </div>
+      {container ? <K8sContainerDetail pod={pod} container={container} /> : (
+        <div className="infra-card-grid">
+          <InfraCard title="CPU Used (cores)" fmt={fmtCoresTick} tipFmt={fmtCores3} series={one(pod.name, pod.cpuSeries)} />
+          <InfraCard title="Memory Used (bytes)" fmt={fmtBytes} series={one(pod.name, pod.memSeries)} />
+          <InfraCard title="Disk Used %" span="third" fmt={fmtPct1} series={one(pod.name, pod.diskSeries)} />
+          <InfraCard title="Container Restarts" span="third" allowDecimals={false} fmt={fmtCount} series={one(pod.name, pod.restartsSeries)} />
+          <InfraCard title="Network Traffic (bytes/s)" span="third" area fmt={fmtBytes} series={netSeries(pod)} />
+        </div>
+      )}
     </div>
+  )
+}
+
+const PROCESS_COLUMNS = [
+  { key: 'pid', label: 'Process ID', align: 'left' },
+  { key: 'ppid', label: 'Parent PID', align: 'left' },
+  { key: 'command', label: 'Command', align: 'left', mono: true },
+  { key: 'host', label: 'Host', align: 'left', mono: true },
+  { key: 'cpuUsed', label: 'CPU Used (cores)' },
+  { key: 'memUsed', label: 'Memory Used (bytes)', render: p => fmtBytes(p.memUsed) },
+]
+const PROCESS_FIELDS = [{ name: 'command', key: 'command' }]
+
+// The detail charts' two lines: the pod's total, then the container's own.
+const CONTAINER_COLORS = [RESOURCE_COLORS.used, RESOURCE_COLORS.committed]
+
+/**
+ * A pod's page with one of its containers picked, as production draws it: the
+ * container's processes, then its CPU, memory and disk as full-width charts
+ * with a legend beside each (the service page's RED chart, LegendLineChart),
+ * then its restarts and traffic as cards.
+ *
+ * The agent reports no processes for a container in this prototype, so the
+ * table says so, as production's did for the container it was captured on;
+ * its search has nothing to narrow. A pod here runs one container, so the
+ * container's readings are the pod's: CPU and memory carry the one Total line,
+ * and disk the Total and the container's line, which coincide.
+ */
+function K8sContainerDetail({ pod, container }) {
+  const { win, setTimeRange, syncId } = useContext(InfraTime)
+  const charts = [
+    { title: 'CPU Used (cores)', fmtFn: fmtCompact, axisFormat: fmtCoresTick, rows: [['Total', pod.cpuUsed, pod.cpuSeries]] },
+    { title: 'Memory Used (bytes)', fmtFn: fmtBytes, axisFormat: fmtBytes, rows: [['Total', pod.memUsed, pod.memSeries]] },
+    {
+      title: 'Disk Used %', fmtFn: fmtPct2, axisFormat: fmtPctTick, yTop: 100,
+      rows: [['Total', pod.disk, pod.diskSeries], [container, pod.disk, pod.diskSeries]],
+    },
+  ]
+  return (
+    <>
+      <div className="panel">
+        <div className="panel-head is-stacked">
+          <div className="panel-head-row">
+            <span>Processes</span>
+            <CardMenu kind="list" title="Processes" />
+          </div>
+          <TableQuerySearch onApply={() => {}} fields={PROCESS_FIELDS} />
+        </div>
+        <SortableTable columns={PROCESS_COLUMNS} rows={[]} rowKey={p => p.pid} empty="No data" />
+      </div>
+      <div className="panel">
+        {charts.map(c => (
+          <LegendLineChart
+            key={c.title}
+            title={c.title}
+            eps={c.rows.map(([name, value]) => ({ name, value }))}
+            epSeries={c.rows.map(([name, , series]) => ({ name, series }))}
+            dataKey="value"
+            labelKey="name"
+            fmtFn={c.fmtFn}
+            axisFormat={c.axisFormat}
+            yTop={c.yTop}
+            colorFor={i => CONTAINER_COLORS[i]}
+            noun="series"
+            syncId={syncId}
+            win={win}
+            onFocus={setTimeRange}
+          />
+        ))}
+      </div>
+      <div className="infra-card-grid">
+        <InfraCard title="Container Restarts" allowDecimals={false} fmt={fmtCount} series={one(container, pod.restartsSeries)} />
+        <InfraCard title="Network Traffic (bytes/s)" area fmt={fmtBytes} series={netSeries(pod)} />
+      </div>
+    </>
   )
 }
 
@@ -629,7 +734,7 @@ function K8sNodeView({ nodes, pods, selectedNode, setSelectedNode, selectedPod, 
   }
   return (
     <>
-      <FleetCharts rows={nodes} nameKey="name" noun="nodes" />
+      <FleetCards rows={nodes} nameKey="name" noun="nodes" />
       <div className="panel">
         <div className="panel-head">Summary</div>
         <SortableTable columns={NODE_COLUMNS} rows={nodes.map(withNetRates)} rowKey={n => n.name} onRowClick={n => setSelectedNode(n.name)} />
@@ -638,13 +743,39 @@ function K8sNodeView({ nodes, pods, selectedNode, setSelectedNode, selectedPod, 
   )
 }
 
+// The Pod page's Filter: the kinds of workload a pod can be listed under, in
+// production's order and spelling. A kind with none in the namespace still
+// shows, and filters the page to nothing, as production's does.
+const POD_KINDS = ['CronJob', 'Daemonset', 'Deployment', 'HPA', 'Job', 'Replicaset', 'Statefulset']
+
 function K8sPodListView({ pods, selectedPod, setSelectedPod, reveal }) {
   const [query, setQuery] = useState('')
+  // The list opens on the choice of namespace, as PVC's does. An open pod
+  // decides it (a link straight to one, or a namespace switched on its page),
+  // so the way back from a pod lands on that pod's namespace.
+  const [namespace, setNamespace] = useState(() => selectedPod?.namespace ?? null)
+  if (selectedPod && selectedPod.namespace !== namespace) setNamespace(selectedPod.namespace)
+  // The Filter: a kind, then, once one is picked, a workload of that kind. ''
+  // is ALL. Both clear with a new namespace, which has workloads of its own.
+  const [kind, setKind] = useState('')
+  const [workload, setWorkload] = useState('')
+  const pickNamespace = ns => { setNamespace(ns); setKind(''); setWorkload('') }
 
+  const inNamespace = useMemo(() => pods.filter(p => p.namespace === namespace), [pods, namespace])
+  const workloads = useMemo(
+    () => (kind ? [...new Set(inNamespace.map(p => p.owners?.[kind]).filter(Boolean))].sort() : []),
+    [inNamespace, kind],
+  )
+  // What the charts and the table both show: the namespace, narrowed by the
+  // Filter.
+  const scoped = useMemo(
+    () => (kind ? inNamespace.filter(p => p.owners?.[kind] && (!workload || p.owners[kind] === workload)) : inNamespace),
+    [inNamespace, kind, workload],
+  )
   const { node: queryNode, ok } = parsePodQuery(query, POD_NODE_FIELDS)
   const shown = useMemo(
-    () => (ok ? pods.filter(p => matchesPod(queryNode, p, POD_NODE_FIELDS)) : pods),
-    [pods, queryNode, ok],
+    () => (ok ? scoped.filter(p => matchesPod(queryNode, p, POD_NODE_FIELDS)) : scoped),
+    [scoped, queryNode, ok],
   )
   const hits = useMemo(
     () => (ok ? highlightsFor(queryNode, POD_NODE_FIELDS) : { pod: [], namespace: [], node: [] }),
@@ -652,55 +783,96 @@ function K8sPodListView({ pods, selectedPod, setSelectedPod, reveal }) {
   )
   const tagHits = useMemo(() => (ok ? tagHighlightsFor(queryNode, POD_NODE_FIELDS) : {}), [queryNode, ok])
 
+  // A line per pod on each card. A pod keeps its colour while the Filter
+  // narrows the page (it is keyed on the pod's place in the namespace), and
+  // the tooltip names every line, so the cards carry no legend. A pod with no
+  // memory limit has nothing remaining to draw, and no Memory Remaining line.
+  const lines = useMemo(() => {
+    const perPod = key => scoped.filter(p => p[key]).map(p => ({
+      key: p.name, label: p.name, color: infraColor(inNamespace.indexOf(p)), rows: p[key],
+    }))
+    return { cpu: perPod('cpuSeries'), mem: perPod('memRemainingSeries'), disk: perPod('diskSeries') }
+  }, [scoped, inNamespace])
+
+  // Production's Pods chart: how many of the pods shown reported in each
+  // bucket. A bucket none of them has reached yet (past now) stays empty.
+  const podCount = useMemo(() => (scoped[0]?.cpuSeries ?? []).map((pt, i) => {
+    const reporting = scoped.filter(p => p.cpuSeries[i]?.value != null).length
+    return { ...pt, value: reporting || null }
+  }), [scoped])
+
   if (selectedPod) return <K8sPodDetail pod={selectedPod} pods={pods} onSelectPod={setSelectedPod} reveal={reveal} />
+  if (!namespace) return <NamespacePicker onPick={pickNamespace} />
   return (
-    <div className="panel">
-      <div className="panel-head is-stacked">
-        <div className="panel-head-row">
-          <span>Pods</span>
-        </div>
-        <TableQuerySearch onApply={setQuery} fields={POD_NODE_FIELDS} />
+    <div>
+      <div className={`endpoint-strip is-sticky${revealClass(reveal)}`}>
+        <FilterSelect className="is-endpoint" label="Namespace" value={namespace} options={K8S_NAMESPACES} onSelect={pickNamespace} />
+        <FilterSelect
+          className="is-endpoint"
+          label="Filter"
+          value={kind}
+          options={POD_KINDS}
+          placeholder="Select kind"
+          clearLabel="ALL"
+          onSelect={k => { setKind(k); setWorkload('') }}
+        />
+        {kind && (
+          <FilterSelect
+            className="is-endpoint"
+            label={kind}
+            value={workload}
+            options={workloads}
+            placeholder="ALL"
+            clearLabel="ALL"
+            onSelect={setWorkload}
+          />
+        )}
       </div>
-      <SortableTable
-        columns={[
-          { key: 'name', label: 'Pod', align: 'left', mono: true, clip: 300, title: p => p.name, render: p => <PodName pod={p} hits={hits} tagHits={tagHits} /> },
-          { key: 'namespace', label: 'Namespace', align: 'left', mono: true, render: p => highlightTerms(p.namespace, hits.namespace, 'svc-hit') },
-          { key: 'node', label: 'Node', align: 'left', mono: true, render: p => highlightTerms(p.node, hits.node, 'svc-hit') },
-          { key: 'cpuUsed', label: 'CPU Used' },
-          { key: 'memUsed', label: 'Memory Used', render: p => fmtBytes(p.memUsed) },
-          { key: 'restarts', label: 'Restarts', sortable: false, render: () => 0 },
-        ]}
-        rows={shown}
-        rowKey={p => p.name}
-        onRowClick={p => setSelectedPod(p.name)}
-        empty={`No data matches “${query.trim()}”.`}
-      />
+      <div className="infra-card-grid">
+        <InfraCard title="CPU Used (cores)" legend={false} fmt={fmtCoresTick} tipFmt={fmtCompact} series={lines.cpu} />
+        <InfraCard title="Memory Remaining (bytes)" legend={false} fmt={fmtBytes} series={lines.mem} />
+        <InfraCard title="Disk Used %" legend={false} fmt={fmtPct1} series={lines.disk} />
+        <InfraCard title="Pods" allowDecimals={false} fmt={fmtCount} series={one('pods', podCount)} />
+      </div>
+      <div className="panel">
+        <div className="panel-head is-stacked">
+          <div className="panel-head-row">
+            <span>Summary</span>
+          </div>
+          <TableQuerySearch onApply={setQuery} fields={POD_NODE_FIELDS} />
+        </div>
+        <SortableTable
+          columns={[
+            { key: 'name', label: 'Pod', align: 'left', mono: true, clip: 300, title: p => p.name, render: p => <PodName pod={p} hits={hits} tagHits={tagHits} /> },
+            { key: 'cpuUsed', label: 'CPU Used (cores)' },
+            { key: 'memUsed', label: 'Memory Used (bytes)', render: p => fmtBytes(p.memUsed) },
+            // No memory limit, nothing remaining: a dash, and last whichever
+            // way the column sorts.
+            { key: 'memRemaining', label: 'Memory Remaining (bytes)', render: p => (p.memRemaining == null ? '-' : fmtBytes(p.memRemaining)) },
+            { key: 'disk', label: 'Disk Used (%)', render: p => <CellBar fill={p.disk}>{p.disk.toFixed(2)}</CellBar> },
+            { key: 'netIn', label: 'Network In (bytes/s)', render: p => p.netIn.toFixed(2) },
+            { key: 'netOut', label: 'Network Out (bytes/s)', render: p => p.netOut.toFixed(2) },
+            // Every pod here runs the one container its page lists.
+            { key: 'containers', label: 'Containers', sortable: false, render: () => 1 },
+          ]}
+          rows={shown}
+          rowKey={p => p.name}
+          onRowClick={p => setSelectedPod(p.name)}
+          empty={query.trim() ? `No data matches “${query.trim()}”.` : `No ${kind ? `${kind} ` : ''}pods in "${namespace}"`}
+        />
+      </div>
     </div>
   )
 }
 
 /* ============ Kubernetes: namespace-gated resources (PVC-style) ============ */
 
-function K8sNamespaceGateView({ resourceLabel }) {
-  const [namespace, setNamespace] = useState(null)
+// A namespace-scoped Kubernetes list opens on the choice of namespace: this
+// card until one is picked, then NamespaceChip over the list, naming it with
+// the way back to this choice. The PVC and Pod lists both work this way.
+function NamespacePicker({ onPick }) {
   const [search, setSearch] = useState('')
   const filtered = K8S_NAMESPACES.filter(n => n.toLowerCase().includes(search.toLowerCase()))
-
-  if (namespace) {
-    return (
-      <div>
-        <div className="k8s-selector-row">
-          <button className="infra-back" onClick={() => setNamespace(null)} aria-label="Back">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
-          </button>
-          <div className="k8s-selector"><span className="k8s-selector-lbl">Namespace</span><span className="k8s-selector-val">{namespace}</span></div>
-        </div>
-        <div className="infra-empty-table">
-          <SortableTable columns={emptyColumns([resourceLabel, 'Used', 'Capacity'])} rows={[]} rowKey={r => r.name} sortable={false} empty={`No ${resourceLabel.toLowerCase()} resources in "${namespace}"`} />
-        </div>
-      </div>
-    )
-  }
 
   return (
     <div className="infra-namespace-select">
@@ -709,11 +881,36 @@ function K8sNamespaceGateView({ resourceLabel }) {
         <input placeholder="Search…" value={search} onChange={e => setSearch(e.target.value)} />
       </div>
       {filtered.map(n => (
-        <label key={n} className="infra-namespace-opt" onClick={() => setNamespace(n)}>
+        <label key={n} className="infra-namespace-opt" onClick={() => onPick(n)}>
           <input type="radio" readOnly checked={false} />
           {n}
         </label>
       ))}
+    </div>
+  )
+}
+
+function NamespaceChip({ namespace, onBack }) {
+  return (
+    <div className="k8s-selector-row">
+      <button type="button" className="infra-back" onClick={onBack} aria-label="Choose another namespace" title="Choose another namespace">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6" /></svg>
+      </button>
+      <div className="k8s-selector"><span className="k8s-selector-lbl">Namespace</span><span className="k8s-selector-val">{namespace}</span></div>
+    </div>
+  )
+}
+
+function K8sNamespaceGateView({ resourceLabel }) {
+  const [namespace, setNamespace] = useState(null)
+
+  if (!namespace) return <NamespacePicker onPick={setNamespace} />
+  return (
+    <div>
+      <NamespaceChip namespace={namespace} onBack={() => setNamespace(null)} />
+      <div className="infra-empty-table">
+        <SortableTable columns={emptyColumns([resourceLabel, 'Used', 'Capacity'])} rows={[]} rowKey={r => r.name} sortable={false} empty={`No ${resourceLabel.toLowerCase()} resources in "${namespace}"`} />
+      </div>
     </div>
   )
 }
@@ -922,11 +1119,12 @@ export default function InfraView({ goHome, source, resource, selectedHost, setS
   )
   const time = useMemo(() => ({ win, setTimeRange, syncId }), [win, setTimeRange, syncId])
 
-  // A pod's Namespace strip slides away and back as the body scrolls, as the
-  // service page's Endpoint strip does. Only a pod has the strip, so only a
-  // pod's scrolling is followed: every reveal re-renders this page, and the
-  // fleet views under it draw dozens of series.
+  // The Namespace strip slides away and back as the body scrolls, as the
+  // service page's Endpoint strip does. Only a pod's page and the Pod list have
+  // the strip, so only theirs is followed: every reveal re-renders this page,
+  // and the fleet views elsewhere draw dozens of series.
   const { reveal: stripReveal, onScroll: onStripScroll } = useScrollReveal(syncId)
+  const hasStrip = Boolean(k8sPod) || source === 'k8s-pod'
 
   // The chart cards carry the service page's ⋮ menu, and offer what it offers.
   // None of the screens behind it - the alert builder, the comparison window,
@@ -942,7 +1140,7 @@ export default function InfraView({ goHome, source, resource, selectedHost, setS
   } else if (source === 'host') {
     body = (
       <>
-        <FleetCharts rows={hosts} nameKey="host" noun="hosts" />
+        <FleetCards rows={hosts} nameKey="host" noun="hosts" />
 
         <HostTable hosts={hosts} onSelect={setSelectedHost} />
       </>
@@ -990,9 +1188,12 @@ export default function InfraView({ goHome, source, resource, selectedHost, setS
         >
           <a onClick={goHome}>CubeAPM</a>
           <span className="sep">/</span>
+          {/* Infrastructure has no landing page of its own, so its crumb names
+              the section without linking anywhere. The same goes for the group
+              a source sits in (Kubernetes). */}
           {host ? (
             <>
-              <a onClick={() => setSelectedHost(null)}>Infrastructure</a>
+              <span className="crumb-static">Infrastructure</span>
               <span className="sep">/</span>
               <a onClick={() => setSelectedHost(null)}>{sourceLabel}</a>
               <span className="sep">/</span>
@@ -1000,43 +1201,46 @@ export default function InfraView({ goHome, source, resource, selectedHost, setS
             </>
           ) : source === 'k8s-node' ? (
             <>
-              <a onClick={goHome}>Infrastructure</a>
+              <span className="crumb-static">Infrastructure</span>
               <span className="sep">/</span>
-              <span className="current">{crumbParent}</span>
+              <span className="crumb-static">{crumbParent}</span>
               <span className="sep">/</span>
               {k8sNode ? (
                 <a onClick={() => { setK8sNodeName(null); setK8sPodName(null) }}>{sourceLabel}</a>
               ) : (
                 <span className="current">{sourceLabel}</span>
               )}
+              {/* The node is a picker only while it is the page you are on.
+                  Under one of its pods it is just the way back to it, a link
+                  like the crumbs before it. */}
               {k8sNode && (
                 <>
                   <span className="sep">/</span>
-                  <CrumbSelect
-                    value={k8sNode.name}
-                    options={nodes.map(n => n.name)}
-                    onSelect={(name) => { setK8sNodeName(name); setK8sPodName(null) }}
-                    searchPlaceholder="Search nodes…"
-                  />
+                  {k8sPod ? (
+                    <a onClick={() => setK8sPodName(null)}>{k8sNode.name}</a>
+                  ) : (
+                    <CrumbSelect
+                      value={k8sNode.name}
+                      options={nodes.map(n => n.name)}
+                      onSelect={(name) => { setK8sNodeName(name); setK8sPodName(null) }}
+                      searchPlaceholder="Search nodes…"
+                    />
+                  )}
                 </>
               )}
+              {/* Which pod is the strip's to choose, beside its namespace. */}
               {k8sPod && (
                 <>
                   <span className="sep">/</span>
-                  <CrumbSelect
-                    value={k8sPod.name}
-                    options={pods.filter(p => p.node === k8sNode?.name).map(p => p.name)}
-                    onSelect={setK8sPodName}
-                    searchPlaceholder="Search pods…"
-                  />
+                  <span className="current">Pod details</span>
                 </>
               )}
             </>
           ) : source === 'k8s-pod' ? (
             <>
-              <a onClick={goHome}>Infrastructure</a>
+              <span className="crumb-static">Infrastructure</span>
               <span className="sep">/</span>
-              <span className="current">{crumbParent}</span>
+              <span className="crumb-static">{crumbParent}</span>
               <span className="sep">/</span>
               {k8sPod ? (
                 <a onClick={() => setK8sPodName(null)}>{sourceLabel}</a>
@@ -1046,22 +1250,17 @@ export default function InfraView({ goHome, source, resource, selectedHost, setS
               {k8sPod && (
                 <>
                   <span className="sep">/</span>
-                  <CrumbSelect
-                    value={k8sPod.name}
-                    options={pods.map(p => p.name)}
-                    onSelect={setK8sPodName}
-                    searchPlaceholder="Search pods…"
-                  />
+                  <span className="current">Pod details</span>
                 </>
               )}
             </>
           ) : (
             <>
-              <a onClick={goHome}>Infrastructure</a>
+              <span className="crumb-static">Infrastructure</span>
               {crumbParent && (
                 <>
                   <span className="sep">/</span>
-                  <span className="current">{crumbParent}</span>
+                  <span className="crumb-static">{crumbParent}</span>
                 </>
               )}
               <span className="sep">/</span>
@@ -1069,7 +1268,7 @@ export default function InfraView({ goHome, source, resource, selectedHost, setS
             </>
           )}
         </PageBar>
-        <div className="svc-main infra-main" onScroll={k8sPod ? onStripScroll : undefined}>
+        <div className="svc-main infra-main" onScroll={hasStrip ? onStripScroll : undefined}>
           {body}
         </div>
       </InfraTime.Provider>
