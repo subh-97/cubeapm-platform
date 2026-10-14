@@ -43,6 +43,11 @@ export const POD_FIELDS = [
   { name: 'namespace', key: 'namespace' },
 ]
 export const POD_NODE_FIELDS = [...POD_FIELDS, { name: 'node', key: 'node' }]
+// The Infra hosts table: the host, and the APM service it carries traffic for.
+export const HOST_FIELDS = [
+  { name: 'host', key: 'host' },
+  { name: 'service', key: 'service' },
+]
 
 // One column, which is what makes this the simpler variant: nothing to
 // disambiguate between, so the field prefix is optional in practice and most

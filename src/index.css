@@ -3572,39 +3572,48 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 .infra-source-icon-svg :is(svg, img) { display: block; width: 100%; height: 100%; }
 .infra-source-icon-fallback { border-radius: 3px; background: var(--border-panel); flex-shrink: 0; }
 
-.infra-main { min-width: 0; }
-.infra-row-charts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
-.infra-chart-card { --card-pad-x: 14px; --card-pad-b: 8px; background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg);
-  padding: 12px var(--card-pad-x) var(--card-pad-b); }
-.infra-chart-card .clbl { font-size: 12px; font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; color: var(--text-primary); }
-.infra-chart-card .cval { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: var(--text-muted); font-weight: 500; }
+/* The Infra scroller is a container, so its chart grid reflows on the width of
+ * the column it has rather than the viewport's: the sources rail and the nav
+ * rail both take a share of the window, as the host rail does on Runtime. */
+.infra-main { min-width: 0; container-type: inline-size; container-name: infra; }
+
+/* Infrastructure's chart cards are the APM service page's Runtime cards
+ * (components/charts/CardChart: .runtime-chart-card, its header, plot height
+ * and legend), on the Runtime tab's six-track grid. A half spans three tracks,
+ * a third two, and a full-width card all six, so a row of halves and a row of
+ * thirds line up on the same gutters. */
+.infra-card-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 14px; margin-bottom: 20px; }
+.infra-card-grid .rt-half { grid-column: span 3; }
+.infra-card-grid .rt-third { grid-column: span 2; }
+.infra-card-grid .rt-full { grid-column: span 6; }
+.infra-card-grid .rt-third .chart-host { height: 180px; }
+/* The window's reading beside a card's title ("72.8%"), muted so the title
+ * still leads; the Runtime card's .cval sets its size and colour. */
+.infra-card-grid .cval { font-family: 'JetBrains Mono', monospace; font-weight: 500; }
+@container infra (max-width: 900px) {
+  .infra-card-grid .rt-third { grid-column: span 3; }
+  .infra-card-grid .rt-third .chart-host { height: 200px; }
+}
+@container infra (max-width: 560px) {
+  .infra-card-grid > * { grid-column: span 6; }
+}
 
 /* Host detail */
 .infra-host-detail { }
 .infra-host-meta { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
-.infra-detail-grid { display: flex; flex-direction: column; gap: 14px; margin-bottom: 20px; }
-.infra-chart-full { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); }
-.infra-chart-head { padding: 12px 16px 4px; display: flex; align-items: center; justify-content: space-between; }
-.infra-chart-tabs { display: flex; gap: 4px; background: var(--panel); padding: 2px; border-radius: var(--radius-sm); }
-.infra-chart-tabs .ict { padding: 3px 10px; font-size: 10.5px; color: var(--text-secondary); border-radius: 4px; cursor: pointer; }
-.infra-chart-tabs .ict.active { background: var(--raised); color: var(--text-primary); font-weight: 600; }
-.infra-chart-body { display: flex; align-items: stretch; padding-top: 6px; }
-.infra-chart-svg-wrap { flex: 1; min-width: 0; padding: 4px 12px 12px; }
-.infra-chart-legend { width: 220px; flex-shrink: 0; border-left: 1px solid var(--border-subtle); padding: 10px 14px; display: flex; flex-direction: column; gap: 4px; }
-.ilegend-hdr { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; margin-bottom: 4px; }
-.ilegend-row { display: flex; align-items: center; gap: 7px; padding: 3px 0; font-size: 10.5px; }
-.ilegend-swatch { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
-.ilegend-name { flex: 1; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; }
-.ilegend-val { font-family: 'JetBrains Mono', monospace; font-weight: 600; color: var(--text-primary); font-size: 10.5px; }
-.infra-detail-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.ilegend-showall { display: flex; align-items: center; justify-content: space-between; padding: 6px 0 0; margin-top: 2px; border-top: 1px solid var(--border-subtle); }
-.ilegend-showall-count { font-size: 10px; color: var(--text-muted); }
-.ilegend-showall-btn { background: none; border: none; color: var(--brand); font-family: inherit; font-size: 10.5px; font-weight: 600; cursor: pointer; padding: 0; }
-.ilegend-showall-btn:hover { color: var(--brand-active); }
+/* A host's top processes, in the Latency Drilldown's legend column
+ * (ProcessChartPanel). A ranking rather than a legend: no row is a line on the
+ * chart, so a row is not a control and keeps the default pointer. */
+.drill2-legend-hdr { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
+.drill2-item.is-static { cursor: default; }
+/* A view production has and this prototype does not yet: dimmed and inert, as
+ * the sidebar stubs a page that is not built. */
+.seg-toggle .seg.is-stub { opacity: .42; cursor: default; }
+.seg-toggle .seg.is-stub:hover { color: var(--text-secondary); }
 
 /* Under a multi-series chart that is holding series back (components/charts/
- * SeriesBudgetFooter.jsx). Same rule, size and brand link as the process legend's
- * "6 of 12 · Show all" above, so the two read as one pattern.
+ * SeriesBudgetFooter.jsx): a rule, a muted count on the left, and on the right
+ * the brand actions "Show 20 more · Show all", whichever apply.
  *
  * It closes off the card it sits in, so its rule runs the card's full width
  * rather than stopping at the card's padding: it cancels the padding with
@@ -3625,12 +3634,16 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 .series-budget-btn { background: none; border: none; padding: 0; color: var(--brand); font-family: inherit; font-size: 10.5px;
   font-weight: 600; cursor: pointer; flex-shrink: 0; }
 .series-budget-btn:hover { color: var(--brand-active); }
+.series-budget-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 2px; }
+/* The actions sit together at the right, a dot between each, and wrap as a
+ * group under the count when the footer is too narrow for both. */
+.series-budget-actions { display: inline-flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 4px 8px; }
+.series-budget-sep { color: var(--text-muted); }
 .series-budget-note { text-align: right; }
 .series-budget-progress { flex: 1; max-width: 120px; height: 3px; border-radius: 99px; background: var(--panel); overflow: hidden; }
 .series-budget-progress > span { display: block; height: 100%; background: var(--brand); transition: width 80ms linear; }
 
 /* generic infra empty-state (AWS / GCP / disconnected KBs resources) */
-.infra-empty-charts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
 .infra-empty-table { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); overflow: hidden; }
 /* These cards already draw a line above their table, or are its top edge, so
    the header row's own top border would double it. */
@@ -3657,10 +3670,6 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 .k8s-stat-val { font-size: 24px; font-weight: 600; font-family: 'JetBrains Mono', monospace; color: var(--healthy); line-height: 1; }
 .k8s-stat-val.zero { color: var(--text-primary); }
 .k8s-stat-val.unhealthy { color: var(--critical); }
-.k8s-alloc-legend { display: flex; gap: 14px; margin-top: 6px; padding: 0 4px; }
-.k8s-alloc-legend-item { display: flex; align-items: center; gap: 5px; font-size: 10.5px; color: var(--text-secondary); }
-.k8s-alloc-legend-item .sw { width: 10px; height: 2px; border-radius: 1px; }
-.k8s-alloc-legend-item .sw.dashed { background: repeating-linear-gradient(90deg, currentColor 0 3px, transparent 3px 5px); height: 2px; color: inherit; }
 
 .k8s-events { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); overflow: hidden; margin-bottom: 20px; }
 .k8s-events-head { padding: 12px 16px; font-size: 13px; font-weight: 600; border-bottom: 1px solid var(--border-subtle); }

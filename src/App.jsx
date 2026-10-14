@@ -536,6 +536,7 @@ export default function App() {
                 setTimeRange={setTimeRange}
                 settingsOpen={settingsOpen}
                 setSettingsOpen={setSettingsOpen}
+                setToast={setToast}
               />
             ) : loadingIn ? (
               <HomeSkeleton />

@@ -9,6 +9,7 @@ import assert from 'node:assert/strict'
 import {
   niceAxis, formatDecimals, fmtRedMs, fmtRedRpm, fmtRedPct, fmtLoadTime, fmtRpm2, fmtCls,
   fmtRateTick, fmtPctTick, fmtPlainTick, fmtLoadTimeTick, labelMatches, scrollTopToReveal,
+  fmtPct1, fmtPct2,
 } from './chartDefaults.js'
 
 test('formatDecimals reads how many decimals a tick formatter prints', () => {
@@ -40,6 +41,17 @@ test('the RED formatters print what the service page always has', () => {
   assert.equal(fmtRedRpm(42.4), '42')
   assert.equal(fmtRedRpm(1234), '1.2K')
   assert.equal(fmtRedPct(3.456), '3.46%')
+})
+
+test('a level reads as a percentage at one decimal on a card and two in a legend, and a missing one as nothing', () => {
+  assert.equal(fmtPct1(92.4), '92.4%')
+  assert.equal(fmtPct1(0), '0.0%')
+  assert.equal(fmtPct2(92.4), '92.40%')
+  for (const f of [fmtPct1, fmtPct2]) {
+    assert.equal(f(null), '')
+    assert.equal(f(undefined), '')
+    assert.equal(f(NaN), '')
+  }
 })
 
 test('a load time reads in ms below a second and in seconds from one up', () => {

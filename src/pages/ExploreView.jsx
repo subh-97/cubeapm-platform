@@ -12,7 +12,8 @@ import {
   applyIncoming, commit, committedQuery, DATASOURCES, draftQuery, initialState,
   isDirty, isMetricsSource, setDatasource, setEditor, setSetting, setTab, tabsFor,
 } from '@/utils/explore/editorState'
-import { buildChartModel, buildTableRows, SHOW_ALL } from '@/utils/explore/series'
+import { buildChartModel, buildTableRows, SHOW_ALL, LEGEND_LIMIT } from '@/utils/explore/series'
+import { SERIES_STEP } from '@/components/charts/seriesBudget'
 import { queryReduced } from '@/utils/explore/api'
 import { COMPARE_OPTIONS, resolveRange, zoomRange } from '@/utils/timeRange'
 import '@/components/explore/explore-page.css'
@@ -86,7 +87,9 @@ export default function ExploreView({ goHome, timeRange, setTimeRange, setToast,
   const [runId, setRunId] = useState(0)
   const [legendSearch, setLegendSearch] = useState('')
   const [selection, setSelection] = useState(SHOW_ALL)
-  const [limitOn, setLimitOn] = useState(true)
+  // How many series the legend lists: the reference's twenty, raised a step at
+  // a time by "Show 20 more", Infinity after "Show all".
+  const [legendLimit, setLegendLimit] = useState(LEGEND_LIMIT)
   const [hoverKey, setHoverKey] = useState(null)
   const [csvBusy, setCsvBusy] = useState(false)
   // null means "as tall as its content", which is where the editor starts and
@@ -238,14 +241,14 @@ export default function ExploreView({ goHome, timeRange, setTimeRange, setToast,
     formula: page.formula,
     stack: page.stack,
     search: legendSearch,
-    limitOn,
+    limit: legendLimit,
     selection,
     prevSeries: result.prevSeries,
     prevFailed: result.prevFailed,
     compareShiftSec: result.compareShiftSec,
   }), [
     result.series, result.prevSeries, result.prevFailed, result.compareShiftSec,
-    page.legendLabel, page.formula, page.stack, legendSearch, limitOn, selection,
+    page.legendLabel, page.formula, page.stack, legendSearch, legendLimit, selection,
   ])
 
   const tableRows = useMemo(() => buildTableRows({
@@ -262,7 +265,7 @@ export default function ExploreView({ goHome, timeRange, setTimeRange, setToast,
   const resultKey = `${committed?.datasource ?? ''}|${committed?.query ?? ''}|${page.legendLabel}`
   useEffect(() => {
     setSelection(SHOW_ALL)
-    setLimitOn(true)
+    setLegendLimit(LEGEND_LIMIT)
     setHoverKey(null)
   }, [resultKey])
 
@@ -489,7 +492,9 @@ export default function ExploreView({ goHome, timeRange, setTimeRange, setToast,
                   onSearchChange={setLegendSearch}
                   selection={selection}
                   onSelectionChange={setSelection}
-                  onShowAll={() => setLimitOn(false)}
+                  onShowMore={() => setLegendLimit(l => l + SERIES_STEP)}
+                  onShowAll={() => setLegendLimit(Infinity)}
+                  onShowFewer={() => setLegendLimit(LEGEND_LIMIT)}
                   hoverKey={hoverKey}
                   onHoverKey={setHoverKey}
                   comparing={comparing}
