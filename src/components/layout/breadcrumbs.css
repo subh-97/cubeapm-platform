@@ -1,0 +1,50 @@
+/* PageBar's trail, folded from the middle when it runs out of room:
+ * src/components/layout/Breadcrumbs.jsx.
+ *
+ * src/index.css still draws the trail — .card-crumbs-left, its links, .sep,
+ * .current, .crumb-select — and nothing here restyles those. These rules add
+ * the crumbs the trail is now cut into, the unseen copy they are measured on,
+ * the "…" that stands in for the folded ones, and the menu it opens.
+ */
+
+.card-crumbs-left { position: relative; }
+
+/* A crumb: its separator, then its body. Crumbs keep their full width; only
+   the last one may give way, and only once every middle crumb has folded. */
+.crumb-seg,
+.crumb-body { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.crumb-seg { flex-shrink: 0; }
+.crumb-seg.is-tail,
+.crumb-seg.is-tail .crumb-body { flex-shrink: 1; min-width: 0; }
+.crumb-seg.is-tail .crumb-body > *,
+.crumb-seg.is-tail .crumb-select .current { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.crumb-seg.is-tail .crumb-select svg { flex-shrink: 0; }
+
+/* The copy the widths are read from. Laid out at its natural width, clipped to
+   the trail so it can never widen the page, and hidden from sight, the
+   pointer, the Tab key and screen readers alike. */
+.crumb-measure-box {
+  position: absolute; inset: 0;
+  overflow: hidden; visibility: hidden; pointer-events: none;
+}
+.crumb-measure { display: flex; align-items: center; gap: 6px; width: max-content; }
+
+/* The "…" that stands in for the folded crumbs. Drawn like the crumb links
+   either side of it, with the same hover a crumb picker has. */
+.crumb-more {
+  display: inline-flex; align-items: center;
+  margin: 0; padding: 1px 5px; border: 0; border-radius: 5px;
+  background: none; color: var(--text-secondary);
+  font: inherit; line-height: inherit; letter-spacing: .5px;
+  cursor: pointer;
+}
+.crumb-more:hover,
+.crumb-more.open { background: var(--panel); color: var(--text-primary); }
+.crumb-more:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+
+/* The folded crumbs, one per row. index.css sizes .current for the bar's
+   last crumb; in a list of equals it reads at the list's size. */
+.crumb-overflow { padding: 3px 0; max-width: min(360px, calc(100vw - 32px)); }
+.crumb-overflow-item { display: flex; align-items: center; gap: 6px; padding: 6px 12px; }
+.crumb-overflow-item > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.card-crumbs .crumb-overflow-item .current { font-size: inherit; font-weight: 500; letter-spacing: 0; }
