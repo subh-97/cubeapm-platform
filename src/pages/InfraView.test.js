@@ -38,13 +38,17 @@ function view({ source, resource = null, selectedHost = null }, timeRange = HOUR
 
 const count = (html, needle) => html.split(needle).length - 1
 
-// The chart frames a view draws: Runtime cards, RED legend charts, and the
-// Latency Drilldown frame (a .drill2 that is not inside a legend chart).
+// The frames a view draws that carry a ⋮ menu: Runtime cards, RED legend
+// charts, the Latency Drilldown frame (a .drill2 that is not inside a legend
+// chart), the Kubernetes stat cards, and the cluster's Summary and a
+// namespace's Pods tables.
 function frames(html) {
   const cards = count(html, 'class="runtime-chart-card ')
   const legendCharts = count(html, 'class="red-chart-section"')
   const panels = count(html, 'class="drill2"') - legendCharts
-  return { cards, legendCharts, panels, total: cards + legendCharts + panels, menus: count(html, 'class="card-menu-btn"') }
+  const stats = count(html, 'class="k8s-stat-card"')
+  const tables = count(html, 'class="panel-head-left">Summary<') + count(html, 'class="panel-head-left">Pods<')
+  return { cards, legendCharts, panels, stats, tables, total: cards + legendCharts + panels + stats + tables, menus: count(html, 'class="card-menu-btn"') }
 }
 
 // The status hues (tailwind.config.js and the style guide), and the greens,
@@ -68,7 +72,7 @@ const nameOf = v => [v.source, v.selectedHost ?? v.resource].filter(Boolean).joi
 // act on, so they carry no menu.
 const isEmpty = html => html.includes('>Requests per Minute<') && html.includes('>Latency<')
 
-test('every view renders, and every chart it draws carries the ⋮ menu', () => {
+test('every view renders, and every chart and stat card it draws carries the ⋮ menu', () => {
   for (const v of VIEWS) {
     const html = view(v)
     const f = frames(html)

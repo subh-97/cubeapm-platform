@@ -4,7 +4,7 @@ import {
   INFRA_SOURCE_INDEX, infraHostsForWindow, HOST_PROCESSES,
   k8sAllocationForWindow, k8sContainersSeriesForWindow, k8sClusterSummary, k8sNamespaceSummary, k8sDeploymentSummary, k8sNamespaceDetailForWindow,
   k8sNodesForWindow, k8sPodsForWindow, K8S_NAMESPACES,
-  mysqlSummary, mysqlSeriesForWindow, redisSummary, redisSeriesForWindow,
+  mysqlSummary, mysqlSeriesForWindow, redisSummary, redisSeriesForWindow, BASE_TIME,
 } from '@/data/observability'
 import { resolveWindow } from '@/data/timeWindow'
 import PageBar from '@/components/layout/PageBar'
@@ -23,6 +23,11 @@ import LegendLineChart from '@/components/charts/LegendLineChart'
 import { GRID_PROPS, NO_ANIM, LINE_PROPS, LIMIT_DASH, valueAxisProps, maxOf, fmtBytes, fmtCount, fmtCompact, fmtPct1, fmtPct2, fmtPctTick } from '@/components/charts/chartDefaults'
 import { infraColor, RESOURCE_COLORS } from '@/utils/chartPalette'
 import { SortableTable, CellBar } from '@/components/shared/SortableTable'
+import QueryBuilder, { chipsToString, FIELD_CATALOG } from '@/components/QueryBuilder'
+import PipeToolbar from '@/components/PipeToolbar'
+import QueryHistoryDrawer from '@/components/explorer/QueryHistoryDrawer'
+import { composeQuery, serializePipes, withImpliedCount, parsePipes } from '@/utils/pipes'
+import { tryParseConditions, splitQuery } from '@/utils/rawQuery'
 // The process column borrows a legend's scrolling rule (.drill2-legend.is-scroll)
 // from LegendLineChart's stylesheet, so it is named here rather than left to
 // arrive with that component.
@@ -89,6 +94,10 @@ const NODE_COLUMNS = [
   { key: 'pods', label: 'Pods' },
 ]
 
+// The columns a table's ⋮ menu offers an alert and an exploration on: the
+// measured ones, not the name columns a row is identified by.
+const metricLabels = columns => columns.filter(c => c.align !== 'left').map(c => c.label)
+
 const NAMESPACE_COLUMNS = [
   { key: 'namespace', label: 'Namespace', align: 'left', mono: true },
   { key: 'cpuUsed', label: 'CPU Used' },
@@ -125,6 +134,22 @@ const CONTAINER_COLUMNS = [
   { key: 'memUsed', label: 'Memory Used', render: p => fmtBytes(p.memUsed) },
   { key: 'memRequest', label: 'Memory Request', render: p => fmtBytes(p.memRequest) },
   { key: 'memLimit', label: 'Memory Limit', render: p => fmtBytes(p.memLimit) },
+]
+
+// A node's pods. The name cell highlights search hits, so the page fills in
+// its renderer where the table is drawn.
+const NODE_POD_COLUMNS = [
+  { key: 'name', label: 'Pod', align: 'left', mono: true, clip: 300, title: p => p.name },
+  { key: 'cpuUsed', label: 'CPU Used (cores)' },
+  { key: 'memUsed', label: 'Memory Used (bytes)', render: p => fmtBytes(p.memUsed) },
+  // No memory limit, nothing remaining: a dash, and last whichever
+  // way the column sorts.
+  { key: 'memRemaining', label: 'Memory Remaining (bytes)', render: p => (p.memRemaining == null ? '-' : fmtBytes(p.memRemaining)) },
+  { key: 'disk', label: 'Disk Used (%)', render: p => <CellBar fill={p.disk}>{p.disk.toFixed(2)}</CellBar> },
+  { key: 'netIn', label: 'Network In (bytes/s)', render: p => p.netIn.toFixed(2) },
+  { key: 'netOut', label: 'Network Out (bytes/s)', render: p => p.netOut.toFixed(2) },
+  // Every pod here runs the one container its page lists.
+  { key: 'containers', label: 'Containers', sortable: false, render: () => 1 },
 ]
 
 const MYSQL_COLUMNS = [
@@ -369,7 +394,8 @@ function HostTable({ hosts, onSelect }) {
     <div className="panel">
       <div className="panel-head is-stacked">
         <div className="panel-head-row">
-          <span>Summary</span>
+          <div className="panel-head-left">Summary</div>
+          <CardMenu kind="table" title="Summary" columns={metricLabels(HOST_COLUMNS)} />
         </div>
         <TableQuerySearch onApply={setQuery} fields={HOST_FIELDS} />
       </div>
@@ -381,6 +407,122 @@ function HostTable({ hosts, onSelect }) {
         onRowClick={h => onSelect(h.host)}
         empty={`No data matches “${query.trim()}”.`}
       />
+    </div>
+  )
+}
+
+/* ============ Kubernetes: Events ============ */
+
+// Kubernetes events are log records, so the panel queries them with the Logs
+// bar itself: the chip builder, history, Run, the pipe pills and the generated
+// query, plus a hand-off that opens the same query on the Logs page. It opens
+// on everything but routine events, as production does. The builder has no
+// NOT, so production's `NOT object.type:="Normal"` is the `!=` chip here.
+const EVENTS_DEFAULT_CHIPS = [{ field: 'object.type', op: 'neq', value: 'Normal' }]
+const EVENT_AGG_FIELDS = FIELD_CATALOG.map(f => f.field)
+const EVENT_NUMERIC_FIELDS = new Set(FIELD_CATALOG.filter(f => f.type === 'keyword').map(f => f.field))
+const DAY_SEC = 86400
+
+function K8sEvents({ onOpenLink }) {
+  const { win } = useContext(InfraTime)
+  const [chips, setChips] = useState(EVENTS_DEFAULT_CHIPS)
+  const [pipes, setPipes] = useState([])
+  // What the table reflects. Seeded with the default so the panel auto-runs.
+  const [applied, setApplied] = useState({ chips: EVENTS_DEFAULT_CHIPS, pipes: [] })
+  const [blocked, setBlocked] = useState(null)
+  const [recents, setRecents] = useState([])
+  const [history, setHistory] = useState([])
+  const [historyOpen, setHistoryOpen] = useState(false)
+
+  const query = composeQuery(chipsToString(chips), withImpliedCount(pipes))
+  const dirty = chipsToString(chips) !== chipsToString(applied.chips)
+    || serializePipes(withImpliedCount(pipes)) !== serializePipes(withImpliedCount(applied.pipes))
+  const plotting = applied.pipes.some(p => p.kind === 'stats')
+  const days = Math.round(win.spanSec / DAY_SEC)
+
+  const run = useCallback(() => {
+    setApplied({ chips, pipes })
+    if (chips.length) {
+      const key = chipsToString(chips)
+      setRecents(prev => [chips, ...prev.filter(r => chipsToString(r) !== key)].slice(0, 5))
+    }
+    if (query) {
+      setHistory(prev => [
+        { id: `${Date.now()}`, query, time: new Date(BASE_TIME), results: 0 },
+        ...prev.filter(h => h.query !== query),
+      ].slice(0, 20))
+    }
+  }, [chips, pipes, query])
+
+  // A history entry is a whole query: its conditions back as chips, its pipe
+  // section back on the pills, and it runs.
+  const applyHistory = useCallback((q) => {
+    const { conditions, pipes: stages } = splitQuery(q)
+    const parsed = tryParseConditions(conditions)
+    if (!parsed.ok) return
+    const pipeRes = parsePipes(stages)
+    const nextPipes = pipeRes.ok ? pipeRes.pipes : []
+    setChips(parsed.chips)
+    setPipes(nextPipes)
+    setApplied({ chips: parsed.chips, pipes: nextPipes })
+    setHistoryOpen(false)
+  }, [])
+
+  return (
+    <div className="k8s-events">
+      <div className="k8s-events-head">Events</div>
+      <div className="logs-query-bar">
+        <QueryBuilder
+          chips={chips}
+          setChips={setChips}
+          recents={recents}
+          onRun={run}
+          onBlockedChange={setBlocked}
+          onCopyQuery={query ? () => { try { navigator.clipboard.writeText(query)?.catch(() => {}) } catch (_) {} } : null}
+        />
+        <button className="hbtn small icon-only" title="Query history" aria-label="Query history" onClick={() => setHistoryOpen(true)}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>
+        </button>
+        <button
+          className={`hbtn primary run-btn${dirty && !blocked ? ' is-dirty' : ''}`}
+          title={blocked || (dirty ? 'Run query — the bar has changes the results do not show yet' : 'Run query')}
+          aria-label="Run query"
+          disabled={!!blocked}
+          onClick={run}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 10 4 15 9 20"/><path d="M20 4v7a4 4 0 01-4 4H4"/></svg>
+          Run
+        </button>
+        <button
+          className="hbtn"
+          title="Open this query on the Logs page"
+          onClick={() => onOpenLink?.({ view: 'logs', chips, pipes })}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><path d="M15 3h6v6"/><path d="M10 14L21 3"/></svg>
+          Search in Logs
+        </button>
+      </div>
+      <div className="k8s-events-pipes">
+        <PipeToolbar
+          pipes={pipes}
+          setPipes={setPipes}
+          fieldCatalog={FIELD_CATALOG}
+          aggAllFields={EVENT_AGG_FIELDS}
+          aggNumericFields={EVENT_NUMERIC_FIELDS}
+        />
+      </div>
+      <div className="logs-query-preview">
+        <span className="qb-preview-label">Generated Query</span>
+        <code className="qb-preview-code">{query || '*'}</code>
+      </div>
+      <div className="k8s-events-notes">
+        {!plotting && <p>Need to plot? Use Group by and an Aggregation.</p>}
+        {days >= 1 && <p>Reading {days} {days === 1 ? 'day' : 'days'}. If this is slow, a shorter time range or another filter is the quickest win.</p>}
+      </div>
+      <SortableTable columns={EVENT_COLUMNS} rows={[]} rowKey={e => e.id} sortable={false} empty="No abnormal events in the selected time range" />
+      {historyOpen && (
+        <QueryHistoryDrawer history={history} subject="events panel" onClose={() => setHistoryOpen(false)} onApply={applyHistory} />
+      )}
     </div>
   )
 }
@@ -420,7 +562,7 @@ const containerSeries = c => [
 // charts and the stat grid because they answer the same question at different
 // altitudes - the only real difference is that a node is not namespaced, so the
 // node counts drop out when a namespace is selected.
-function K8sClusterView({ namespace, setNamespace }) {
+function K8sClusterView({ namespace, setNamespace, onOpenLink }) {
   const { win } = useContext(InfraTime)
   const detail = useMemo(() => (namespace ? k8sNamespaceDetailForWindow(win, namespace) : null), [win, namespace])
   const s = detail ?? k8sClusterSummary
@@ -463,7 +605,10 @@ function K8sClusterView({ namespace, setNamespace }) {
           const isZeroNeutral = val === 0 && !lbl.includes('Ready') && !lbl.includes('Total')
           return (
             <div key={lbl} className="k8s-stat-card">
-              <div className="k8s-stat-lbl">{lbl}</div>
+              <div className="k8s-stat-head">
+                <div className="k8s-stat-lbl">{lbl}</div>
+                <CardMenu kind="metric" title={lbl} />
+              </div>
               <div className={`k8s-stat-val${isUnhealthy ? ' unhealthy' : isZeroNeutral ? ' zero' : ''}`}>{val}</div>
             </div>
           )
@@ -472,31 +617,23 @@ function K8sClusterView({ namespace, setNamespace }) {
 
       {detail ? (
         <div className="panel">
-          <div className="panel-head">Pods</div>
+          <div className="panel-head">
+            <div className="panel-head-left">Pods</div>
+            <CardMenu kind="table" title="Pods" columns={metricLabels(NAMESPACE_POD_COLUMNS)} />
+          </div>
           <SortableTable columns={NAMESPACE_POD_COLUMNS} rows={detail.pods} rowKey={p => p.name} />
         </div>
       ) : (
         <div className="panel">
-          <div className="panel-head">Summary</div>
+          <div className="panel-head">
+            <div className="panel-head-left">Summary</div>
+            <CardMenu kind="table" title="Summary" columns={metricLabels(NAMESPACE_COLUMNS)} />
+          </div>
           <SortableTable columns={NAMESPACE_COLUMNS} rows={k8sNamespaceSummary} rowKey={n => n.namespace} onRowClick={n => setNamespace(n.namespace)} />
         </div>
       )}
 
-      <div className="k8s-events">
-        <div className="k8s-events-head">Events</div>
-        <div className="k8s-events-query">
-          <input readOnly value='NOT object.type:="Normal"' />
-          <button className="k8s-events-search-btn">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></svg>
-            Search
-          </button>
-          <a className="k8s-events-logs-link" href="#" onClick={e => e.preventDefault()}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M9 18l6-6-6-6" /></svg>
-            Search in Logs
-          </a>
-        </div>
-        <SortableTable columns={EVENT_COLUMNS} rows={[]} rowKey={e => e.id} sortable={false} empty="No abnormal events in the selected time range" />
-      </div>
+      <K8sEvents onOpenLink={onOpenLink} />
     </>
   )
 }
@@ -512,7 +649,10 @@ function K8sDeploymentView() {
         <InfraCard title="Pods Desired but not Available" span="full" allowDecimals={false} fmt={fmtCount} series={one('not available', notAvailable)} />
       </div>
       <div className="panel">
-        <div className="panel-head">Summary</div>
+        <div className="panel-head">
+          <div className="panel-head-left">Summary</div>
+          <CardMenu kind="table" title="Summary" columns={metricLabels(DEPLOYMENT_COLUMNS)} />
+        </div>
         <SortableTable columns={DEPLOYMENT_COLUMNS} rows={k8sDeploymentSummary} rowKey={n => n.namespace} />
       </div>
     </>
@@ -705,15 +845,7 @@ function K8sNodeDetail({ node, pods, onSelectPod }) {
           <TableQuerySearch onApply={setPodQuery} fields={POD_FIELDS} />
         </div>
         <SortableTable
-          columns={[
-            { key: 'name', label: 'Pod', align: 'left', mono: true, clip: 300, title: p => p.name, render: p => <PodName pod={p} hits={hits} tagHits={tagHits} /> },
-            { key: 'namespace', label: 'Namespace', align: 'left', mono: true, render: p => highlightTerms(p.namespace, hits.namespace, 'svc-hit') },
-            { key: 'cpuUsed', label: 'CPU Used' },
-            { key: 'memUsed', label: 'Memory Used', render: p => fmtBytes(p.memUsed) },
-            { key: 'memRemaining', label: 'Memory Remaining', render: p => (p.memRemaining == null ? '-' : fmtBytes(p.memRemaining)) },
-            { key: 'netIn', label: 'Network In', sortable: false, render: () => '-' },
-            { key: 'netOut', label: 'Network Out', sortable: false, render: () => '-' },
-          ]}
+          columns={NODE_POD_COLUMNS.map(c => (c.key === 'name' ? { ...c, render: p => <PodName pod={p} hits={hits} tagHits={tagHits} /> } : c))}
           rows={shown.map(p => ({ ...p, memRemaining: p.memRequest ? p.memRequest - p.memUsed : null }))}
           rowKey={p => p.name}
           onRowClick={p => onSelectPod(p.name)}
@@ -736,7 +868,10 @@ function K8sNodeView({ nodes, pods, selectedNode, setSelectedNode, selectedPod, 
     <>
       <FleetCards rows={nodes} nameKey="name" noun="nodes" />
       <div className="panel">
-        <div className="panel-head">Summary</div>
+        <div className="panel-head">
+          <div className="panel-head-left">Summary</div>
+          <CardMenu kind="table" title="Summary" columns={metricLabels(NODE_COLUMNS)} />
+        </div>
         <SortableTable columns={NODE_COLUMNS} rows={nodes.map(withNetRates)} rowKey={n => n.name} onRowClick={n => setSelectedNode(n.name)} />
       </div>
     </>
@@ -837,7 +972,8 @@ function K8sPodListView({ pods, selectedPod, setSelectedPod, reveal }) {
       <div className="panel">
         <div className="panel-head is-stacked">
           <div className="panel-head-row">
-            <span>Summary</span>
+            <div className="panel-head-left">Summary</div>
+            <CardMenu kind="table" title="Summary" columns={metricLabels(NODE_POD_COLUMNS)} />
           </div>
           <TableQuerySearch onApply={setQuery} fields={POD_NODE_FIELDS} />
         </div>
@@ -976,7 +1112,10 @@ function MySQLView() {
         <InfraCard title="Slow Queries per Minute" value={s.slowQueriesPerMin} span="third" allowDecimals={false} fmt={fmtCount} series={one(s.host, series.slowQueries)} />
       </div>
       <div className="panel">
-        <div className="panel-head">Summary</div>
+        <div className="panel-head">
+          <div className="panel-head-left">Summary</div>
+          <CardMenu kind="table" title="Summary" columns={metricLabels(MYSQL_COLUMNS)} />
+        </div>
         <SortableTable columns={MYSQL_COLUMNS} rows={[s]} rowKey={r => r.host} sortable={false} />
       </div>
     </>
@@ -995,7 +1134,10 @@ function RedisView() {
         <InfraCard title="Evictions per Minute" value={lastReading(series.evictionsPerMin)} span="third" allowDecimals={false} fmt={fmtCount} series={one(s.host, series.evictionsPerMin)} />
       </div>
       <div className="panel">
-        <div className="panel-head">Summary</div>
+        <div className="panel-head">
+          <div className="panel-head-left">Summary</div>
+          <CardMenu kind="table" title="Summary" columns={metricLabels(REDIS_COLUMNS)} />
+        </div>
         <SortableTable columns={REDIS_COLUMNS} rows={[s]} rowKey={r => r.host} sortable={false} />
       </div>
     </>
@@ -1074,7 +1216,7 @@ function CrumbSelect({ value, options, onSelect, searchPlaceholder = 'Search…'
   )
 }
 
-export default function InfraView({ goHome, source, resource, selectedHost, setSelectedHost, timeRange, setTimeRange, settingsOpen, setSettingsOpen, setToast }) {
+export default function InfraView({ goHome, source, resource, selectedHost, setSelectedHost, timeRange, setTimeRange, settingsOpen, setSettingsOpen, setToast, onOpenLink }) {
   const win = useMemo(() => resolveWindow(timeRange), [timeRange])
 
   // Every row on this page is "what the selected window held", so the lists are
@@ -1150,7 +1292,7 @@ export default function InfraView({ goHome, source, resource, selectedHost, setS
   } else if (source === 'redis') {
     body = <RedisView />
   } else if (source === 'k8s-cluster') {
-    body = <K8sClusterView namespace={k8sNamespace} setNamespace={setK8sNamespace} />
+    body = <K8sClusterView namespace={k8sNamespace} setNamespace={setK8sNamespace} onOpenLink={onOpenLink} />
   } else if (source === 'k8s-node') {
     body = <K8sNodeView nodes={nodes} pods={pods} selectedNode={k8sNode} setSelectedNode={setK8sNodeName} selectedPod={k8sPod} setSelectedPod={setK8sPodName} reveal={stripReveal} />
   } else if (source === 'k8s-pod') {

@@ -50,9 +50,25 @@ filters) survives. Logs is still untouched, but its URL sync should follow the
 same shape: parse and print in a tested util, read from the location, change it
 by navigating, and replace rather than push when correcting an invalid URL.
 
-## Loose end spotted while verifying
+## Builder / Lucene toggle (reinstated 2026-10-14)
 
-`src/components/RawQueryInput.jsx` (187 lines) and
-`src/components/QueryModeToggle.jsx` (29 lines) are not imported anywhere. Raw
-mode was wired up through `LogsView` directly instead. Either adopt them or
-delete them — do not assume they are live just because they exist.
+The toggle was dropped in `19e0213` (the setter went, the plumbing stayed) and
+is back. `QueryModeToggle` sits in the leading slot of the Logs query bar in
+both modes; `RawQueryInput` replaces `QueryBuilder` in Lucene mode. Query
+Builder is the default.
+
+- **Switching carries the query.** Builder → Lucene spells chips and pipes as
+  text; Lucene → builder parses it back. Each direction is refused, with the
+  reason as the segment's tooltip, when crossing would lose something: a
+  half-built chip, or text that doesn't parse.
+- **One pipes state.** A hand-typed pipe section that parses feeds the pill
+  toolbar (and so the run); pill edits rewrite the pipe section, but leave it
+  as typed when it already means the same thing, so nothing re-spells under
+  the caret.
+- **Chip-speaking entry points** (facet "add to query", history, saved
+  queries, the trace view's hand-off) go through `setBarChips`, which rewrites
+  the Lucene text's conditions head when that mode is showing.
+- **Errors match the builder's.** Run is blocked on a parse error throughout,
+  with it as the tooltip. The inline message uses the builder's
+  `qb-composing-error` and, like the builder, stays quiet mid-build: it shows
+  once typing pauses (700 ms), on blur, or on Enter.

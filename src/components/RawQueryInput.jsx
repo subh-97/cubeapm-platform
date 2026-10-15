@@ -12,6 +12,9 @@ const KIND_BADGE = {
   keyword: '&',
 }
 
+// How long typing has to stop before a parse error is worth showing.
+const SETTLE_MS = 700
+
 const KIND_LABEL = {
   field: 'Fields',
   operator: 'Operators',
@@ -29,17 +32,25 @@ const KIND_LABEL = {
 // or partway through a pipe stage, and returns the span to replace. The menu is
 // anchored under the whole box rather than the caret — simpler, and matches how
 // other query bars in the app behave.
+//
+// Errors follow the builder's rule: no nagging mid-build. Raw text spends most
+// keystrokes unparseable, so the message waits until the user pauses, leaves
+// the box or presses Enter, and is drawn exactly where and how the builder
+// draws its own (`qb-composing-error`). The Run button is blocked on the error
+// throughout, with it as the tooltip, whether or not it is showing yet.
 export default function RawQueryInput({
   value,
   onChange,
   onSubmit,
   error,
   leading,
-  placeholder = 'e.g. {env="prod"} log.level:=error | stats by ("service") count()',
+  placeholder = 'e.g. service:=payment AND log.level:=error | stats by (service) count()',
 }) {
   const [open, setOpen] = useState(false)
   const [caret, setCaret] = useState(0)
   const [highlight, setHighlight] = useState(0)
+  const [typing, setTyping] = useState(false)
+  const settleTimer = useRef(null)
   const wrapRef = useRef(null)
   const taRef = useRef(null)
   const listRef = useRef(null)
@@ -70,6 +81,21 @@ export default function RawQueryInput({
     document.addEventListener('mousedown', onDown)
     return () => document.removeEventListener('mousedown', onDown)
   }, [open])
+
+  useEffect(() => () => clearTimeout(settleTimer.current), [])
+
+  const markTyping = useCallback(() => {
+    setTyping(true)
+    clearTimeout(settleTimer.current)
+    settleTimer.current = setTimeout(() => setTyping(false), SETTLE_MS)
+  }, [])
+
+  const settle = useCallback(() => {
+    clearTimeout(settleTimer.current)
+    setTyping(false)
+  }, [])
+
+  const showError = !!error && !typing
 
   const syncCaret = useCallback(() => {
     const ta = taRef.current
@@ -105,6 +131,7 @@ export default function RawQueryInput({
       if (open && items.length > 0) { e.preventDefault(); apply(items[highlight]); return }
       e.preventDefault()
       setOpen(false)
+      settle()
       onSubmit?.()
       return
     }
@@ -131,7 +158,7 @@ export default function RawQueryInput({
 
   return (
     <div className="rawq-wrap" ref={wrapRef}>
-      <div className={clsx('rawq-row', { 'is-error': !!error })} onClick={() => taRef.current?.focus()}>
+      <div className={clsx('rawq-row', { 'is-error': showError })} onClick={() => taRef.current?.focus()}>
         {leading}
         <textarea
           ref={taRef}
@@ -141,16 +168,17 @@ export default function RawQueryInput({
           spellCheck={false}
           autoComplete="off"
           placeholder={placeholder}
-          onChange={(e) => { onChange(e.target.value); setCaret(e.target.selectionStart ?? 0); setOpen(true) }}
+          onChange={(e) => { onChange(e.target.value); setCaret(e.target.selectionStart ?? 0); setOpen(true); markTyping() }}
           onKeyUp={syncCaret}
           onClick={(e) => { e.stopPropagation(); syncCaret() }}
           onFocus={() => { syncCaret(); setOpen(true) }}
+          onBlur={settle}
           onKeyDown={onKeyDown}
         />
       </div>
 
-      {error && (
-        <div className="rawq-error" role="alert">
+      {showError && (
+        <div className="qb-composing-error" role="alert">
           <AlertCircle size={12} strokeWidth={2} />
           <span>{error}</span>
         </div>
