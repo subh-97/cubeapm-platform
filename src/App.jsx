@@ -240,6 +240,12 @@ export default function App() {
       showView('traces')
       return
     }
+    if (link.view === 'logs') {
+      // A whole query — chips and pipes — opened on the Logs page and run there.
+      setLogsQuery({ chips: link.chips ?? [], pipes: link.pipes ?? [] })
+      showView('logs')
+      return
+    }
     if (link.view === 'errors') {
       // Applied once per nonce, as Explore's payload is: the page reads its
       // scope from this when it arrives, not from the URL it is about to get.
@@ -537,6 +543,7 @@ export default function App() {
                 settingsOpen={settingsOpen}
                 setSettingsOpen={setSettingsOpen}
                 setToast={setToast}
+                onOpenLink={openLink}
               />
             ) : loadingIn ? (
               <HomeSkeleton />

@@ -22,8 +22,8 @@ export default function QueryModeToggle({ mode, onChange, disabled = false, disa
 
   return (
     <div className="qmode" role="group" aria-label="Query input mode" onClick={(e) => e.stopPropagation()}>
-      {seg('builder', Sparkles, 'Visual builder mode', 'Visual builder — build filters as chips')}
-      {seg('raw', Code2, 'Raw query mode', 'Raw query — write CubeAPM syntax directly')}
+      {seg('builder', Sparkles, 'Query Builder mode', 'Query Builder — build filters as chips')}
+      {seg('raw', Code2, 'Lucene mode', 'Lucene — write the query as text')}
     </div>
   )
 }
