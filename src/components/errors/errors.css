@@ -129,7 +129,7 @@
   align-items: center;
   padding: var(--row-py) 16px;
   border-top: 1px solid var(--border-subtle);
-  font-size: 12px;
+  font-size: 12.5px;
   cursor: pointer;
 }
 .errp-row::before {
@@ -151,7 +151,7 @@
 /* Indented to sit under the service name rather than under its dot. */
 .errp-ep {
   padding-left: 16px;
-  font-family: var(--font-mono); font-size: 11.5px;
+  font-family: var(--font-mono); font-size: 12.5px;
   color: var(--text-secondary);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
@@ -164,7 +164,7 @@
 .errp-err { min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 3px; }
 .errp-exc {
   display: flex; min-width: 0; max-width: 100%;
-  font-family: var(--font-mono); font-size: 11.5px;
+  font-family: var(--font-mono); font-size: 12.5px;
   color: var(--critical-fg);
   white-space: nowrap;
 }
@@ -179,7 +179,7 @@
 .errp-row:focus-visible .errp-exc-cls {
   text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px;
 }
-.errp-msg { font-size: 10.5px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.errp-msg { font-size: 12.5px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Server: one chip per HTTP code with its reason. Client: the call that failed.
    The chip itself is index.css's .tw-code, the waterfall's and the drawer's. */
@@ -187,7 +187,7 @@
 .errp-call {
   display: flex; align-items: center; gap: 8px; min-width: 0;
   overflow: hidden; white-space: nowrap;
-  font-size: 10.5px; color: var(--text-secondary);
+  font-size: 12.5px; color: var(--text-secondary);
 }
 .errp-code-item { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
 .errp-code-reason { overflow: hidden; text-overflow: ellipsis; }
@@ -209,7 +209,7 @@
 /* Left-aligned with its header, like every other column, and like the
    service page's Errors tab — the count and its chip start at the rule. */
 .errp-count { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 4px; }
-.errp-count-n { font-size: 15px; color: var(--text-primary); }
+.errp-count-n { font-size: 12.5px; color: var(--text-primary); }
 
 /* Spark cell. The placeholder holds the row at its final height while the chart
    waits to scroll into view, so nothing below it jumps when it mounts. */
@@ -221,7 +221,7 @@
   display: inline-flex; align-items: center; gap: 4px;
   padding: 3px 6px; margin-right: -6px;
   border: 0; border-radius: var(--radius-sm); background: none;
-  font: inherit; font-size: 11px;
+  font: inherit; font-size: 12.5px;
   color: var(--text-muted);
   white-space: nowrap; cursor: pointer;
 }

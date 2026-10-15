@@ -994,9 +994,9 @@ tbody tr:hover { background: var(--panel-2); }
 .slowreq-row:hover { background: var(--panel); }
 .slowreq-row.selected { background: var(--brand-muted); }
 .slowreq-row:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
-.slowreq-row .ep { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-primary); }
-.slowreq-row .meta { color: var(--text-muted); font-size: 10.5px; margin-top: 2px; }
-.slowreq-row .dur { font-weight: 400; color: var(--text-primary); font-size: 13px; white-space: nowrap; }
+.slowreq-row .ep { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-primary); }
+.slowreq-row .meta { color: var(--text-muted); font-size: 11px; margin-top: 2px; }
+.slowreq-row .dur { font-weight: 400; color: var(--text-primary); font-size: 11px; white-space: nowrap; }
 .slowreq-preview { min-width: 0; padding: 12px 16px 14px; }
 .slowreq-preview-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .slowreq-preview-ep { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-primary);
@@ -1058,7 +1058,7 @@ tbody tr:hover { background: var(--panel-2); }
 .search-with-icon > svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
   width: 13px; height: 13px; color: var(--text-muted); pointer-events: none; }
 .search-with-icon > input { display: block; padding-left: 29px; }
-.split-ep-row { --row-py: 10px; --col-gap: 10px; display: grid; grid-template-columns: 1fr 88px 60px 66px 72px; gap: var(--col-gap); align-items: center; padding: var(--row-py) 14px; border-top: 1px solid var(--border-subtle); font-size: 11.5px; cursor: pointer; transition: background .1s; }
+.split-ep-row { --row-py: 10px; --col-gap: 10px; display: grid; grid-template-columns: 1fr 88px 60px 66px 72px; gap: var(--col-gap); align-items: center; padding: var(--row-py) 14px; border-top: 1px solid var(--border-subtle); font-size: 11px; cursor: pointer; transition: background .1s; }
 .split-ep-row:hover { background: var(--panel-2); }
 .split-ep-row.selected { background: var(--brand-muted); }
 .split-ep-head { --row-py: 8px; --col-gap: 10px; font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; padding: var(--row-py) 14px; display: grid; grid-template-columns: 1fr 88px 60px 66px 72px; gap: var(--col-gap); align-items: center; }
@@ -1109,7 +1109,7 @@ tbody tr:hover { background: var(--panel-2); }
  * columns go below their longest unbroken path; those cells ellipsize instead,
  * except on the service page's tab, where they wrap (.svc-errors, below). The
  * Browser page's panel sets its own columns (browser-traces.css). */
-.err-row { --row-py: 12px; --col-gap: 14px; display: grid; grid-template-columns: minmax(0, .6fr) minmax(0, .875fr) 68px minmax(240px, 1.31fr); gap: var(--col-gap); align-items: center; padding: var(--row-py) 16px; border-top: 1px solid var(--border-subtle); font-size: 12px; }
+.err-row { --row-py: 12px; --col-gap: 14px; display: grid; grid-template-columns: minmax(0, .6fr) minmax(0, .875fr) 68px minmax(240px, 1.31fr); gap: var(--col-gap); align-items: center; padding: var(--row-py) 16px; border-top: 1px solid var(--border-subtle); font-size: 12.5px; }
 /* Clickable row opens the Traces page scoped to the error. The hover affordance
  * is a brand-tinted left bar so the sparkline column keeps a stable chart
  * background underneath. */
@@ -1118,7 +1118,7 @@ tbody tr:hover { background: var(--panel-2); }
 .err-row.is-clickable:hover::before,
 .err-row.is-clickable:focus-visible::before { background: var(--brand); }
 .err-row.is-clickable:focus-visible { outline: none; }
-.err-endpoint { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-primary);
+.err-endpoint { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: var(--text-primary);
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .err-exc { display: flex; flex-direction: column; justify-content: center; gap: 2px; min-width: 0; }
 /* A button that opens the group's details and stack trace on the Errors page.
@@ -1126,17 +1126,17 @@ tbody tr:hover { background: var(--panel-2); }
  * Traces page), so the exception has to read as its own, second target before
  * anyone points at it. It hugs its text (flex-start) so the empty end of the
  * column still belongs to the row. */
-.err-exc-cls { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--critical-fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+.err-exc-cls { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: var(--critical-fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   display: block; align-self: flex-start; max-width: 100%;
   background: none; border: 0; padding: 0; cursor: pointer; text-align: left;
   text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px;
   text-decoration-color: color-mix(in srgb, currentColor 45%, transparent); transition: text-decoration-color .12s; }
 .err-exc-cls:hover { text-decoration-color: currentColor; }
 .err-exc-cls:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 2px; }
-.err-exc-msg { font-size: 10.5px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.err-exc-msg { font-size: 12.5px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Left-aligned like every other column here, so the count starts at its
  * column rule instead of floating against the sparkline's. */
-.err-count { font-weight: 400; font-size: 15px; color: var(--text-primary); }
+.err-count { font-weight: 400; font-size: 12.5px; color: var(--text-primary); }
 .err-spark { height: 132px; }
 .err-head { --row-py: 8px; --col-gap: 14px; display: grid; grid-template-columns: minmax(0, .6fr) minmax(0, .875fr) 68px minmax(240px, 1.31fr); gap: var(--col-gap); padding: var(--row-py) 16px; font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
 .err-empty { padding: 60px 20px; text-align: center; color: var(--text-muted); font-size: 12px; }
@@ -2290,24 +2290,24 @@ tbody tr:hover { background: var(--panel-2); }
 .lh-text { flex: 1; min-width: 240px; }
 .lh-stream { width: 200px; flex-shrink: 0; }
 .lh-extra { width: 160px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.log-row { --row-py: 8px; --col-gap: 16px; display: flex; gap: var(--col-gap); padding: var(--row-py) 14px var(--row-py) 0; border-bottom: 1px solid var(--border-subtle); font-size: 11.5px; align-items: stretch; cursor: pointer; transition: background .08s; min-width: fit-content; box-sizing: border-box; }
-.log-extra { width: 160px; flex-shrink: 0; font-size: 10.5px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; align-self: flex-start; }
+.log-row { --row-py: 8px; --col-gap: 16px; display: flex; gap: var(--col-gap); padding: var(--row-py) 14px var(--row-py) 0; border-bottom: 1px solid var(--border-subtle); font-size: 12.5px; align-items: stretch; cursor: pointer; transition: background .08s; min-width: fit-content; box-sizing: border-box; }
+.log-extra { width: 160px; flex-shrink: 0; font-size: 12.5px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; align-self: flex-start; }
 .log-row:hover { background: var(--panel-2); }
 .log-row.selected { background: var(--brand-muted); }
 .log-lvl-bar { display: block; width: 3px; flex-shrink: 0; align-self: stretch; border-radius: 0; margin: calc(var(--row-py) * -1) 0; }
 .log-lvl-error { background: var(--critical); }
 .log-lvl-warn { background: var(--warning); }
 .log-lvl-info { background: var(--info); opacity: .45; }
-.log-time { width: 128px; flex-shrink: 0; display: flex; flex-direction: column; gap: 1px; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; }
+.log-time { width: 128px; flex-shrink: 0; display: flex; flex-direction: column; gap: 1px; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; }
 .log-date { color: var(--text-muted); }
 .log-hhmm { color: var(--text-primary); font-weight: 500; }
 /* overflow-wrap: anywhere so a long unbroken token (a URL) wraps inside the
    two-line clamp. Otherwise it sets the column's minimum, and once the table
    is narrower than its columns that row's Text column grows past 240px and
    every column after it falls out of line with the header and the other rows. */
-.log-text { flex: 1; min-width: 240px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.5; align-self: flex-start; overflow-wrap: anywhere; }
+.log-text { flex: 1; min-width: 240px; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.5; align-self: flex-start; overflow-wrap: anywhere; }
 .log-stream { width: 200px; flex-shrink: 0; display: flex; flex-direction: column; gap: 3px; overflow: hidden; align-self: flex-start; }
-.log-tag { display: flex; align-items: center; gap: 4px; font-family: 'JetBrains Mono', monospace; font-size: 10px; overflow: hidden; }
+.log-tag { display: flex; align-items: center; gap: 4px; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; overflow: hidden; }
 .log-tag .k { color: var(--text-muted); }
 .log-tag .v { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -2333,6 +2333,9 @@ tbody tr:hover { background: var(--panel-2); }
 .span-row .span-cell[data-log-field="span_name"] { color: var(--text-primary); }
 .span-dur, .span-cell.right { text-align: right; }
 .span-dur { color: var(--text-primary); }
+/* Body cells take the full-width table size. .span-cell above also draws the
+   head's cells, which keep theirs. */
+.span-row :is(.span-cell, .span-dur, .span-status) { font-size: 12.5px; }
 
 /* Column rules on the log and span tables (see "Column rules" by the table
    styles). The sticky gutter draws the first one on its right edge, so the
@@ -3297,8 +3300,8 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 .agg-table thead th.agg-th-num.is-math { color: var(--brand-on-muted); }
 .agg-table tbody tr { border-top: 1px solid var(--border-subtle); }
 .agg-table tbody tr:hover { background: var(--panel-2); }
-.agg-table td { padding: 7px 12px; white-space: nowrap; font-size: 11.5px; color: var(--text-primary); text-align: right; }
-.agg-table td.agg-td-group { text-align: left; color: var(--text-secondary); font-size: 11px; }
+.agg-table td { padding: 7px 12px; white-space: nowrap; font-size: 12.5px; color: var(--text-primary); text-align: right; }
+.agg-table td.agg-td-group { text-align: left; color: var(--text-secondary); font-size: 12.5px; }
 .agg-table-foot {
   padding: 8px 12px; font-size: 10.5px; color: var(--text-muted);
   border-top: 1px solid var(--border-subtle); background: var(--card);
@@ -4423,12 +4426,12 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 .tw-table-db .tw-dbdur { min-width: 112px; }
 .tw-dbdur-total { display: block; font-weight: 500; }
 .tw-dbdur-line {
-  display: block; font-size: 11.5px; color: var(--text-secondary);
+  display: block; font-size: 12.5px; color: var(--text-secondary);
 }
 .tw-dbdur-total + .tw-dbdur-line { margin-top: 5px; }
 .tw-dbdur-k {
   display: inline-block; width: 28px;
-  font-family: 'Rubik', sans-serif; font-size: 10px; font-weight: 400;
+  font-family: 'Rubik', sans-serif; font-size: 12.5px; font-weight: 400;
   color: var(--text-muted);
 }
 .tw-table .dim { color: var(--text-muted); }
@@ -4674,11 +4677,11 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
   margin-right: 7px; vertical-align: middle;
 }
 .tw-svc {
-  flex-shrink: 0; font-size: 11px; font-weight: 500; color: var(--text-secondary);
+  flex-shrink: 0; font-size: 12.5px; font-weight: 500; color: var(--text-secondary);
   white-space: nowrap;
 }
 .tw-name {
-  min-width: 0; font-family: 'JetBrains Mono', monospace; font-size: 11px;
+  min-width: 0; font-family: 'JetBrains Mono', monospace; font-size: 12.5px;
   color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .tw-kind { color: var(--text-muted); }
@@ -4693,7 +4696,7 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 }
 .tw-dur {
   position: relative; z-index: 1;
-  flex: 0 0 66px; font-size: 11px; color: var(--text-secondary); text-align: right;
+  flex: 0 0 66px; font-size: 12.5px; color: var(--text-secondary); text-align: right;
   font-variant-numeric: tabular-nums;
 }
 
@@ -4749,8 +4752,8 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 }
 
 /* ══ Endpoint detail ═══════════════════════════════════════════════════ */
-.ep-hits { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-.ep-hits td { padding: 8px 12px; border-bottom: 1px solid var(--border-subtle); color: var(--text-primary); }
+.ep-hits { width: 100%; border-collapse: collapse; font-size: 11px; }
+.ep-hits td { padding: 8px 12px; font-size: 11px; border-bottom: 1px solid var(--border-subtle); color: var(--text-primary); }
 .ep-hits tr:last-child td { border-bottom: none; }
 .ep-hits .num { text-align: right; color: var(--text-secondary); }
 
