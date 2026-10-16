@@ -2,7 +2,7 @@
  * src/components/layout/Breadcrumbs.jsx.
  *
  * src/index.css still draws the trail — .card-crumbs-left, its links, .sep,
- * .current, .crumb-select — and nothing here restyles those. These rules add
+ * .current — and nothing here restyles those. These rules add
  * the crumbs the trail is now cut into, the unseen copy they are measured on,
  * the "…" that stands in for the folded ones, and the menu it opens.
  */
@@ -16,9 +16,7 @@
 .crumb-seg { flex-shrink: 0; }
 .crumb-seg.is-tail,
 .crumb-seg.is-tail .crumb-body { flex-shrink: 1; min-width: 0; }
-.crumb-seg.is-tail .crumb-body > *,
-.crumb-seg.is-tail .crumb-select .current { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.crumb-seg.is-tail .crumb-select svg { flex-shrink: 0; }
+.crumb-seg.is-tail .crumb-body > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
 /* The copy the widths are read from. Laid out at its natural width, clipped to
    the trail so it can never widen the page, and hidden from sight, the
