@@ -457,10 +457,6 @@ a { color: inherit; }
 /* A section name with no page behind it: drawn like a link, but inert. */
 .card-crumbs .crumb-static { color: var(--text-secondary); cursor: default; }
 .card-crumbs .current { color: var(--text-primary); font-size: 14px; font-weight: 600; letter-spacing: -.2px; }
-.crumb-select { display: inline-flex; align-items: center; gap: 3px; cursor: pointer; padding: 2px 4px; margin: -2px -4px; border-radius: 5px; }
-.crumb-select:hover, .crumb-select.open { background: var(--panel); }
-.crumb-select svg { width: 13px; height: 13px; color: var(--text-muted); transition: transform .12s; }
-.crumb-select.open svg { transform: rotate(180deg); color: var(--text-secondary); }
 /* When no tab-strip follows, the crumbs themselves provide the header/content divider */
 .card-crumbs:not(:has(+ .card-tab-strip)):not(:has(+ .logs-layout-stitched)):not(:has(+ .tw-main)):not(:has(+ .svc-main)) { border-bottom: 1px solid var(--border-subtle); margin-bottom: 16px; }
 /* The trace view and Infrastructure keep the rule but not the gap under it:
