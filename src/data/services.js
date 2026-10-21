@@ -312,10 +312,15 @@ export function fleetSeriesForWindow(win) {
 
 export const fleetSeries = fleetSeriesForWindow(REFERENCE_WINDOW)
 
+// Two of these are named the way a real agent names them — the external call
+// by the route it posts to, the database by the instance it connects to —
+// because a legend column is where a name like that gets cut off. They are
+// here so the Latency Drilldown's legend shows a label wrapping to a second
+// line rather than ending in an ellipsis.
 export const latencyDrilldown = [
   { label: 'DB redis', ms: 210, color: '#EF4444' },
-  { label: 'HTTP External (twilio)', ms: 120, color: '#3B82F6' },
-  { label: 'DB mysql', ms: 35, color: '#A78BFA' },
+  { label: 'HTTP External (api.twilio.com/2010-04-01/Messages.json)', ms: 120, color: '#3B82F6' },
+  { label: 'DB mysql (payments-primary.us-east-1.rds.amazonaws.com)', ms: 35, color: '#A78BFA' },
   { label: 'App / internal', ms: 40, color: '#34D399' },
 ]
 
@@ -523,7 +528,12 @@ export function infraSeriesForWindow(win, host, key) {
 // which is why over a week the stack collapses to the ~113 ms it consumes when
 // quiet (78 ms of it on the critical path) and Redis stops being the thing you
 // look at first.
-const DRILLDOWN_QUIET = { 'DB redis': 8, 'HTTP External (twilio)': 65, 'DB mysql': 22, 'App / internal': 18 }
+const DRILLDOWN_QUIET = {
+  'DB redis': 8,
+  'HTTP External (api.twilio.com/2010-04-01/Messages.json)': 65,
+  'DB mysql (payments-primary.us-east-1.rds.amazonaws.com)': 22,
+  'App / internal': 18,
+}
 
 const DRILLDOWN_PROFILES = latencyDrilldown.map((l, i) => {
   const quiet = DRILLDOWN_QUIET[l.label] ?? l.ms
