@@ -135,6 +135,26 @@ test('payment spans go slow and go red in the last 22 minutes', () => {
   assert.ok(median(during) > 2 * median(before), `p50 ns ${median(before)} → ${median(during)}`)
 })
 
+// The store draws about one payment-service server span a bucket, so the
+// incident's error rate is read off a few dozen rows, and it is only as steady
+// as the way errors are spread over them. Decided by one coin per row, the
+// same 22 minutes read anywhere from none to three quarters failing, depending
+// on the minute the page loaded, and the test above failed a minute in forty.
+test('every stretch of the incident fails at the incident\'s rate, not just the whole of it', () => {
+  const step = 15
+  const rows = eventsFor('traces', { start: NOW - 1800, end: NOW, step })
+  const bucketMs = (r) => Math.floor(r._time / 1000 / step) * step * 1000
+  const height = rows.filter(r => r.service === 'payment-service' && r.span_kind === 'server' && incidentFactor(bucketMs(r)) === 1)
+  assert.ok(height.length >= 40, `${height.length} payment server spans at the height of the incident`)
+  const failed = (list) => list.filter(r => r.status_code === 'ERROR').length
+  const rate = failed(height) / height.length
+  // Coins miss by three or more in about one stretch of twenty in four.
+  for (let i = 0; i + 20 <= height.length; i++) {
+    const n = failed(height.slice(i, i + 20))
+    assert.ok(Math.abs(n - 20 * rate) < 3, `spans ${i}–${i + 19}: ${n} of 20 failed, against ${(20 * rate).toFixed(1)} at the incident's rate`)
+  }
+})
+
 test('nothing else is pulled into the incident', () => {
   const rows = eventsFor('traces', { start: NOW - 3 * 3600, end: NOW, step: 60 })
   const cut = (NOW - 22 * 60) * 1000
