@@ -283,6 +283,19 @@ a { color: inherit; }
 :focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 3px; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 
+/* ============ SKIP LINK ============ */
+/* The app's first Tab stop (layout/MainRegion.jsx): parked just above the top
+   edge until it has focus, then a raised chip over the logo, drawn the way a
+   dropdown is. The shadow comes with the focus, so none shows while parked. */
+.skip-link {
+  position: fixed; top: 12px; left: 12px; z-index: 1000;
+  padding: 7px 12px; border: 1px solid var(--border-panel); border-radius: var(--radius-sm);
+  background: var(--raised); color: var(--text-primary);
+  font-size: 13px; font-weight: 500; line-height: 1.2; text-decoration: none; white-space: nowrap;
+  transform: translateY(calc(-100% - 12px));
+}
+.skip-link:focus { transform: none; box-shadow: var(--shadow-dropdown); }
+
 /* ============ NAV ============ */
 .nav {
   width: var(--nav-w); flex-shrink: 0; background: var(--canvas);
@@ -365,6 +378,9 @@ a { color: inherit; }
   flex: 1; display: flex; flex-direction: column; min-width: 0;
   padding: 18px var(--gutter) 0 12px; gap: 18px; background: var(--canvas);
 }
+/* Where the skip link and a new page put focus: only the point the next Tab
+   carries on from, not a control, so it draws no ring. */
+.main:focus { outline: none; }
 .header { display: flex; align-items: center; gap: 10px; padding: 4px 6px 0; }
 .header-page-id {
   display: flex; align-items: center; gap: 9px; color: var(--text-secondary);

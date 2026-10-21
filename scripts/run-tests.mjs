@@ -41,7 +41,9 @@ for (const file of tests) {
       format: 'esm',
       outfile,
       alias: { '@': join(root, 'src') },
-      loader: { '.js': 'jsx' },
+      // An imported image is its URL, as Vite gives it (the Infra sources'
+      // logos), so a test can render a module that shows one.
+      loader: { '.js': 'jsx', '.svg': 'file' },
       // Automatic runtime, so a component under test compiles without each
       // module importing React itself - the app's JSX is written that way.
       jsx: 'automatic',
