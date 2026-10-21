@@ -4,6 +4,7 @@ import {
   BASE_TIME, REFERENCE_WINDOW, calibratePeak, incidentWeight, pinToReference,
   sampleAt, sampleCount, spreadTimes, windowCount, windowMean, windowSeries,
 } from './timeWindow'
+import { ceilingPeak } from './percentCeiling'
 
 // The anchor now lives with the time model; re-exported because every module
 // that reads the mock stream has always imported it from here.
@@ -348,8 +349,9 @@ export const INFRA_SOURCE_INDEX = INFRA_SOURCES.reduce((acc, s) => {
  * The incident is the shared one. `generateHostSeries` expressed it as
  * `incident: 1.4`, a multiplier at the worst of the outage over a four-minute
  * ramp — which is precisely `sampleAt`'s `peak`, so those numbers carry across
- * unchanged and the outage still lands on the hosts HOST_ROWS flags critical,
- * with the same force.
+ * and the outage still lands on the hosts HOST_ROWS flags critical. On a
+ * percentage they are the force the outage ASKS for: nothing reads over 100
+ * (`percentProfile`), so a host it would carry past 100 runs to 100 instead.
  */
 const INFRA_NOISE = 0.12
 
@@ -359,6 +361,49 @@ function infraProfile(published, { peak = 1, noise = INFRA_NOISE, seed, diurnal 
   // those fall through with a flat baseline of 0 and no special case.
   return pin ? pinToReference(base, windowMean, published) : base
 }
+
+/**
+ * A utilisation percentage: `infraProfile`, with the peak lowered to the
+ * highest one that keeps every reading at or under 100 (`ceilingPeak`).
+ *
+ * With the incident's 1.4 peak, ip-10-0-142-133, which publishes 92.4%, ran at
+ * 81% before the outage and 112–121% through it. That showed in its charts, in
+ * the host table on any range short enough to be mostly outage, and in the
+ * alert that reads it. Now a host the outage would carry past 100 runs to 100
+ * and holds there, pegged, which is what a saturated CPU does. The hour still
+ * averages to the published figure, because the peak is solved for rather than
+ * clamped (data/percentCeiling.js says why a clamp would lose that). A reading
+ * the ceiling never reaches is `infraProfile` exactly.
+ */
+function percentProfile(published, { peak = 1, noise = INFRA_NOISE, seed } = {}) {
+  return infraProfile(published, { peak: Math.min(peak, ceilingPeak(published, { noise, seed })), noise, seed })
+}
+
+/**
+ * Jitter on the CPU of a machine the incident runs hot: one percent of the
+ * value, not INFRA_NOISE's twelve.
+ *
+ * The ceiling ties a hot host's quiet level to its published figure. The
+ * incident covers about a third of the reference hour and can read no more
+ * than 100 for it, so the other two thirds carry the rest of the mean. At
+ * 92.4%, ip-10-0-142-133 was already running near 89% before anything broke,
+ * whatever the jitter. Twelve percent of jitter breaks two things on top of
+ * that:
+ *
+ *   • The outage disappears. For the jitter's top to stay under 100 the
+ *     plateau has to sit near 94, which lifts the line under four points
+ *     inside an eleven-point band.
+ *   • The CPU alert fires on noise. Rule 515 in data/alerts.js warns over 90
+ *     and goes critical over 95. A quiet line swinging up to 96 would warn,
+ *     and page, all week, and a plateau swinging down to 89 would drop out
+ *     of critical mid-outage.
+ *
+ * At one percent the quiet line tops out between 89.3 and 89.6. The range
+ * comes from the second the page loads at, which shifts the reference hour
+ * against the incident. The plateau holds between 99 and 100. The hosts with
+ * more room take the same jitter, so the incident's hosts read alike.
+ */
+const HOT_CPU_NOISE = 0.01
 
 /**
  * The same profile on a different unit. Every term in `sampleAt` is
@@ -461,9 +506,9 @@ const HOST_PROFILES = HOST_ROWS.map((h, i) => {
   // critical, which is how `generateHostSeries` chose them too.
   const hit = h.status === 'critical'
   return {
-    cpu: infraProfile(h.cpu, { peak: hit ? 1.4 : 1, seed: 401 + i }),
-    mem: infraProfile(h.mem, { peak: hit ? 1.15 : 1, seed: 501 + i }),
-    disk: infraProfile(h.disk, { seed: 601 + i }),
+    cpu: percentProfile(h.cpu, { peak: hit ? 1.4 : 1, noise: hit ? HOT_CPU_NOISE : INFRA_NOISE, seed: 401 + i }),
+    mem: percentProfile(h.mem, { peak: hit ? 1.15 : 1, seed: 501 + i }),
+    disk: percentProfile(h.disk, { seed: 601 + i }),
     netIn: infraProfile(h.netIn, { peak: hit ? 1.3 : 1, seed: 701 + i }),
     netOut: infraProfile(h.netOut, { peak: hit ? 1.3 : 1, seed: 801 + i }),
     // No figure is published beside the disk I/O chart, so its old base stays
@@ -586,11 +631,12 @@ const K8S_NODE_ROWS = [
 ]
 
 // Both nodes are on the incident path — they are where the payment pods sit —
-// so neither is conditioned on status, exactly as before.
+// so neither is conditioned on status, exactly as before. They are two of the
+// hot hosts above, so their CPU takes the same ceiling and the same jitter.
 const NODE_PROFILES = K8S_NODE_ROWS.map((n, i) => ({
-  cpu: infraProfile(n.cpu, { peak: 1.15, seed: 2001 + i }),
-  mem: infraProfile(n.mem, { peak: 1.1, seed: 2101 + i }),
-  disk: infraProfile(n.disk, { seed: 2201 + i }),
+  cpu: percentProfile(n.cpu, { peak: 1.15, noise: HOT_CPU_NOISE, seed: 2001 + i }),
+  mem: percentProfile(n.mem, { peak: 1.1, seed: 2101 + i }),
+  disk: percentProfile(n.disk, { seed: 2201 + i }),
   netIn: infraProfile(n.netIn, { peak: 1.2, seed: 2301 + i }),
   netOut: infraProfile(n.netOut, { peak: 1.2, seed: 2401 + i }),
 }))

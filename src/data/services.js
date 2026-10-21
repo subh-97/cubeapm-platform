@@ -3,6 +3,7 @@ import {
   REFERENCE_WINDOW, calibratePeak, peakIncidentWeight, pinToReference,
   valueAtWeight, windowMean, windowQuantile, windowSeries, noiseAt,
 } from './timeWindow'
+import { ceilingPeak } from './percentCeiling'
 import { RUNTIME_HOSTS, hostPresence, DRAW_MIN } from './runtimeHosts'
 
 const RANK = { healthy: 0, warning: 1, critical: 2 }
@@ -364,6 +365,14 @@ export const errorRequests = [
 // not have an outage of its own.
 const QUIET_RATIO = { rpm: 1, p90: 612 / 140, avg: 340 / 78, err: 4.8 / 0.05, cpu: 1.35, mem: 1.08 }
 
+// A share of a machine stops at the whole machine. Solved for the hour's mean
+// alone, the ratio above put a 92% host's CPU at 68% quiet and about 140% at
+// the plateau, and over the last five minutes the table cell itself read 142.
+// For these kinds the peak is capped where the jitter reaches 100
+// (data/percentCeiling.js). The pin then lifts the quiet value to whatever
+// still gets the hour to its figure.
+const PERCENT_KINDS = new Set(['cpu', 'mem'])
+
 let profileSeed = 900
 
 /**
@@ -389,6 +398,9 @@ function derivedProfile(published, kind, rate) {
     noise: 0.06,
     seed: profileSeed,
     diurnal: kind === 'rpm',
+  }
+  if (PERCENT_KINDS.has(kind)) {
+    base.peak = Math.min(base.peak, ceilingPeak(published, { noise: base.noise, seed: base.seed }))
   }
   return isQuantile
     ? pinToReference(base, (w, pr) => windowQuantile(w, pr, 0.9, rate), published)
