@@ -961,9 +961,23 @@ tbody tr:hover { background: var(--panel-2); }
 .drill2-go-btn:hover .drill2-go { opacity: 1; color: var(--brand); }
 .drill2-go-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 0; }
 .drill2-empty { font-size: 11.5px; color: var(--text-muted); padding: 4px 0; }
-.drill2-row { display: flex; align-items: center; gap: 7px; }
+/* A legend row wraps rather than truncates: a name wider than the legend
+ * column runs on to a second line instead of being cut with an ellipsis, which
+ * in a column of host- or path-qualified upstreams cut away the very part that
+ * told them apart. The row is top-aligned, so the swatch, the value and the
+ * open-link button stay beside the label's FIRST line however many lines it
+ * takes. One line-height on the row lines those three up with that first line
+ * whatever size each is set in; the swatch, shorter than the line, is centred
+ * on it. `overflow-wrap: anywhere` also lets the label shrink below its longest
+ * word, so an unbroken path breaks instead of pushing the value out of view. */
+.drill2-row { display: flex; align-items: flex-start; gap: 7px; line-height: 16px; }
 .drill2-swatch { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; margin-top: 1px; }
-.drill2-label { flex: 1; font-size: 11.5px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.drill2-row > .drill2-swatch { margin-top: 4px; }
+/* The button's -2px margin pulls its 12px glyph off the top of the line;
+ * dropping it on the top side alone centres the glyph on that first line
+ * while the row's own negative margins keep the hit area the size it was. */
+.drill2-row > .drill2-go-btn { margin-top: 0; }
+.drill2-label { flex: 1; min-width: 0; font-size: 11.5px; color: var(--text-secondary); overflow-wrap: anywhere; }
 .drill2-val { font-size: 12px; font-weight: 600; color: var(--text-primary); white-space: nowrap; }
 .drill2-unit { font-size: 10px; font-weight: 400; color: var(--text-muted); margin-left: 1px; font-family: inherit; }
 .drill2-total { display: flex; align-items: center; gap: 8px; padding-top: 10px; border-top: 1px solid var(--border-subtle); margin-top: 2px; cursor: default; }
