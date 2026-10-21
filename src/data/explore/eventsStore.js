@@ -536,14 +536,13 @@ function opsFor(service) {
 const HTTP_OK = ['200', '200', '200', '201', '204', '400']
 const HTTP_ERR = ['500', '500', '502', '504', '402', '429']
 
-function makeSpan(service, op, endpoints, { rnd, tMs, weight, frac, f }) {
+function makeSpan(service, op, endpoints, { rnd, tMs, weight, errPos, f }) {
   const incident = service === 'payment-service' ? f : 0
   const errPct = SERVICE_ERROR_PCT[service] + 0.41 * incident
-  // The error decision reads the sample's own position inside this shape's
-  // slice rather than a fresh draw, so consecutive samples of one operation
-  // spread evenly across the slice and the shape's error share comes out at
-  // errPct instead of wandering.
-  const isError = frac < errPct
+  // The error decision reads the row's place in its error sequence
+  // (placeErrors) rather than a fresh draw, so this service's spans of this
+  // kind fail at errPct over any run of their rows instead of wandering.
+  const isError = errPos < errPct
   // Redis is what actually gives out under the incident, so its spans slow
   // down harder than the request spans that wait on them.
   const slow = 1 + (op.db?.system === 'redis' ? 5.5 : 3.4) * incident
@@ -620,6 +619,8 @@ function traceShapes() {
         base: perHour * op.share,
         // ARCH D11: throughput dips ~8% on the service that is failing.
         incidentMul: service === 'payment-service' ? 0.92 : 1,
+        // A service's spans of one kind share one error sequence (placeErrors).
+        errorGroup: `${service}|${op.kind}`,
         make: (ctx) => makeSpan(service, op, endpoints, ctx),
       })
     }
@@ -638,7 +639,15 @@ const SAMPLES_PER_BUCKET = 24
 // caller cannot hang the tab either.
 const MAX_BUCKETS = 12000
 
-function fillBucket(out, ds, bucketStart, fromSec, toSec) {
+const GOLDEN = 0.6180339887498949
+
+/**
+ * One bucket's sample: the shape each of its K rows is drawn from, where in
+ * that shape's slice each one falls, and the weight they all carry. Null for a
+ * bucket with no events. `rnd` travels with it, because the rows draw their
+ * fields from the same stream.
+ */
+function drawBucket(ds, bucketStart, fromSec, toSec) {
   const shapes = SHAPES[ds]
   const rnd = rndFor(`${ds}|${bucketStart}`)
   const spanSec = toSec - fromSec
@@ -652,12 +661,12 @@ function fillBucket(out, ds, bucketStart, fromSec, toSec) {
     w[i] = s.base * (s.incidentMul === 1 ? 1 : 1 + (s.incidentMul - 1) * f)
     total += w[i]
   }
-  if (total <= 0) return
+  if (total <= 0) return null
 
   // `base` is events per hour, so this is the real number of events in the
   // bucket — the number the sampled rows' weights have to add up to.
   const events = total * (spanSec / 3600) * shapeOfDay(midMs) * (0.95 + rnd() * 0.1)
-  if (!(events > 0)) return
+  if (!(events > 0)) return null
 
   // Systematic sampling: one sweep through the cumulative mix at a fixed
   // stride with a per-bucket offset. Every group whose share is at least 1/K
@@ -680,16 +689,85 @@ function fillBucket(out, ds, bucketStart, fromSec, toSec) {
   // rows × events/K adds up to its real share of the bucket. A group rarer
   // than 1/K is sampled in that same fraction of buckets instead, which is
   // where the sparse, gappy series the real server returns come from.
-  const weight = events / K
+  return { rnd, fromSec, spanSec, f, u0, picks, fracs, weight: events / K }
+}
 
+// How many buckets one error sequence runs for (placeErrors). The incident's
+// 22 minutes fit inside one even at a 15-second step, and a query far from
+// now has only the rest of its own block to number.
+const ERROR_BLOCK = 128
+
+/**
+ * Each span row's place in [0, 1) in its error sequence, as `errPos` on its
+ * bucket's draw; makeSpan fails the rows placed below its error rate.
+ *
+ * The row's position inside its own operation's slice looks like the place,
+ * and it does spread errors evenly over an operation drawn several times in
+ * one bucket. No span operation is: the biggest is under 3% of the mix,
+ * against 1/K a sample. So that position was only the bucket's random start,
+ * a fresh coin per row, and payment-service, sampled about once a bucket, read
+ * its 22-minute incident at anywhere from none to three quarters of its server
+ * spans failing, depending on the minute the page loaded.
+ *
+ * Instead a service's spans of one kind are numbered, and row k sits at
+ * k·0.618… mod 1 from a phase of the sequence's own. That golden-ratio
+ * sequence lands evenly however short the run, so every stretch of a group's
+ * rows fails at its rate to within a row or two, while which rows are drawn
+ * stays random. It numbers rows rather than buckets so that a bucket which
+ * drew none of a group skips nothing. Rows count back from the newest bucket
+ * of their block, and blocks count back from BASE_TIME, so the incident is
+ * always one unbroken run.
+ */
+function placeErrors(draws, firstIndex, step) {
+  const shapes = SHAPES.traces
+  // The bucket BASE_TIME falls in; block 0 ends just before it.
+  const anchor = Math.floor(BASE_TIME.getTime() / 1000 / step)
+  const blockOf = (n) => Math.floor((anchor - 1 - n) / ERROR_BLOCK)
+  const whole = (n) => drawBucket('traces', n * step, n * step, (n + 1) * step)
+  const tally = (seen, d) => {
+    for (const p of d?.picks ?? []) {
+      const g = shapes[p].errorGroup
+      seen[g] = (seen[g] ?? 0) + 1
+    }
+  }
+
+  const last = firstIndex + draws.length - 1
+  let block = blockOf(last)
+  let phase = {}
+  // What the block drew after the window: the window's rows number on from it.
+  let seen = {}
+  for (let n = anchor - 1 - block * ERROR_BLOCK; n > last; n--) tally(seen, whole(n))
+
+  for (let i = draws.length - 1; i >= 0; i--) {
+    const n = firstIndex + i
+    if (blockOf(n) !== block) { block = blockOf(n); seen = {}; phase = {} }
+    const d = draws[i]
+    if (!d) continue
+    const seenBefore = i > 0 && d.spanSec < step ? { ...seen } : null
+    d.errPos = d.picks.map((p) => {
+      const g = shapes[p].errorGroup
+      const k = seen[g] ?? 0
+      seen[g] = k + 1
+      phase[g] ??= seedFor(`errors|${g}|${block}`) / 233280
+      return (phase[g] + k * GOLDEN) % 1
+    })
+    // A bucket the window cuts short hands the older buckets the count of the
+    // whole bucket, so two windows agree on every whole bucket they share.
+    if (seenBefore) { seen = seenBefore; tally(seen, whole(n)) }
+  }
+}
+
+function fillBucket(out, ds, d) {
+  const shapes = SHAPES[ds]
   const rows = []
-  for (let j = 0; j < K; j++) {
-    const i = picks[j]
+  for (let j = 0; j < d.picks.length; j++) {
     // The golden-ratio stride decorrelates a row's position in the bucket from
     // its position in the mix; placing them in sample order would put every
     // row of one group at the same instant.
-    const tMs = (fromSec + spanSec * ((j * 0.6180339887498949 + u0) % 1)) * 1000
-    rows.push(shapes[i].make({ rnd, tMs, weight, frac: fracs[j], f }))
+    const tMs = (d.fromSec + d.spanSec * ((j * GOLDEN + d.u0) % 1)) * 1000
+    rows.push(shapes[d.picks[j]].make({
+      rnd: d.rnd, tMs, weight: d.weight, frac: d.fracs[j], errPos: d.errPos?.[j], f: d.f,
+    }))
   }
   rows.sort((a, b) => a._time - b._time)
   for (const r of rows) out.push(r)
@@ -707,13 +785,16 @@ function fillBucket(out, ds, bucketStart, fromSec, toSec) {
 export function eventsFor(datasource, { start, end, step } = {}) {
   const ds = datasource === 'traces' ? 'traces' : 'vlogs'
   if (![start, end, step].every(Number.isFinite) || step <= 0 || end <= start) return []
-  const out = []
-  const first = Math.floor(start / step) * step
-  let n = 0
-  for (let b = first; b < end && n < MAX_BUCKETS; b += step, n++) {
+  const firstIndex = Math.floor(start / step)
+  const draws = []
+  for (let n = firstIndex; n * step < end && draws.length < MAX_BUCKETS; n++) {
+    const b = n * step
     const from = Math.max(b, start)
     const to = Math.min(b + step, end)
-    if (to > from) fillBucket(out, ds, b, from, to)
+    draws.push(to > from ? drawBucket(ds, b, from, to) : null)
   }
+  if (ds === 'traces') placeErrors(draws, firstIndex, step)
+  const out = []
+  for (const d of draws) if (d) fillBucket(out, ds, d)
   return out
 }
