@@ -1,8 +1,9 @@
 // Keeping the keyboard inside a dialog: the exception modal, and the settings
 // drawer that sits over the page behind a backdrop.
 
-// What Tab can land on, in document order.
-const TABBABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+// What Tab can land on, in document order. The toast asks the same of its
+// message, to tell one carrying a control from a plain notice.
+export const TABBABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
 /**
  * A keydown handler for the dialog's own element: Tab past its last control
