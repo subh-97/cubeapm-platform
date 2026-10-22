@@ -1496,17 +1496,29 @@ tbody tr:hover { background: var(--panel-2); }
 .logs-filters-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .facet-group { border-bottom: 1px solid var(--border-subtle); }
 .facet-group:last-child { border-bottom: none; }
-.facet-head { padding: 10px 14px; cursor: pointer; display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.facet-head { position: relative; padding: 10px 14px; cursor: pointer; display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
 .facet-head:hover { background: var(--panel-2); }
 /* Let the title/meta column take the full width so the meta row's right edge
    reaches the chevron — needed for the clear button's margin-left:auto. */
 .facet-head > div { flex: 1; min-width: 0; }
 .facet-title { font-size: 11.5px; font-weight: 600; color: var(--text-primary); font-family: 'JetBrains Mono', monospace; }
+/* The title's text is the button that folds the group, drawn as the plain text
+   it was. Its ::after stretches over the whole head, so a click anywhere on the
+   head still folds it; the meta row's own buttons are lifted above that. */
+.facet-title-btn { background: none; border: none; padding: 0; font: inherit; color: inherit; text-align: inherit; cursor: pointer; }
+.facet-title-btn::after { content: ""; position: absolute; inset: 0; }
+.facet-sel-toggle, .facet-clear-btn-meta { position: relative; }
+/* The ring goes round the head the button stands for, inset so the rail's
+   scroll box can't clip it. */
+.facet-title-btn:focus-visible { outline: none; }
+.facet-title-btn:focus-visible::after { outline: 2px solid var(--brand); outline-offset: -2px; }
 .facet-meta { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 10px; color: var(--text-muted); margin-top: 2px; }
 .facet-meta-left { display: flex; align-items: center; gap: 4px; }
 /* 'link' variant: the count is a static label, not a control, so it reads in
    primary text rather than the brand-blue that would suggest it's clickable. */
-.facet-chev { width: 12px; height: 12px; color: var(--text-muted); transition: transform .12s; }
+/* Rotated, the chevron paints above the title's stretched hit area, so clicks
+   on it have to fall through to the button below. */
+.facet-chev { width: 12px; height: 12px; color: var(--text-muted); transition: transform .12s; pointer-events: none; }
 .facet-chev.open { transform: rotate(180deg); }
 .facet-search { padding: 4px 12px 6px; }
 .facet-search input { width: 100%; background: var(--panel); border: 1px solid var(--border-subtle); color: var(--text-primary); font-family: inherit; font-size: 10.5px; border-radius: var(--radius-sm); padding: 4px 8px; outline: none; }

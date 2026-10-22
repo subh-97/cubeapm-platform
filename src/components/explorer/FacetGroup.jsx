@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useId } from 'react'
 
 // Rows visible before the facet list starts scrolling.
 const FACET_VISIBLE_ROWS = 6
@@ -18,11 +18,17 @@ const FACET_VISIBLE_ROWS = 6
  * `renderLabel` draws a value's label where plain text would hide the part that
  * matters (Errors' exception classes). Search, selection and the tooltip still
  * work on the value itself.
+ *
+ * The title is the button that folds the group, so a keyboard or screen reader
+ * gets the same control a mouse does. Its hit area stretches over the whole head
+ * (index.css), and "N selected" and Clear stay buttons of their own beside it:
+ * a button can't hold another.
  */
 export default function FacetGroup({ title, options = [], selected, onToggle, renderLabel }) {
   const [open, setOpen] = useState(true)
   const [q, setQ] = useState('')
   const [onlySelected, setOnlySelected] = useState(false)
+  const bodyId = useId()
 
   const selectedCount = options.filter(o => selected.has(o.value)).length
 
@@ -38,9 +44,19 @@ export default function FacetGroup({ title, options = [], selected, onToggle, re
 
   return (
     <div className="facet-group">
-      <div className="facet-head" onClick={() => setOpen(o => !o)}>
+      <div className="facet-head">
         <div>
-          <div className="facet-title">{title}</div>
+          <div className="facet-title">
+            <button
+              type="button"
+              className="facet-title-btn"
+              aria-expanded={open}
+              aria-controls={bodyId}
+              onClick={() => setOpen(o => !o)}
+            >
+              {title}
+            </button>
+          </div>
           <div className="facet-meta">
             <div className="facet-meta-left">
               <span>{options.length} total ·</span>
@@ -54,7 +70,7 @@ export default function FacetGroup({ title, options = [], selected, onToggle, re
                   title={onlySelected
                     ? `Showing only selected — click to show all ${options.length} values`
                     : `Show only the ${selectedCount} selected value${selectedCount === 1 ? '' : 's'}`}
-                  onClick={(e) => { e.stopPropagation(); setOpen(true); setOnlySelected(v => !v) }}
+                  onClick={() => { setOpen(true); setOnlySelected(v => !v) }}
                 >
                   {selectedCount} selected
                   {onlySelected ? (
@@ -70,7 +86,7 @@ export default function FacetGroup({ title, options = [], selected, onToggle, re
                 type="button"
                 className="facet-clear-btn-meta"
                 title="Clear selected"
-                onClick={(e) => { e.stopPropagation(); [...selected].forEach(v => onToggle(title, v)) }}
+                onClick={() => [...selected].forEach(v => onToggle(title, v))}
               >
                 <span>Clear</span>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
@@ -78,25 +94,28 @@ export default function FacetGroup({ title, options = [], selected, onToggle, re
             )}
           </div>
         </div>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className={`facet-chev${open ? ' open' : ''}`}><path d="M6 9l6 6 6-6"/></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className={`facet-chev${open ? ' open' : ''}`} aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
       </div>
-      {open && (
-        <>
-          <div className="facet-search">
-            <input placeholder="search…" value={q} onChange={e => setQ(e.target.value)} />
-          </div>
-          <div className={`facet-list${scrollable ? ' scrollable' : ''}`}>
-            {shown.length === 0 && <div className="facet-none">No values match</div>}
-            {shown.map(o => (
-              <label key={o.value} className="facet-opt">
-                <input type="checkbox" checked={selected.has(o.value)} onChange={() => onToggle(title, o.value)} />
-                <span className="facet-opt-label" title={o.value}>{renderLabel ? renderLabel(o.value) : o.value}</span>
-                <span className="facet-opt-count">{o.count.toLocaleString()}</span>
-              </label>
-            ))}
-          </div>
-        </>
-      )}
+      {/* Mounted while folded too, so the title's aria-controls always names an element. */}
+      <div id={bodyId} hidden={!open}>
+        {open && (
+          <>
+            <div className="facet-search">
+              <input placeholder="search…" value={q} onChange={e => setQ(e.target.value)} />
+            </div>
+            <div className={`facet-list${scrollable ? ' scrollable' : ''}`}>
+              {shown.length === 0 && <div className="facet-none">No values match</div>}
+              {shown.map(o => (
+                <label key={o.value} className="facet-opt">
+                  <input type="checkbox" checked={selected.has(o.value)} onChange={() => onToggle(title, o.value)} />
+                  <span className="facet-opt-label" title={o.value}>{renderLabel ? renderLabel(o.value) : o.value}</span>
+                  <span className="facet-opt-count">{o.count.toLocaleString()}</span>
+                </label>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
     </div>
   )
 }
