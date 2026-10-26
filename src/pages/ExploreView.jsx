@@ -15,6 +15,7 @@ import {
 import { buildChartModel, buildTableRows, SHOW_ALL, LEGEND_LIMIT } from '@/utils/explore/series'
 import { SERIES_STEP } from '@/components/charts/seriesBudget'
 import { queryReduced } from '@/utils/explore/api'
+import { alertPayloadForExplore } from '@/utils/alerts/editorPayloads'
 import { COMPARE_OPTIONS, resolveRange, zoomRange } from '@/utils/timeRange'
 import '@/components/explore/explore-page.css'
 
@@ -41,8 +42,9 @@ import '@/components/explore/explore-page.css'
 //   · An incoming payload is applied once per nonce (ARCH D13). A second
 //     arrival carrying the same card re-applies because its nonce is new.
 //
-// `onOpenLink` is deliberately absent: ARCH D13's links run INTO Explore, and
-// nothing here links back out yet.
+// `onOpenLink` has one use: ARCH D13's links run INTO Explore, and the one
+// way back out is the results toolbar's Create alert, which hands the rule
+// editor what the chart is drawing (docs/alerts/DESIGN.md D13).
 
 const CHART_HEIGHT = 300
 
@@ -78,7 +80,7 @@ function RunIcon({ busy }) {
  *   a payload from a card menu or a Logs/Traces page (ARCH D13)
  * @param {() => void} [props.onIncomingApplied]
  */
-export default function ExploreView({ goHome, timeRange, setTimeRange, setToast, incoming, onIncomingApplied }) {
+export default function ExploreView({ goHome, timeRange, setTimeRange, setToast, incoming, onIncomingApplied, onOpenLink }) {
   const [page, setPage] = useState(initialState)
   // The range this page is drawing, when a drag has set one. Null means "the
   // app's range", which is what the time picker edits.
@@ -436,6 +438,9 @@ export default function ExploreView({ goHome, timeRange, setTimeRange, setToast,
               compare={page.compare}
               setCompare={setting('compare')}
               onCsv={onCsv}
+              onCreateAlert={onOpenLink && committed?.query
+                ? () => onOpenLink({ view: 'alertEditor', ...alertPayloadForExplore(editor, committed) })
+                : undefined}
               csvBusy={csvBusy}
               seriesCount={result.series.length || undefined}
             />

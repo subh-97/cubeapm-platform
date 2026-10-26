@@ -10,6 +10,7 @@ import { resolveWindow } from '@/data/timeWindow'
 import PageBar from '@/components/layout/PageBar'
 import TableQuerySearch from '@/components/TableQuerySearch'
 import CardMenu, { CardActionContext } from '@/components/CardMenu'
+import { alertPayloadForHostCpu } from '@/utils/alerts/editorPayloads'
 import SearchGlyph from '@/components/shared/SearchGlyph'
 import FilterSelect from '@/components/shared/FilterSelect'
 import { useScrollReveal, revealClass } from '@/hooks/useScrollReveal'
@@ -1236,8 +1237,15 @@ export default function InfraView({ goHome, source, resource, selectedHost, setS
   // Explore over host metrics - is wired to this page yet, so the menu says so
   // rather than doing nothing, as the service page's does for its own gaps.
   const onCardAction = useCallback((action, title) => {
+    // A host's CPU chart can be alerted on: Explore's metrics store carries
+    // the same CPU per host (docs/alerts/DESIGN.md D13). Other charts wait for
+    // their metrics to reach the store.
+    if (/^Create Alert\b/.test(String(action ?? '')) && host && title === 'CPU Used %') {
+      onOpenLink?.({ view: 'alertEditor', ...alertPayloadForHostCpu(host.host) })
+      return
+    }
     setToast?.(`${action} · ${title} - that screen is not part of this prototype yet.`)
-  }, [setToast])
+  }, [setToast, onOpenLink, host])
 
   let body
   if (host) {

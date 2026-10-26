@@ -820,3 +820,27 @@ export function redisSeriesForWindow(win) {
 }
 
 export const redisSeries = redisSeriesForWindow(REFERENCE_WINDOW)
+
+/*
+ * The profiles above, for a module that reads single INSTANTS rather than
+ * windows: data/alerts.js evaluates a rule tick by tick, the way an alerting
+ * engine does, and an alert on a host, on Redis or on the log stream has to
+ * fire where that host's chart, the Redis card and the log histogram break.
+ * Same profiles, so they cannot disagree. Read-only views; nothing here
+ * changes what any page draws.
+ */
+
+/** One host's profile for `key` (cpu, mem, disk, netIn, netOut, diskIo), or null. */
+export function hostProfile(host, key) {
+  const i = HOST_ROWS.findIndex(h => h.host === host)
+  return i < 0 ? null : HOST_PROFILES[i][key] ?? null
+}
+
+/** Every host, in the table's order. */
+export const HOST_NAMES = HOST_ROWS.map(h => h.host)
+
+/** Redis' profile for `key` (memUsed, cmdPerMin, evictionsPerMin), or null. */
+export const redisProfile = key => REDIS_PROFILES[key] ?? null
+
+/** The log stream's per-minute rate for one level (info, warn, error), or null. */
+export const logRateProfile = level => LOG_RATE[level] ?? null

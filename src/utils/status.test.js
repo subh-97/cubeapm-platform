@@ -16,8 +16,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  statusForDelivery,
   STATUS, WEB_VITAL_THRESHOLDS, WEB_VITAL_RATINGS, statusForWebVital, statusForHttpStatus,
   statusForLatency, statusForErrorRate, worstStatus,
+  THRESHOLDS, ALERT_STATE_LABELS, alertStateKey, statusForAlertState,
 } from './status.js'
 
 test('no answer and server errors are critical', () => {
@@ -92,4 +94,48 @@ test('the server latency and error-rate scales are unchanged', () => {
   assert.equal(statusForErrorRate(1), STATUS.warning)
   assert.equal(statusForErrorRate(3), STATUS.critical)
   assert.equal(worstStatus(STATUS.healthy, statusForWebVital('inp', 600)), STATUS.critical)
+})
+
+// The Alerts module's states (docs/alerts/DESIGN.md D1). Firing takes its colour
+// from severity, and only severity=critical is red: production paints every
+// firing alert red, which is the "everything is the same colour" finding in
+// reverse, and was signed off against as Q2.
+test('a firing alert is critical only when it says so; any other firing alert is a warning', () => {
+  assert.equal(statusForAlertState('firing', 'critical'), STATUS.critical)
+  assert.equal(statusForAlertState('firing', 'warning'), STATUS.warning)
+  assert.equal(statusForAlertState('firing', undefined), STATUS.warning, 'no severity label')
+  assert.equal(statusForAlertState('firing', 'info'), STATUS.warning, 'a severity the scale does not know')
+  assert.equal(ALERT_STATE_LABELS[alertStateKey('firing')], 'Warning')
+  assert.equal(ALERT_STATE_LABELS[alertStateKey('firing', 'critical')], 'Critical')
+})
+
+test('pending is news, not severity; OK is healthy; the rest are neutral and told apart by label', () => {
+  assert.equal(statusForAlertState('pending'), STATUS.info)
+  assert.equal(statusForAlertState('ok'), STATUS.healthy)
+  for (const s of ['nodata', 'error', 'paused']) assert.equal(statusForAlertState(s), STATUS.neutral, s)
+  assert.deepEqual(
+    ['pending', 'ok', 'nodata', 'error', 'paused'].map(s => ALERT_STATE_LABELS[alertStateKey(s)]),
+    ['Pending', 'OK', 'No data', 'Rule error', 'Paused'],
+  )
+})
+
+test('a state the scale does not know is neutral and has no label, rather than a guess', () => {
+  for (const s of ['inactive', 'normal', '', undefined, null, 'FIRING']) {
+    assert.equal(statusForAlertState(s), STATUS.neutral, String(s))
+    assert.equal(alertStateKey(s), null, String(s))
+  }
+})
+
+// Exported so a rule made from a service card fires exactly when the card turns
+// amber or red. The table is shared now, so it is frozen and pinned to the
+// edges the resolvers above already test.
+test('the exported thresholds are the ones the service badges use, and cannot be changed', () => {
+  assert.deepEqual(THRESHOLDS, { latencyP90Ms: { warn: 150, critical: 300 }, errorRatePct: { warn: 1, critical: 3 } })
+  assert.equal(statusForLatency(THRESHOLDS.latencyP90Ms.warn), STATUS.warning)
+  assert.equal(statusForErrorRate(THRESHOLDS.errorRatePct.critical), STATUS.critical)
+  assert.ok(Object.isFrozen(THRESHOLDS) && Object.isFrozen(THRESHOLDS.latencyP90Ms) && Object.isFrozen(THRESHOLDS.errorRatePct))
+})
+
+test('a delivery reads sent as healthy and failed as critical; held ones say nothing about health', () => {
+  assert.deepEqual(['SUCCESS', 'ERROR', 'MUTE', 'SNOOZE', undefined].map(statusForDelivery), ['healthy', 'critical', 'neutral', 'neutral', 'neutral'])
 })

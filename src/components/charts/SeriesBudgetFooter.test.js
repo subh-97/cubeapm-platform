@@ -64,6 +64,19 @@ test('past the ceiling it steps up to it, then asks for a narrower query', () =>
   assert.match(atCeiling, /Too many to draw at once\. Narrow the query to see the rest\./)
 })
 
+test('a collapsible footer offers Show less once more than the cap is shown, and only then', () => {
+  const at = (view, extra) => buttons(renderToStaticMarkup(h(SeriesBudgetFooter, {
+    budget: { ...budgetView({ total: 16, cap: 5, ...view }), cap: 5, total: 16, step: 5, ...handlers, ...extra },
+    noun: 'lanes',
+    collapsible: true,
+  })))
+  assert.deepEqual(at({}), ['Show 5 more', 'Show all'], 'at the cap there is nothing to take back')
+  assert.deepEqual(at({ want: 10, drawn: 10 }), ['Show 5 more', 'Show all', 'Show less'])
+  assert.deepEqual(at({ want: 15, drawn: 15 }), ['Show all', 'Show less'])
+  assert.deepEqual(at({ want: Infinity, drawn: 16 }), ['Show less'], 'all of them, and the way back')
+  assert.deepEqual(at({ want: Infinity, drawn: 16 }, { showFewer: undefined }), [], 'no handler, no button')
+})
+
 test('a budget offers only the actions it has handlers for', () => {
   // The error groups panel passes Show all, and no step.
   assert.deepEqual(buttons(footer({ total: 64 }, { showAll: noop })), ['Show all'])

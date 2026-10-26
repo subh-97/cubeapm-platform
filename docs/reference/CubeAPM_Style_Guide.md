@@ -106,6 +106,38 @@ Note: canvas is a *mid-tone gutter*, and the card/panel tone nested inside it is
 
 **Search panel:** results grouped under a section label ("RESULTS" or "LAST VIEWED"), keyboard-navigable (arrow keys + Enter), with a real empty state (icon + message + a "Clear search" recovery action) rather than a blank list.
 
+### Alerts components
+
+The Alerts module (`/alerts`; decisions in `docs/decisions/alerts-page.md`, design in `docs/alerts/DESIGN.md`) added these. Reuse them for anything alert-shaped; the shared ones live in `src/components/alerts/shared/`.
+
+**Alert state chip (`AlertStateChip`, `.alr-chip`):** the state as a word ("Critical", "Pending", "Rule error", "Paused"), coloured only through `statusForAlertState()`. States someone may have to act on (critical, warning, pending, rule error) are *loud*, a solid fill; OK, No data and Paused are *quiet*, a tint, and the neutral three carry a glyph so they differ without colour. Ink on a solid fill holds 4.5:1: the darkest ink (`--slate-950`) on the dark theme's bright red and blue and on amber in either theme; white on the light theme's deeper red and blue, and on slate.
+
+**Suppression chip (`SuppressionChip`):** "Snoozed · 14m left", "Snooze from 15:00", "Muted until 18:30" — neutral, with who and why in the `title`. Beside the state chip, never instead of it.
+
+**Labelled menu button (`MenuButton`, `SnoozeMenu`, `RuleActionsMenu`):** an `.hbtn small` with a word and a chevron, never an icon alone; the panel is CardMenu's, portalled to the body, focus moves in on open, arrows and Esc work. An item a rule doesn't allow stays in the list, disabled, with the reason as its `title`.
+
+**Dialogs (`AlertDialog`, `DeleteRuleDialog`, `CustomSnoozeDialog`):** the trace modal's `.tw-modal` box with `trapTab`, Esc and focus restored on close. The confirming button names the act ("Delete rule", not "Yes"), the body says what it does, and a destructive dialog opens on Cancel.
+
+**Toast with Undo (`UndoMessage`):** every reversible change confirms in the app toast with an Undo, and ⌘Z / Ctrl+Z (shown on the toast as a `kbd`) undoes it while the toast is up, since the toast is out of keyboard reach.
+
+**Disabled-with-a-reason:** a control that doesn't apply keeps its place and focus, with `aria-disabled="true"` and the reason as its `title` ("Its thresholds are set by its SLO.", on Insights' Tune), styled at .45 opacity — rather than native `disabled`, which hides the reason from the keyboard. Menu triggers (`MenuButton`) still use native `disabled` with a `title`.
+
+**Rule row (`RuleRow`, `.rtab-rule`):** details toggle, state, the rule as a sentence with its scope chips, its value against its threshold with a sparkline and a delta, since when and who it tells, then Snooze and Actions. The whole row toggles its details except on things with jobs of their own. Rows are not selectable.
+
+**Seg-toggle radio group (`.seg-toggle` + `role="radiogroup"`):** one Tab stop (the chosen option `tabIndex=0`, the rest `-1`), arrows move and choose (`radioGroupKeyDown`).
+
+**Create-rule banners (`CreateRuleBanners`):** two at the top of the Rules tab, splitting its width, at least 128px tall: from a template on the card's own fill with a border, from scratch on the brand's blue (its deeper step, `--brand-active`, in dark, where white on the lighter brand falls under 4.5:1). Each is an illustration on the left (inline SVG in a 112×88 box, drawn 1.456× (30% larger, then 12% more) so it spills into the padding and the 30px gap without growing the banner, then offset 16px left and 16px down so it bleeds off the banner's bottom-left corner, which crops it: a stack of rule cards for templates, each with a vendor mark — Kafka, AWS, Kubernetes, from `assets/infra` — on a white bubble at its top-right corner; an empty chart with a line half drawn and a plus for scratch — brand tints on white, white at low alphas on blue, never a status hue), a title set as the app's page headings are (17px/600, −.2px; an `h2` in the markup), one line of what it does at 85% opacity, and a CTA at the bottom, on the text's left edge — a regular `.hbtn` on white, a white button with blue text on blue, neither with a hover state of its own: the banner hovers instead (white takes half the `--panel` tint and a `--border-panel` edge; blue darkens 10%), and so does a keyboard's focus on its CTA. The whole banner is the CTA's to click: the button's `::after` stretches over it, so the button stays the one control a keyboard or screen reader meets.
+
+**Firing-now band:** state pills (`.summary-pill`, toggles with `aria-pressed`), the worst incident as a banner (`.rtab-banner`, the `.incident-banner` pattern: left-border severity accent, the facts in a sentence, handoffs as labelled buttons), and a swimlane timeline whose bars are links carrying "Status: Critical · 16:45–now · 15m".
+
+**Thresholds on charts (`thresholdBands`, `chartOverlays`):** a rule's tiers are drawn as bands and lines on the chart, coloured as severities because they are severities; the series stay on the chart palette.
+
+**View tabs (`ViewTabs`, `.view-tabs`):** the service page's underline strip, shared, with a muted count after a label ("Contact points 7"). On a narrow window the Alerts strip tightens below 1100 px and drops its icons below 860 px, rather than clip its last tab.
+
+**Loading:** skeletons in the shape of what's coming, in `.ovsk-bone` (`BandSkeleton`, `RowsSkeleton`, `AlertsPageSkeleton` for the lazily loaded pages), never a spinner.
+
+**Alerts elsewhere:** Home's `HomeAlerts`, a nudge rather than a banner — a card filled with `--panel` (the light grey-blue tint; a blue-slate in dark), no outline or shadow, `--radius-lg`, a 36 px icon tile tinted by severity, the rule's name on the first line, its facts on a muted second line split by dots, and a regular `.hbtn` "Open rule" on the right. Nothing renders while nothing fires. The service settings drawer's Alerts tab lists the service's rules with Create.
+
 ## 6. Iconography
 
 Hand-drawn inline SVG icon set (`ICONS` object, `icon(name, cls)` helper) — 24x24 viewbox, `stroke="currentColor"`, `stroke-width="2"`, no external icon library dependency (deliberate, since this session had no CDN access — if a future build restores network access, swapping to `lucide-react` per the original tokens doc is fine, but keep the same visual weight/stroke style). Every icon-bearing control must ship with a visible text label or a `title`/`aria-label` — no icon-only controls without one.
@@ -120,4 +152,4 @@ Hand-drawn inline SVG icon set (`ICONS` object, `icon(name, cls)` helper) — 24
 ## 8. Known open items (not yet reconciled)
 
 - `.search-wrap`'s fixed `520px` width doesn't fully collapse under the `720px` mobile breakpoint (low severity, flagged in the critique doc, not yet fixed).
-- This guide covers Home + Service Overview only. Logs, Traces, SLOs, Alerts, and Synthetic Monitors haven't been built yet — when they are, extend this guide rather than starting a parallel one.
+- This guide covers Home + Service Overview, and Alerts (§5, "Alerts components"). Logs, Traces, SLOs and Synthetic Monitors aren't in it yet — when they are added, extend this guide rather than starting a parallel one.

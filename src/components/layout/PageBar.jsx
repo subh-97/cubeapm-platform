@@ -48,6 +48,11 @@ function SvgIcon({ name, className }) {
  *                        must not run a second one of its own.
  *   onAutoRefreshChange  receives the new interval. Passing it is what makes the
  *                        auto-refresh control appear at all.
+ *
+ * `showTime` (default true) leaves the time-range picker out when false, for a
+ * view the range says nothing about — the Alerts page's contact points and
+ * mute schedules are configuration, not history (docs/alerts/DESIGN.md D16).
+ * Every page that does not pass it gets the bar it always had.
  */
 export default function PageBar({
   children,
@@ -61,6 +66,7 @@ export default function PageBar({
   refreshing = false,
   autoRefresh,
   onAutoRefreshChange,
+  showTime = true,
 }) {
   const [timeOpen, setTimeOpen] = useState(false)
   const timeBtnRef = useRef(null)
@@ -142,7 +148,7 @@ export default function PageBar({
         >
           <SvgIcon name="refresh" className={refreshing ? 'ex-spin' : undefined} />
         </button>
-        <div style={{ position: 'relative' }} ref={timeBtnRef}>
+        {showTime && <div style={{ position: 'relative' }} ref={timeBtnRef}>
           <button
             ref={timeTriggerRef}
             className={`hbtn time-btn${timeOpen ? ' active' : ''}`}
@@ -168,7 +174,7 @@ export default function PageBar({
               anchorRef={timeBtnRef}
             />
           )}
-        </div>
+        </div>}
         {showSettings && (
           <button
             className={`hbtn icon${settingsOpen ? ' active' : ''}`}

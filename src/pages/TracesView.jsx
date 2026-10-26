@@ -26,7 +26,7 @@ import { Sigma, Network, ArrowUpDown, Hash, Calculator, AlertCircle, Bookmark, B
 import { ALIASES } from '@/utils/logFields'
 import { LogRecordDrawer } from '@/components/LogRecordDrawer'
 import QueryHistoryDrawer from '@/components/explorer/QueryHistoryDrawer'
-import AlertDrawer from '@/components/explorer/AlertDrawer'
+import { alertPayloadForQuery } from '@/utils/alerts/editorPayloads'
 import { GRID_PROPS, valueAxisProps, fmtCount } from '@/components/charts/chartDefaults'
 import { buildTimeAxis } from '@/components/charts/timeAxis'
 import ChartTooltip from '@/components/charts/ChartTooltip'
@@ -430,7 +430,6 @@ export default function TracesView({ source = TRACES_SOURCE, goHome, timeRange, 
   const [myQueriesOpen, setMyQueriesOpen] = useState(false)
   const [saveQueryOpen, setSaveQueryOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
-  const [alertOpen, setAlertOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
   const myQueriesBtnRef = useRef(null)
   const saveQueryBtnRef = useRef(null)
@@ -647,6 +646,14 @@ export default function TracesView({ source = TRACES_SOURCE, goHome, timeRange, 
   const openInExplore = useCallback(() => {
     if (!exploreDatasource) return
     onOpenLink?.({ view: 'explore', datasource: exploreDatasource, query: toExploreLogsQuery(composedQuery) })
+  }, [onOpenLink, composedQuery, exploreDatasource])
+
+  // Create Alert opens the rule editor on the query Explore would get. A
+  // dataset with no datasource there (Mobile Traces) keeps the item, disabled
+  // with its reason, until Mobile alerts land (docs/alerts/DESIGN.md D13).
+  const openAlertEditor = useCallback(() => {
+    if (!exploreDatasource) return
+    onOpenLink?.({ view: 'alertEditor', ...alertPayloadForQuery({ datasource: exploreDatasource, query: toExploreLogsQuery(composedQuery) }) })
   }, [onOpenLink, composedQuery, exploreDatasource])
 
   const appliedQuery = useMemo(
@@ -881,7 +888,13 @@ export default function TracesView({ source = TRACES_SOURCE, goHome, timeRange, 
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                       Download CSV
                     </button>
-                    <button role="menuitem" className="logs-more-item" onClick={() => { setAlertOpen(true); setMoreOpen(false) }}>
+                    <button
+                      role="menuitem"
+                      className="logs-more-item"
+                      aria-disabled={exploreDatasource ? undefined : true}
+                      title={exploreDatasource ? undefined : 'Mobile alerts aren\'t available yet'}
+                      onClick={exploreDatasource ? () => { openAlertEditor(); setMoreOpen(false) } : undefined}
+                    >
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 10a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 20a2 2 0 004 0"/><line x1="12" y1="2" x2="12" y2="4"/></svg>
                       Create Alert
                     </button>
@@ -1125,7 +1138,12 @@ export default function TracesView({ source = TRACES_SOURCE, goHome, timeRange, 
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                   CSV
                 </button>
-                <button className="hbtn small" onClick={() => setAlertOpen(true)} title="Create alert from this query">
+                <button
+                  className="hbtn small"
+                  aria-disabled={exploreDatasource ? undefined : true}
+                  onClick={exploreDatasource ? openAlertEditor : undefined}
+                  title={exploreDatasource ? 'Create an alert rule from this query' : 'Mobile alerts aren\'t available yet'}
+                >
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 10a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 20a2 2 0 004 0"/><line x1="12" y1="2" x2="12" y2="4"/></svg>
                   Alert
                 </button>
@@ -1268,15 +1286,6 @@ export default function TracesView({ source = TRACES_SOURCE, goHome, timeRange, 
         </div>
       </div>
 
-      {alertOpen && (
-        <AlertDrawer
-          filters={filters}
-          query={appliedQuery}
-          onClose={() => setAlertOpen(false)}
-          emptyLabel={source.alertEmptyLabel}
-          namePlaceholder={source.alertNamePlaceholder}
-        />
-      )}
       {historyOpen && (
         <QueryHistoryDrawer
           history={source.queryHistory}

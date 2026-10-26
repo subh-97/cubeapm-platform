@@ -1,0 +1,31 @@
+/* Alerts on Home (docs/alerts/DESIGN.md D13): a nudge about the worst firing
+   alert. A card filled with the panel tint, no outline or shadow; severity
+   lives in the icon's tint and the words, not in a coloured bar. */
+
+.home-nudge {
+  display: flex; align-items: center; gap: 14px;
+  margin-bottom: 18px; padding: 10px 12px 10px 10px;
+  background: var(--panel); border: 0; border-radius: var(--radius-lg);
+}
+.home-nudge-icon {
+  flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 9px;
+  background: var(--panel); color: var(--text-muted);
+}
+.home-nudge.critical .home-nudge-icon { background: var(--critical-tint); color: var(--critical-fg); }
+.home-nudge.warning .home-nudge-icon { background: var(--warning-tint); color: var(--warning-fg); }
+.home-nudge-icon svg { width: 17px; height: 17px; }
+
+.home-nudge-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0; }
+.home-nudge-title {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 6px; margin: 0;
+  font-size: 13px; line-height: 1.4; color: var(--text-secondary);
+}
+.home-nudge-title strong { font-weight: 600; color: var(--text-primary); }
+.home-nudge-meta {
+  display: flex; flex-wrap: wrap; margin: 0;
+  font-size: 12px; line-height: 1.45; color: var(--text-muted); font-variant-numeric: tabular-nums;
+}
+.home-nudge-meta span + span::before { content: '·'; margin: 0 7px; color: var(--border-strong); }
+
+.home-nudge-action { flex: none; text-decoration: none; }
+.home-nudge-action svg { width: 13px; height: 13px; }

@@ -1362,7 +1362,7 @@ tbody tr:hover { background: var(--panel-2); }
 .sk-block::after,
 .sk-onboard-h::after, .sk-onboard-line::after,
 .sk-chart-card .sk-lbl::after, .sk-chart-card .sk-val::after, .sk-chart-card .sk-graph::after,
-.sk-pill .sk-lbl::after, .sk-table-head .sk-lbl::after, .sk-row .sk-cell::after {
+.sk-table-head .sk-lbl::after, .sk-row .sk-cell::after {
   content: ''; position: absolute; inset: 0;
   background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.045) 45%, rgba(255,255,255,0.07) 50%, rgba(255,255,255,0.045) 55%, transparent 100%);
   animation: skShimmer 1.4s linear infinite;
@@ -1374,11 +1374,6 @@ tbody tr:hover { background: var(--panel-2); }
 .sk-onboard-h { height: 12px; width: 60%; background: rgba(255,255,255,0.06); border-radius: 4px; position: relative; overflow: hidden; }
 .sk-onboard-line { height: 10px; width: 90%; background: rgba(255,255,255,0.04); border-radius: 4px; position: relative; overflow: hidden; }
 .sk-onboard-line.short { width: 65%; }
-.sk-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
-.sk-pill { height: 88px; background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; justify-content: center; }
-.sk-pill .sk-num { height: 22px; width: 30%; background: var(--panel); border-radius: 4px; position: relative; overflow: hidden; }
-.sk-pill .sk-num::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.05), transparent); animation: skShimmer 1.4s linear infinite; }
-.sk-pill .sk-lbl { height: 9px; width: 55%; background: var(--panel); border-radius: 3px; position: relative; overflow: hidden; }
 .sk-charts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .sk-chart-card { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); padding: 13px 15px 8px; }
 .sk-chart-card .sk-lbl { height: 10px; width: 40%; background: var(--panel); border-radius: 3px; margin-bottom: 8px; position: relative; overflow: hidden; }

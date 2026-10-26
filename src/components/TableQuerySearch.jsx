@@ -42,9 +42,12 @@ const SETTLE_MS = 500
 
 export default function TableQuerySearch({
   onApply, fields = POD_FIELDS, suggest = false, status = null, placeholder: placeholderProp,
-  valuesFor,
+  valuesFor, defaultValue = '',
 }) {
-  const [draft, setDraft] = useState('')
+  // Seeded from the caller when the query arrives in a link (Alerts' ?q=), so
+  // the box shows what is filtering the list and the apply on mount re-applies
+  // that same text instead of wiping it with an empty one.
+  const [draft, setDraft] = useState(defaultValue)
   // Whether typing has paused. Nothing is said about a broken query until it has.
   const [settled, setSettled] = useState(true)
   const [focused, setFocused] = useState(false)
