@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect, useCallback, createContext, useContext } from 'react'
+import { useState, useMemo, useCallback, createContext, useContext } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts'
 import {
   INFRA_SOURCE_INDEX, infraHostsForWindow, HOST_PROCESSES,
@@ -10,6 +10,7 @@ import { resolveWindow } from '@/data/timeWindow'
 import PageBar from '@/components/layout/PageBar'
 import TableQuerySearch from '@/components/TableQuerySearch'
 import CardMenu, { CardActionContext } from '@/components/CardMenu'
+import { alertPayloadForHostCpu } from '@/utils/alerts/editorPayloads'
 import SearchGlyph from '@/components/shared/SearchGlyph'
 import FilterSelect from '@/components/shared/FilterSelect'
 import { useScrollReveal, revealClass } from '@/hooks/useScrollReveal'
@@ -358,9 +359,21 @@ function ProcessChartPanel({ title, series, metric, tabs }) {
   )
 }
 
-function HostDetail({ host }) {
+// A host's page. The strip above its charts is the service page's Endpoint
+// strip, sliding away and back with `reveal`, and holds the page's one choice:
+// which host (the breadcrumb only names it).
+function HostDetail({ host, hosts, onSelectHost, reveal }) {
   return (
     <div className="infra-host-detail">
+      <div className={`endpoint-strip is-sticky${revealClass(reveal)}`}>
+        <FilterSelect
+          className="is-endpoint"
+          label="Host"
+          value={host.host}
+          options={hosts.map(h => h.host)}
+          onSelect={onSelectHost}
+        />
+      </div>
       <ProcessChartPanel title="CPU Used %" series={host.cpuSeries} metric="cpu" tabs={['CPU Used %', 'CPU State %', 'Load Average']} />
       <ProcessChartPanel title="Memory Used %" series={host.memSeries} metric="mem" />
 
@@ -813,7 +826,9 @@ function K8sContainerDetail({ pod, container }) {
   )
 }
 
-function K8sNodeDetail({ node, pods, onSelectPod }) {
+// A node's page. Its strip, like a pod's, holds the page's one choice: which
+// node (the breadcrumb only names it).
+function K8sNodeDetail({ node, nodes, pods, onSelectNode, onSelectPod, reveal }) {
   const [podQuery, setPodQuery] = useState('')
 
   const onNode = useMemo(() => pods.filter(p => p.node === node.name), [pods, node.name])
@@ -830,6 +845,15 @@ function K8sNodeDetail({ node, pods, onSelectPod }) {
 
   return (
     <div>
+      <div className={`endpoint-strip is-sticky${revealClass(reveal)}`}>
+        <FilterSelect
+          className="is-endpoint"
+          label="Node"
+          value={node.name}
+          options={nodes.map(n => n.name)}
+          onSelect={onSelectNode}
+        />
+      </div>
       <div className="infra-card-grid">
         <InfraCard title="CPU Used %" value={fmtPct1(node.cpu)} span="third" fmt={fmtPct1} series={one(node.name, node.cpuSeries)} />
         <InfraCard title="Memory Used %" value={fmtPct1(node.mem)} span="third" fmt={fmtPct1} series={one(node.name, node.memSeries)} />
@@ -862,7 +886,7 @@ function K8sNodeView({ nodes, pods, selectedNode, setSelectedNode, selectedPod, 
     return <K8sPodDetail pod={selectedPod} pods={onNode} onSelectPod={setSelectedPod} reveal={reveal} />
   }
   if (selectedNode) {
-    return <K8sNodeDetail node={selectedNode} pods={pods} onSelectPod={setSelectedPod} />
+    return <K8sNodeDetail node={selectedNode} nodes={nodes} pods={pods} onSelectNode={setSelectedNode} onSelectPod={setSelectedPod} reveal={reveal} />
   }
   return (
     <>
@@ -1156,66 +1180,6 @@ const K8S_EMPTY_COLUMNS = {
   'k8s-statefulset': ['StatefulSet', 'Namespace', 'Desired', 'Ready'],
 }
 
-function CrumbSelect({ value, options, onSelect, searchPlaceholder = 'Search…' }) {
-  const [open, setOpen] = useState(false)
-  const [search, setSearch] = useState('')
-  const ref = useRef(null)
-  const btnRef = useRef(null)
-
-  const filtered = search
-    ? options.filter(o => o.toLowerCase().includes(search.toLowerCase()))
-    : options
-
-  const close = useCallback(() => { setOpen(false); setSearch('') }, [])
-
-  useEffect(() => {
-    if (!open) return
-    const handler = (e) => {
-      if (!ref.current?.contains(e.target) && !btnRef.current?.contains(e.target)) close()
-    }
-    document.addEventListener('click', handler)
-    return () => document.removeEventListener('click', handler)
-  }, [open, close])
-
-  const rect = btnRef.current?.getBoundingClientRect()
-  const panelW = Math.max(rect?.width || 200, 200)
-
-  return (
-    <>
-      <span
-        ref={btnRef}
-        className={`crumb-select${open ? ' open' : ''}`}
-        onClick={(e) => { e.stopPropagation(); setOpen(o => !o) }}
-      >
-        <span className="current mono">{value}</span>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6" /></svg>
-      </span>
-      {open && rect && (
-        <div
-          ref={ref}
-          className="dd-panel"
-          style={{ position: 'fixed', top: rect.bottom + 4, left: rect.left, minWidth: panelW, zIndex: 500 }}
-          onClick={e => e.stopPropagation()}
-        >
-          <div className="dd-search">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></svg>
-            <input placeholder={searchPlaceholder} value={search} onChange={e => setSearch(e.target.value)} autoFocus />
-          </div>
-          <div className="dd-list">
-            {filtered.map(o => (
-              <div key={o} className={`dd-item${o === value ? ' active' : ''}`} onClick={() => { onSelect(o); close() }}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="dd-item-check"><path d="M20 6L9 17l-5-5" /></svg>
-                <span className="mono">{o}</span>
-              </div>
-            ))}
-            {filtered.length === 0 && <div className="dd-item" style={{ opacity: .5, cursor: 'default' }}>No matches</div>}
-          </div>
-        </div>
-      )}
-    </>
-  )
-}
-
 export default function InfraView({ goHome, source, resource, selectedHost, setSelectedHost, timeRange, setTimeRange, settingsOpen, setSettingsOpen, setToast, onOpenLink }) {
   const win = useMemo(() => resolveWindow(timeRange), [timeRange])
 
@@ -1261,24 +1225,31 @@ export default function InfraView({ goHome, source, resource, selectedHost, setS
   )
   const time = useMemo(() => ({ win, setTimeRange, syncId }), [win, setTimeRange, syncId])
 
-  // The Namespace strip slides away and back as the body scrolls, as the
-  // service page's Endpoint strip does. Only a pod's page and the Pod list have
-  // the strip, so only theirs is followed: every reveal re-renders this page,
-  // and the fleet views elsewhere draw dozens of series.
+  // The strip slides away and back as the body scrolls, as the service page's
+  // Endpoint strip does. Only a host's, a node's or a pod's page and the Pod
+  // list have the strip, so only theirs is followed: every reveal re-renders
+  // this page, and the fleet views elsewhere draw dozens of series.
   const { reveal: stripReveal, onScroll: onStripScroll } = useScrollReveal(syncId)
-  const hasStrip = Boolean(k8sPod) || source === 'k8s-pod'
+  const hasStrip = Boolean(host || k8sNode || k8sPod) || source === 'k8s-pod'
 
   // The chart cards carry the service page's ⋮ menu, and offer what it offers.
   // None of the screens behind it - the alert builder, the comparison window,
   // Explore over host metrics - is wired to this page yet, so the menu says so
   // rather than doing nothing, as the service page's does for its own gaps.
   const onCardAction = useCallback((action, title) => {
+    // A host's CPU chart can be alerted on: Explore's metrics store carries
+    // the same CPU per host (docs/alerts/DESIGN.md D13). Other charts wait for
+    // their metrics to reach the store.
+    if (/^Create Alert\b/.test(String(action ?? '')) && host && title === 'CPU Used %') {
+      onOpenLink?.({ view: 'alertEditor', ...alertPayloadForHostCpu(host.host) })
+      return
+    }
     setToast?.(`${action} · ${title} - that screen is not part of this prototype yet.`)
-  }, [setToast])
+  }, [setToast, onOpenLink, host])
 
   let body
   if (host) {
-    body = <HostDetail host={host} />
+    body = <HostDetail host={host} hosts={hosts} onSelectHost={setSelectedHost} reveal={stripReveal} />
   } else if (source === 'host') {
     body = (
       <>
@@ -1339,7 +1310,8 @@ export default function InfraView({ goHome, source, resource, selectedHost, setS
               <span className="sep">/</span>
               <a onClick={() => setSelectedHost(null)}>{sourceLabel}</a>
               <span className="sep">/</span>
-              <CrumbSelect value={host.host} options={hosts.map(h => h.host)} onSelect={setSelectedHost} searchPlaceholder="Search hosts…" />
+              {/* The host is only named here: the strip under the bar picks another. */}
+              <span className="current mono">{host.host}</span>
             </>
           ) : source === 'k8s-node' ? (
             <>
@@ -1352,21 +1324,16 @@ export default function InfraView({ goHome, source, resource, selectedHost, setS
               ) : (
                 <span className="current">{sourceLabel}</span>
               )}
-              {/* The node is a picker only while it is the page you are on.
-                  Under one of its pods it is just the way back to it, a link
-                  like the crumbs before it. */}
+              {/* The node is only named here: the strip on its page picks
+                  another. Under one of its pods it is the way back to it, a
+                  link like the crumbs before it. */}
               {k8sNode && (
                 <>
                   <span className="sep">/</span>
                   {k8sPod ? (
                     <a onClick={() => setK8sPodName(null)}>{k8sNode.name}</a>
                   ) : (
-                    <CrumbSelect
-                      value={k8sNode.name}
-                      options={nodes.map(n => n.name)}
-                      onSelect={(name) => { setK8sNodeName(name); setK8sPodName(null) }}
-                      searchPlaceholder="Search nodes…"
-                    />
+                    <span className="current mono">{k8sNode.name}</span>
                   )}
                 </>
               )}

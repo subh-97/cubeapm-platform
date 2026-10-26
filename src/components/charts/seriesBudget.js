@@ -99,8 +99,9 @@ export function budgetView({ total, cap, want = 0, drawn = 0, ceiling = SERIES_C
  *   - "Show all" is offered while the limit is the whole list. A limit below
  *     the list is the ceiling cutting it (`tooMany`): the steps stop there, and
  *     the reader is asked to narrow the query instead.
- *   - `fewer`: the chart draws more than its own cap. Only Explore's legend
- *     offers a way back ("Hide all"); the chart footer does not.
+ *   - `fewer`: the chart draws more than its own cap. Explore's legend offers
+ *     a way back ("Hide all"); a chart footer offers one ("Show less") only
+ *     when it is `collapsible`, as the alert timeline's is.
  *
  * `limit` and `cap` default to "no ceiling" and "no cap of its own", for a
  * list that borrows the footer without a budget behind it.

@@ -35,7 +35,9 @@ import './explore-metrics.css'
 // say that its text is a copy which editing will not push back — the same
 // sentence, in the same words, that the Logs/Traces Code tab shows.
 
-export default function MetricsEditor({ state, onChange, onSubmit, range }) {
+// `latencyInMs` is the alert editor's: production's alerts read Quick latencies
+// in milliseconds and label them so. Explore leaves it off.
+export default function MetricsEditor({ state, onChange, onSubmit, range, latencyInMs = false }) {
   // Resolved once per range change. `range` is one object on the page's state,
   // so this is stable between real changes rather than per render.
   const { start, end } = useMemo(() => resolveRange(range), [range])
@@ -77,8 +79,8 @@ export default function MetricsEditor({ state, onChange, onSubmit, range }) {
   )
 
   const onQuickModel = useCallback((model) => {
-    onChange?.({ ...state, quick: { model, query: buildQuickQuery(model) } })
-  }, [onChange, state])
+    onChange?.({ ...state, quick: { model, query: buildQuickQuery(model, { latencyInMs }) } })
+  }, [onChange, state, latencyInMs])
 
   const onAdvancedModel = useCallback((model) => {
     onChange?.({ ...state, advanced: { model, query: buildAdvancedQuery(model) } })
@@ -99,6 +101,7 @@ export default function MetricsEditor({ state, onChange, onSubmit, range }) {
           onChange={onQuickModel}
           onSubmit={onSubmit}
           loadValues={quickValues}
+          latencyInMs={latencyInMs}
         />
       )}
 

@@ -12,7 +12,7 @@
 // are display-only (ARCH D2), so they must never cost a round trip.
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Download } from 'lucide-react'
+import { Download, BellPlus } from 'lucide-react'
 import { COMPARE_OPTIONS } from '@/utils/timeRange'
 import { buildCsv, downloadCsv } from '@/utils/explore/csv'
 import ExSelect from './ExSelect'
@@ -89,7 +89,7 @@ function Field({ label, value, onChange, options, disabled, title }) {
 export default function ResultsToolbar({
   view, setView, labelsSet = [], legendLabel, setLegendLabel,
   formula, setFormula, unit, setUnit, stack, setStack, compare, setCompare,
-  onCsv, csvBusy = false, seriesCount,
+  onCsv, csvBusy = false, seriesCount, onCreateAlert,
 }) {
   const [running, setRunning] = useState(false)
   const liveRef = useRef(true)
@@ -179,6 +179,13 @@ export default function ResultsToolbar({
 
       {Number.isFinite(seriesCount) && (
         <span className="ex-count">{seriesCount} series</span>
+      )}
+
+      {onCreateAlert && (
+        <button type="button" className="ex-btn" onClick={onCreateAlert} title="Create an alert rule on this query">
+          <BellPlus size={13} strokeWidth={2} aria-hidden="true" />
+          Create alert
+        </button>
       )}
 
       <button

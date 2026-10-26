@@ -1,15 +1,6 @@
 export default function HomeSkeleton() {
   return (
     <div className="skeleton-shell" aria-hidden aria-label="Loading dashboard">
-      <div className="sk-summary">
-        {[0, 1, 2, 3].map(i => (
-          <div key={i} className="sk-pill">
-            <div className="sk-num" />
-            <div className="sk-lbl" />
-          </div>
-        ))}
-      </div>
-
       <div className="sk-tabs">
         <div className="sk-block" />
         <div className="sk-block" />

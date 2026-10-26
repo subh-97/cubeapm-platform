@@ -17,11 +17,13 @@ import PageBar from '@/components/layout/PageBar'
 import ServicePicker from '@/components/ServicePicker'
 import CardMenu, { CardActionContext } from '@/components/CardMenu'
 import { explorePayloadForCard } from '@/utils/explore/editorState'
+import { alertPayloadForCard } from '@/utils/alerts/editorPayloads'
 import InfoTip from '@/components/shared/InfoTip'
 import SearchGlyph from '@/components/shared/SearchGlyph'
 import FilterSelect from '@/components/shared/FilterSelect'
 import ViewToggle from '@/components/shared/ViewToggle'
 import TitleDropdown from '@/components/shared/TitleDropdown'
+import ViewTabs from '@/components/shared/ViewTabs'
 import { SortableTh, CellBar } from '@/components/shared/SortableTable'
 import { useSortedRows } from '@/hooks/useSortedRows'
 import { useScrollReveal, revealClass } from '@/hooks/useScrollReveal'
@@ -1679,14 +1681,17 @@ export default function ServiceOverview({ serviceId, onSelectService, onOpenTrac
   // open the query builder on the nearest thing to it (ARCH D13). Only the
   // Detail tab is scoped to one endpoint, so only it carries that filter.
   const onCardAction = useCallback((action, title) => {
-    const payload = explorePayloadForCard({
-      action,
-      title,
-      serviceId,
-      endpoint: serviceSubTab === 'detail' ? endpoint : '',
-    })
+    const scope = { action, title, serviceId, endpoint: serviceSubTab === 'detail' ? endpoint : '' }
+    const payload = explorePayloadForCard(scope)
     if (payload) {
       onOpenLink?.({ view: 'explore', ...payload })
+      return
+    }
+    // Create Alert opens the rule editor on the card's query, with the
+    // thresholds that colour the card (docs/alerts/DESIGN.md D13).
+    const alert = alertPayloadForCard(scope)
+    if (alert) {
+      onOpenLink?.({ view: 'alertEditor', ...alert })
       return
     }
     setToast?.(`${action} · ${title} - that screen is not part of this prototype yet.`)
@@ -1761,21 +1766,7 @@ export default function ServiceOverview({ serviceId, onSelectService, onOpenTrac
             <FilterSelect label="Version" value={filterVersion} options={FILTER_OPTS.version} onSelect={setFilterVersion} />
           </div>
         </div>
-        <div className="view-tabs" role="tablist" aria-label="Service views">
-          {SERVICE_VIEWS.map(({ Icon, ...v }) => (
-            <button
-              key={v.id}
-              type="button"
-              role="tab"
-              aria-selected={serviceSubTab === v.id}
-              className={`view-tab${serviceSubTab === v.id ? ' active' : ''}`}
-              onClick={() => setServiceSubTab(v.id)}
-            >
-              <Icon size={14} strokeWidth={1.75} aria-hidden="true" />
-              {v.label}
-            </button>
-          ))}
-        </div>
+        <ViewTabs tabs={SERVICE_VIEWS} active={serviceSubTab} onSelect={setServiceSubTab} ariaLabel="Service views" />
       </div>
       <div
         className={`svc-main${serviceSubTab === 'runtime' ? ' has-rail' : ''}`}

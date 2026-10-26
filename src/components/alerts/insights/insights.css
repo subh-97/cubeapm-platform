@@ -1,0 +1,41 @@
+/* Insights (docs/alerts/DESIGN.md D11). Tokens only. A flag is a label on a
+   rule, not a severity, so it is drawn neutral; the one severity hue here is a
+   failed notification's. */
+
+.ins-tab { display: flex; flex-direction: column; gap: 14px; padding-bottom: 40px; }
+.ins-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 900px) { .ins-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.ins-cell {
+  display: flex; flex-direction: column; gap: 2px; padding: 10px 12px;
+  background: var(--card); border: 1px solid var(--border-subtle); border-radius: var(--radius-md);
+}
+.ins-cell-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .02em; color: var(--text-muted); }
+.ins-cell-value { font-family: var(--font-mono); font-size: 20px; color: var(--text-primary); }
+.ins-cell-value.critical { color: var(--critical-fg); }
+.ins-cell-delta { font-size: 11.5px; color: var(--text-muted); }
+
+.ins-table td { vertical-align: top; }
+/* A row here opens nothing (its name and Tune do), so it does not point. */
+.ins-table tbody tr { cursor: default; }
+/* The shared scroller lays a table out at its widest; this one fits the card
+   instead, so a long rule name wraps and Tune stays in view on a narrow window
+   (7c). The figures never wrap; only the table's own minimum scrolls. */
+.table-scroll.ins-table > table { width: 100%; }
+.ins-table td:first-child { white-space: normal; min-width: 200px; }
+@media (max-width: 1280px) {
+  .ins-table th, .ins-table td { padding-left: 10px; padding-right: 10px; }
+}
+.ins-rule { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.ins-rule a { color: var(--text-primary); font-weight: 600; text-decoration: none; }
+.ins-rule a:hover { color: var(--brand); text-decoration: underline; }
+.ins-rule-meta { font-size: 11.5px; color: var(--text-muted); }
+.ins-flag {
+  font-size: 10.5px; font-weight: 600; padding: 1px 7px; border-radius: 10px;
+  background: var(--panel-2); color: var(--text-primary); border: 1px solid var(--border-strong); cursor: help;
+}
+.ins-figure { display: inline-flex; align-items: baseline; gap: 6px; }
+.ins-delta { font-size: 11px; color: var(--text-muted); }
+.ins-failed.critical { color: var(--critical-fg); font-size: 11.5px; }
+.ins-tune { padding: 4px 9px; }
+.ins-tune svg { width: 13px; height: 13px; }
+.ins-tune[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }

@@ -3,6 +3,10 @@ import ExSelect from './ExSelect.jsx'
 import FilterRows from './FilterRows.jsx'
 import GeneratedQuery from './GeneratedQuery.jsx'
 import { LABEL_DOCS, QUICK_CALCULATE, QUICK_LABELS } from '@/utils/explore/catalogs'
+
+// The alert editor's labels: production calls its latencies "(millis)" there,
+// because an alert's Quick query reads milliseconds (Explore divergence #3).
+const CALCULATE_MS = QUICK_CALCULATE.map(o => (o.value.startsWith('latency_') ? { ...o, label: `${o.label} (millis)` } : o))
 import { emptyPair, parsePercentile } from '@/utils/explore/builders'
 import { tokenizePromql } from '@/utils/explore/promql'
 import './explore-metrics.css'
@@ -32,7 +36,7 @@ const LABEL_OPTIONS = QUICK_LABELS.map(l => ({
 // asks "what is this label?", GROUP BY asks "which of them do I already know?".
 const GROUP_OPTIONS = QUICK_LABELS.map(l => ({ value: l.label, label: l.label }))
 
-export default function QuickBuilder({ model, query, onChange, onSubmit, loadValues }) {
+export default function QuickBuilder({ model, query, onChange, onSubmit, loadValues, latencyInMs = false }) {
   const calculate = model?.calculate ?? ''
   const percentile = model?.value ?? '90'
   const groupBy = model?.groupBy ?? []
@@ -71,7 +75,7 @@ export default function QuickBuilder({ model, query, onChange, onSubmit, loadVal
           <ExSelect
             className="ex-met-calc"
             value={calculate || null}
-            options={QUICK_CALCULATE}
+            options={latencyInMs ? CALCULATE_MS : QUICK_CALCULATE}
             onChange={v => patch({ calculate: v })}
             placeholder="Choose a calculation"
             ariaLabel="Calculate"

@@ -1,52 +1,53 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react'
-import { servicesForWindow, serviceSummaryForWindow, healthHistoryForWindow, serviceEdges, externalDependencies } from '@/data/services'
+import { servicesForWindow, healthHistoryForWindow, serviceEdges, externalDependencies } from '@/data/services'
 import { resolveWindow, windowHint } from '@/data/timeWindow'
-import { statusForLatency, statusColor } from '@/utils/status'
+import { statusColor } from '@/utils/status'
 import { zoomRange } from '@/utils/timeRange'
 import { MIN_FOCUS_MS } from '@/components/charts/useTimeFocus'
 import PageBar from '@/components/layout/PageBar'
 import { highlightTerms } from '@/utils/highlight'
 import TableSearch from '@/components/TableSearch'
 import TabBar from '@/components/shared/TabBar'
-import { CellBar } from '@/components/shared/SortableTable'
+import { SortableTable, CellBar } from '@/components/shared/SortableTable'
 import { parsePodQuery, matchesPod, highlightsFor, tagHighlightsFor, tagTerms, SERVICE_FIELDS } from '@/utils/tableQuery'
+import HomeAlerts from '@/components/alerts/home/HomeAlerts'
 
-function SummaryStrip({ summary: s }) {
-  const pills = [
-    { cls: 'total', num: s.total, lbl: 'SERVICES', icon: <><rect x="3" y="4" width="18" height="6" rx="1"/><rect x="3" y="14" width="18" height="6" rx="1"/><circle cx="7" cy="7" r=".7"/><circle cx="7" cy="17" r=".7"/></> },
-    { cls: 'critical', num: s.critical, lbl: 'CRITICAL', icon: <><path d="M12 3l9 17H3z"/><path d="M12 10v4M12 17v.01"/></> },
-    { cls: 'warning', num: s.warning, lbl: 'WARNING', icon: <><path d="M6 10a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 20a2 2 0 004 0"/></> },
-    { cls: 'healthy', num: s.healthy, lbl: 'HEALTHY', icon: <path d="M20 6L9 17l-5-5"/> },
-  ]
-  return (
-    <div className="summary-strip">
-      {pills.map(p => (
-        <div key={p.cls} className={`summary-pill ${p.cls}`}>
-          <div>
-            <div className="num">{p.num}</div>
-            <div className="lbl">{p.lbl}</div>
-          </div>
-          <div className="icon-wrap">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{p.icon}</svg>
-          </div>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-// What a severity badge says when it disagrees with the numbers beside it.
+// What a severity dot says when it disagrees with the numbers beside it (the
+// Health tab's rows).
 //
 // Over a wide range both readings are true and they differ: the window averages
 // out fine, and the service still broke inside it. Without this the row looks
-// like a bug — a red badge next to a healthy-looking p90 — so the badge says
-// which question it is answering.
+// like a bug — a red dot next to a healthy-looking p90 — so the dot says which
+// question it is answering.
 function statusTitle(s) {
   if (s.status === s.aggregateStatus) return `Status: ${s.status}`
   return `Breached during this window: p90 reached ${s.peakLatencyP90} ms and errors ${s.peakErrorRatePct}%. `
     + `The figures in this row are the window's averages, which is why they read ${s.aggregateStatus} — `
     + `narrow the range to see the breach.`
 }
+
+// The one tag a row always carries: who owns the service. The rest (tier,
+// oncall) stay searchable — service.tier:critical — and show on a row only
+// when a search matches them, so a hit is never invisible.
+const SHOWN_TAGS = new Set(['team'])
+
+function ServiceName({ s, hits, tagHits }) {
+  const tags = Object.entries(s.tags ?? {}).filter(([k, v]) => SHOWN_TAGS.has(k)
+    || tagTerms(tagHits, 'service', k).some(t => String(v).toLowerCase().includes(String(t).toLowerCase())))
+  return (
+    <span className="infra-name-cell">
+      <span>{highlightTerms(s.name, hits.service, 'svc-hit')}</span>
+      {tags.map(([k, v]) => (
+        <span key={k} className="svc-tag" title={`${k}: ${v} — search as service.${k}:${v}`}>
+          <span className="svc-tag-k">{k}</span>
+          <span className="svc-tag-v">{highlightTerms(v, tagTerms(tagHits, 'service', k), 'svc-hit')}</span>
+        </span>
+      ))}
+    </span>
+  )
+}
+
+const formatRpm = rpm => (rpm >= 1000 ? `${(rpm / 1000).toFixed(2)}K` : rpm.toFixed(2))
 
 function DetailTable({ services, onServiceClick }) {
   const [search, setSearch] = useState('')
@@ -77,6 +78,14 @@ function DetailTable({ services, onServiceClick }) {
     ? `${shown.length} of ${services.length} services`
     : 'Sorted by severity - critical first'
 
+  const columns = [
+    { key: 'name', label: 'Service', align: 'left', mono: true, sortable: false, render: s => <ServiceName s={s} hits={hits} tagHits={tagHits} /> },
+    { key: 'rpm', label: 'RPM', render: s => formatRpm(s.rpm) },
+    { key: 'latencyP90', label: 'p90 Latency', render: s => `${s.latencyP90} ms` },
+    { key: 'latencyAvg', label: 'Avg Latency', render: s => `${s.latencyAvg} ms` },
+    { key: 'errorRatePct', label: 'Error %', render: s => <CellBar fill={s.errorRatePct * 12}>{s.errorRatePct}%</CellBar> },
+  ]
+
   return (
     <div className="panel">
       <div className="panel-head is-stacked">
@@ -88,58 +97,17 @@ function DetailTable({ services, onServiceClick }) {
         </div>
         <TableSearch onApply={setSearch} />
       </div>
-      <table>
-        <thead>
-          <tr>
-            <th style={{ textAlign: 'left' }}>Service</th>
-            <th className="sortable">RPM<span className="arrow">▾</span></th>
-            <th className="sortable">Latency p90<span className="arrow">▾</span></th>
-            <th className="sortable">Latency Avg</th>
-            <th className="sortable">Error Rate</th>
-          </tr>
-        </thead>
-        <tbody>
-          {shown.length === 0 && (
-            <tr className="svc-empty-row">
-              <td colSpan={5}>
-                No service matches “{term}”.
-              </td>
-            </tr>
-          )}
-          {shown.map(s => {
-            const latS = statusForLatency(s.latencyP90)
-            return (
-              <tr key={s.id} onClick={() => onServiceClick(s.id)}>
-                <td>
-                  <div className="svc-name">
-                    <span className={`status-dot ${s.status}`} title={statusTitle(s)} />
-                    {/* One element whether highlighted or not: .svc-name is a
-                        flex row with a gap, so returning the name as several
-                        nodes would space each fragment apart. */}
-                    <span className="svc-name-text">
-                      {highlightTerms(s.name, hits.service, 'svc-hit')}
-                    </span>
-                    <span className="svc-lang">{s.language}</span>
-                    <span className={`badge ${s.status}`} title={statusTitle(s)}>{s.status}</span>
-                    {/* The tags live in this column, so they are searched
-                        through it: service.team:payments. */}
-                    {Object.entries(s.tags ?? {}).map(([k, v]) => (
-                      <span key={k} className="svc-tag" title={`${k}: ${v} — search as service.${k}:${v}`}>
-                        <span className="svc-tag-k">{k}</span>
-                        <span className="svc-tag-v">{highlightTerms(v, tagTerms(tagHits, 'service', k), 'svc-hit')}</span>
-                      </span>
-                    ))}
-                  </div>
-                </td>
-                <td>{s.rpm >= 1000 ? (s.rpm / 1000).toFixed(2) + 'K' : s.rpm.toFixed(2)}</td>
-                <td className={latS === 'critical' ? 'val-critical' : latS === 'warning' ? 'val-warning' : ''}>{s.latencyP90} ms</td>
-                <td>{s.latencyAvg} ms</td>
-                <td><CellBar fill={s.errorRatePct * 12}>{s.errorRatePct}%</CellBar></td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
+      {/* The shared table (components/shared/SortableTable), as on the service,
+          Infrastructure and Browser pages. Rows arrive worst first and keep
+          that order until a figure's header is clicked; nothing in a row
+          marks how bad it is. */}
+      <SortableTable
+        columns={columns}
+        rows={shown}
+        rowKey={s => s.id}
+        onRowClick={s => onServiceClick(s.id)}
+        empty={`No service matches “${term}”.`}
+      />
     </div>
   )
 }
@@ -362,7 +330,6 @@ export default function HomePage({ selectService, timeRange, setTimeRange }) {
   // and the list says so rather than carrying yesterday's verdict forward.
   const win = useMemo(() => resolveWindow(timeRange), [timeRange])
   const services = useMemo(() => servicesForWindow(win), [win])
-  const summary = useMemo(() => serviceSummaryForWindow(win), [win])
 
   return (
     <>
@@ -372,7 +339,8 @@ export default function HomePage({ selectService, timeRange, setTimeRange }) {
         <span className="current">Home</span>
       </PageBar>
       <div className="home-scroll">
-      <SummaryStrip summary={summary} />
+      {/* What Alerts says about the fleet (docs/alerts/DESIGN.md D13). */}
+      <HomeAlerts />
       <div style={{ marginBottom: 12 }}>
         <TabBar tabs={HOME_TABS} active={homeTab} onChange={setHomeTab} ariaLabel="Service view" />
       </div>

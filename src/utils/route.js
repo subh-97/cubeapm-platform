@@ -36,6 +36,7 @@ const VIEW_PATHS = {
   errors: '/errors',
   browser: '/browser',
   infra: '/infrastructure',
+  alerts: '/alerts',
 }
 const VIEW_FOR_PATH = new Map(Object.entries(VIEW_PATHS).map(([view, path]) => [path, view]))
 
@@ -77,6 +78,16 @@ export function parseRoute(pathname, search = '') {
     if (!traceId) return { view: datasource === 'mobile' ? 'mtraces' : 'traces' }
     return datasource ? { view: 'trace', traceId, datasource } : { view: 'trace', traceId }
   }
+  // Production's Alerts paths (docs/alerts/DESIGN.md D14): /alerts/:id is a
+  // rule, /alerts/new and /alerts/:id/edit the editor. Their query strings
+  // (tab, rule_id, alert_id, …) are the pages' own, read by alertsUrl.js.
+  if (pathname.startsWith('/alerts/')) {
+    const first = segmentAfter(pathname, '/alerts/')
+    if (!first) return { view: 'alerts' }
+    if (first === 'new') return { view: 'alertEditor', ruleId: null }
+    const second = segmentAfter(pathname, `/alerts/${pathname.slice('/alerts/'.length).split('/')[0]}/`)
+    return second === 'edit' ? { view: 'alertEditor', ruleId: first } : { view: 'alertRule', ruleId: first }
+  }
   if (pathname.startsWith('/service/')) {
     const id = segmentAfter(pathname, '/service/')
     const tab = new URLSearchParams(search).get('tab')
@@ -99,10 +110,18 @@ export function traceUrl(traceId, datasource) {
   return TRACE_DATASOURCES.has(datasource) ? `${path}?datasource=${datasource}` : path
 }
 
+/** A rule's page, as production spells it. */
+export const alertRuleUrl = ruleId => `/alerts/${encodeURIComponent(ruleId)}`
+
+/** The rule editor: a rule's, or a new one's. */
+export const alertEditorUrl = ruleId => (ruleId == null || ruleId === '' ? '/alerts/new' : `${alertRuleUrl(ruleId)}/edit`)
+
 // The one URL a route is spelled as.
 export function routeUrl(route) {
   if (route.view === 'service') return serviceUrl(route.serviceId, route.serviceSubTab)
   if (route.view === 'trace') return traceUrl(route.traceId, route.datasource)
+  if (route.view === 'alertRule') return alertRuleUrl(route.ruleId)
+  if (route.view === 'alertEditor') return alertEditorUrl(route.ruleId)
   return VIEW_PATHS[route.view] ?? VIEW_PATHS.home
 }
 

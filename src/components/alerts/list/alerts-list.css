@@ -1,0 +1,378 @@
+/* The Rules tab: src/components/alerts/list/*.jsx (docs/alerts/DESIGN.md D2–D4).
+
+   It stands in the platform's own pieces: the Logs/Traces/Errors facet rail
+   (.logs-filters, FacetGroup), the panel head, the series-budget footer and
+   the skeleton bones (.ovsk-bone). What is
+   here is only what the tab has of its own. Every colour is a token, so both
+   themes work, and a status hue only ever arrives through a tone class that
+   statusForAlertState() chose (CLAUDE.md rule 1). */
+
+/* ── The tab ──────────────────────────────────────────────────────────── */
+
+/* The tab scrolls as one page: the band first, then the rules. It is its own
+   scroll container, so the rail and the group headers stick to it. */
+.rtab {
+  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  padding: 14px 0 24px;
+}
+.rtab > * + * { margin-top: 14px; }
+
+/* The two ways to make a rule, side by side above the timeline, splitting the
+   full width, each at least 128px tall: from a template (white) and from
+   scratch (the brand's blue). */
+.rtab-slots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 10px; }
+.rtab-slot { min-height: 128px; box-sizing: border-box; border-radius: var(--radius-lg); }
+.rtab-create {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto 1fr;
+  column-gap: 30px; row-gap: 12px; padding: 16px 18px;
+  overflow: hidden; /* the illustration bleeds off the bottom-left corner */
+}
+.rtab-create.is-template { background: var(--card); border: 1px solid var(--card-border); }
+/* White reads 5.2:1 on the light theme's brand; the dark theme's brand is
+   lighter, so the banner takes its deeper step there. */
+.rtab-create.is-scratch { --banner-fill: var(--brand); background: var(--banner-fill); color: #fff; }
+:root:not([data-theme="light"]) .rtab-create.is-scratch { --banner-fill: var(--brand-active); }
+
+/* Each banner's illustration (CreateRuleBanners.jsx), in brand tints on white
+   and white at low alphas on blue: quiet beside the title, no status hue.
+   Drawn 1.456× the 112×88 box it holds (30% larger, then 12% more),
+   spilling into the padding and the gap rather than growing the banner; the
+   gap is wide enough that the spill never reaches the title. Then offset
+   16px left and 16px down, past the banner's corner, which crops it. */
+.rtab-create-art {
+  grid-row: 1 / 3; align-self: center; width: 112px; height: 88px; overflow: visible;
+  transform: translate(-16px, 16px) scale(1.456);
+}
+.is-template .art-back { fill: var(--brand-muted); opacity: .5; }
+.is-template .art-mid { fill: var(--brand-muted); }
+.is-template .art-card { fill: var(--card); stroke: var(--border-panel); }
+.is-template .art-bar { fill: var(--border-panel); }
+.is-template :is(.art-back, .art-mid) + .art-bar { fill: var(--brand-on-muted); opacity: .25; }
+/* White in both themes, as the plus's bubble is: the marks keep their own
+   colours, and Kafka's is near-black. */
+.is-template .art-badge { fill: #fff; stroke: var(--border-panel); }
+.is-template .art-threshold { stroke: var(--brand); stroke-opacity: .4; stroke-dasharray: 3 3; }
+.is-template .art-area { fill: var(--brand-muted); opacity: .7; }
+.is-template .art-line { fill: none; stroke: var(--brand); stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+.is-scratch .art-frame { fill: rgba(255, 255, 255, .08); stroke: rgba(255, 255, 255, .3); }
+.is-scratch .art-bar { fill: rgba(255, 255, 255, .4); }
+.is-scratch .art-grid { stroke: rgba(255, 255, 255, .12); }
+.is-scratch .art-threshold { stroke: rgba(255, 255, 255, .5); stroke-dasharray: 3 3; }
+.is-scratch .art-line { fill: none; stroke: rgba(255, 255, 255, .85); stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+.is-scratch .art-ghost { stroke: rgba(255, 255, 255, .35); stroke-dasharray: 2 3; }
+.is-scratch .art-dot { fill: #fff; }
+.is-scratch .art-badge { fill: #fff; }
+.is-scratch .art-plus { fill: none; stroke: var(--banner-fill); stroke-width: 2; stroke-linecap: round; }
+.rtab-create-body { grid-row: 1; min-width: 0; }
+/* Set as the app's page headings are (a rule page's h1: 17px, 600, -.2px),
+   though an h2 in the markup: two h1s side by side in a tab would muddle the
+   page's outline. */
+.rtab-create-title { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -.2px; line-height: 1.3; color: var(--text-primary); }
+.rtab-create-text { margin: 3px 0 0; font-size: 12.5px; line-height: 1.4; color: var(--text-secondary); opacity: .85; }
+.rtab-create.is-scratch .rtab-create-title { color: #fff; }
+.rtab-create.is-scratch .rtab-create-text { color: #fff; }
+/* The whole banner is the button's to click: its ::after stretches over the
+   banner (the nearest positioned box), so the CTA stays the one control a
+   keyboard or screen reader meets. No hover on the CTA itself. */
+.rtab-create { position: relative; cursor: pointer; transition: background-color .15s ease, border-color .15s ease; }
+/* The banner answers the pointer, and a keyboard's focus on its CTA, quietly:
+   white takes a breath of the panel tint and a firmer edge; blue darkens a
+   step, which keeps its white text above 4.5:1. */
+.rtab-create.is-template:is(:hover, :has(.rtab-create-cta:focus-visible)) {
+  background: color-mix(in srgb, var(--panel) 50%, var(--card)); border-color: var(--border-panel);
+}
+.rtab-create.is-scratch:is(:hover, :has(.rtab-create-cta:focus-visible)) {
+  background: color-mix(in srgb, var(--banner-fill) 90%, #000);
+}
+.rtab-create-cta { grid-column: 2; grid-row: 2; align-self: end; justify-self: start; gap: 6px; }
+.rtab-create-cta::after { content: ''; position: absolute; inset: 0; }
+.rtab-create-cta svg { width: 13px; height: 13px; }
+.rtab-create.is-template .rtab-create-cta:hover { color: var(--text-secondary); border-color: var(--border-subtle); }
+.rtab-create.is-scratch .rtab-create-cta { background: #fff; border-color: #fff; color: var(--blue-600); font-weight: 600; }
+.rtab-create.is-scratch .rtab-create-cta:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+
+/* The template picker. */
+.rtab-tpl-list { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.rtab-tpl {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; text-align: left;
+  background: var(--card); border: 1px solid var(--border-subtle); border-radius: var(--radius-md);
+  font: inherit; color: var(--text-primary); cursor: pointer;
+}
+.rtab-tpl:hover { border-color: var(--border-strong); background: var(--overlay-hover); }
+.rtab-tpl:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.rtab-tpl-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.rtab-tpl-title { font-size: 13px; font-weight: 600; }
+.rtab-tpl-desc { font-size: 12px; line-height: 1.45; color: var(--text-secondary); }
+.rtab-tpl > svg { width: 14px; height: 14px; flex-shrink: 0; color: var(--text-muted); }
+@media (max-width: 960px) {
+  .rtab-slots { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ── Firing now ───────────────────────────────────────────────────────── */
+
+.rtab-band > * + * { margin-top: 10px; }
+
+/* One quiet line, however many refreshes fail (R43). The data under it stays. */
+.rtab-stale {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 12px; border-radius: var(--radius-sm);
+  background: var(--warning-tint); color: var(--warning-fg); font-size: 12px;
+}
+.rtab-stale svg { width: 14px; height: 14px; flex-shrink: 0; }
+.rtab-stale-retry {
+  background: none; border: 0; padding: 0; font: inherit; font-weight: 600;
+  color: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer;
+}
+.rtab-stale-retry:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 2px; }
+
+/* Nothing firing: the band is one line (D2). */
+.rtab-quiet {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 9px 12px; border: 1px solid var(--border-subtle); border-radius: var(--radius-md);
+  font-size: 12.5px; color: var(--text-secondary);
+}
+.rtab-quiet > svg { width: 15px; height: 15px; flex-shrink: 0; }
+.rtab-quiet > svg.healthy { color: var(--healthy); }
+.rtab-quiet-text { flex: 1; min-width: 0; }
+
+/* ── The timeline ─────────────────────────────────────────────────────── */
+
+/* Visible overflow: a bar's tooltip rises above the first lane, past the
+   panel's own edge, and .panel would clip it. */
+.panel.rtab-tl { margin-bottom: 0; overflow: visible; }
+.rtab-tl .panel-head { padding: 10px 14px; }
+/* The whole head is the fold's button, its chevron as the filter sections':
+   up open, down folded. Its corners follow the panel's, inside its border. */
+.rtab-tl-head {
+  width: 100%; border: 0; border-radius: calc(var(--radius-lg) - 1px) calc(var(--radius-lg) - 1px) 0 0;
+  background: none; color: var(--text-primary); font: inherit; font-size: 13px; font-weight: 600; text-align: left; cursor: pointer;
+}
+.rtab-tl.is-collapsed .rtab-tl-head { border-radius: calc(var(--radius-lg) - 1px); }
+.rtab-tl-head:hover { background: var(--panel); }
+.rtab-tl-head:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.rtab-tl-chevron { width: 16px; height: 16px; margin-right: -2px; color: var(--text-secondary); transition: transform .15s ease; }
+.rtab-tl.is-collapsed .rtab-tl-chevron { transform: rotate(180deg); }
+.rtab-tl-body { --rtab-lane: 22px; padding: 8px 14px 4px; }
+.rtab-tl-grid { display: grid; grid-template-columns: minmax(150px, 240px) minmax(0, 1fr); column-gap: 12px; }
+.rtab-tl-labels { min-width: 0; }
+.rtab-tl-label {
+  display: flex; align-items: center; gap: 7px; height: var(--rtab-lane); min-width: 0;
+  font-size: 11.5px; color: var(--text-primary);
+}
+.rtab-tl-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: inherit; text-decoration: none; }
+.rtab-tl-name:hover { color: var(--brand); text-decoration: underline; }
+.rtab-tl-name:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; border-radius: 2px; }
+.rtab-tl-sub { flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 10.5px; color: var(--text-muted); }
+.rtab-tl-plot { position: relative; min-width: 0; cursor: crosshair; user-select: none; }
+.rtab-tl-svg { display: block; width: 100%; overflow: visible; }
+.rtab-tl-lane-bg { fill: var(--chart-plot-bg); }
+.rtab-tl-grid-line { stroke: var(--border-subtle); stroke-width: 1; }
+.rtab-tl-now { stroke: var(--text-muted); stroke-width: 1; stroke-dasharray: 2 3; }
+.rtab-tl-tick-mark { stroke: var(--text-secondary); stroke-width: 1.5; }
+.rtab-tl-bar { cursor: pointer; }
+.rtab-tl-bar:focus { outline: none; }
+.rtab-tl-bar:focus-visible rect { stroke: var(--brand); stroke-width: 2; }
+.rtab-tl-bar:hover rect.rtab-tl-fill { filter: brightness(1.12); }
+.rtab-tl-select { fill: var(--brand); fill-opacity: .14; stroke: var(--brand); stroke-opacity: .6; pointer-events: none; }
+.rtab-tl-axis { position: relative; height: 18px; margin-top: 2px; font-size: 10px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.rtab-tl-axis-tick { position: absolute; top: 2px; transform: translateX(-50%); white-space: nowrap; }
+.rtab-tl-axis-tick.is-first { transform: none; }
+.rtab-tl-legend { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 14px; padding: 6px 0 2px; font-size: 10.5px; color: var(--text-muted); }
+.rtab-tl-legend-item { display: inline-flex; align-items: center; gap: 5px; }
+.rtab-tl-legend svg { width: 14px; height: 8px; flex-shrink: 0; }
+.rtab-tl-tip { position: absolute; z-index: 20; pointer-events: none; transform: translate(-50%, calc(-100% - 6px)); }
+.rtab-tl-tip-name { margin-bottom: 3px; color: var(--text-primary); font-weight: 600; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rtab-tl-empty { padding: 14px 0 12px; font-size: 12px; color: var(--text-muted); }
+.rtab-tl .series-budget { margin: 4px 0 0; padding: 6px 0 2px; }
+
+/* ── The rules: rail, toolbar, groups, rows ────────────────────────────── */
+
+.rtab-frame { display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: 14px; align-items: start; }
+/* The Logs/Traces/Errors rail, sticking while the rules scroll past it. */
+.rtab-frame > .logs-filters { position: sticky; top: 0; max-height: calc(100vh - 150px); }
+
+/* The results card. No overflow of its own: an overflow would become the
+   group headers' scroll container and they would stop sticking. */
+.rtab-main { min-width: 0; background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); }
+.rtab-toolbar { display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px 10px 14px; }
+.rtab-toolbar .pod-search-wrap { flex: 1; min-width: 0; }
+/* The search stands 32px, the height of the app's .run-btn. */
+.rtab-toolbar .svc-search { min-height: 32px; box-sizing: border-box; }
+.rtab-kbd { font-family: var(--font-mono); font-size: 10px; padding: 0 4px; border: 1px solid var(--border-panel); border-radius: 3px; color: var(--text-secondary); }
+
+.rtab-group { border-top: 1px solid var(--border-subtle); }
+/* Sticky, so a long open panel never loses which group it is in (D3). */
+.rtab-group-head { position: sticky; top: 0; z-index: 3; margin: 0; background: var(--panel); border-bottom: 1px solid var(--border-subtle); }
+.rtab-group-toggle {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 7px 14px 7px 10px; border: 0; background: none; cursor: pointer; text-align: left;
+  font: inherit; font-size: 12.5px; font-weight: 600; color: var(--text-primary);
+}
+.rtab-group-toggle:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.rtab-group-toggle > svg { width: 14px; height: 14px; color: var(--text-muted); transition: transform .12s; flex-shrink: 0; }
+.rtab-group-toggle[aria-expanded="false"] > svg { transform: rotate(-90deg); }
+.rtab-group-toggle .status-dot { width: 8px; height: 8px; box-shadow: none; }
+.rtab-group-toggle .status-dot.info { background: var(--info); }
+.rtab-group-toggle .status-dot.neutral { background: var(--neutral); }
+.rtab-group-count { margin-left: auto; font-size: 11px; font-weight: 400; color: var(--text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* A rule row. Its columns: the toggle, the state, what the rule is, its
+   value, since and who it tells, and its two menus. */
+.rtab-rule {
+  display: grid;
+  grid-template-columns: 22px 112px minmax(0, 1fr) 170px 150px auto;
+  column-gap: 12px; align-items: start;
+  padding: 10px 14px 10px 8px;
+  font-size: 12.5px; line-height: 1.45;
+  cursor: pointer;
+}
+.rtab-rule + .rtab-rule, .rtab-details + .rtab-rule { border-top: 1px solid var(--border-subtle); }
+.rtab-rule.is-open { background: var(--panel); }
+/* Selected: a faint brand tint, with the edge doing the marking, in either
+   theme; never a status hue. */
+/* The toggle is the row's one Tab stop besides its link and menus, so its
+   focus ring is drawn round the whole row it toggles. */
+.rtab-rule:has(> .rtab-rule-toggle:focus-visible) { outline: 2px solid var(--brand); outline-offset: -2px; }
+.rtab-rule-toggle {
+  display: grid; place-items: center; width: 22px; height: 22px; padding: 0;
+  border: 0; border-radius: 4px; background: none; color: var(--text-muted); cursor: pointer;
+}
+.rtab-rule-toggle:focus-visible { outline: none; }
+.rtab-rule-toggle svg { width: 14px; height: 14px; transition: transform .12s; }
+.rtab-rule-toggle[aria-expanded="true"] svg { transform: rotate(90deg); }
+.rtab-rule-state { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding-top: 1px; min-width: 0; }
+.rtab-rule-state .alr-chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.rtab-rule-main { min-width: 0; }
+.rtab-rule-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.rtab-rule-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; color: var(--text-primary); text-decoration: none; }
+.rtab-rule-name:hover { color: var(--brand); text-decoration: underline; }
+.rtab-rule-name:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 2px; }
+.rtab-source {
+  flex-shrink: 0; padding: 1px 6px; border-radius: 3px;
+  font-size: 9.5px; font-weight: 600; letter-spacing: .4px; text-transform: uppercase;
+  background: var(--accent-muted); color: var(--accent);
+}
+.rtab-rule-sentence { display: flex; align-items: center; flex-wrap: wrap; gap: 3px 8px; margin-top: 2px; color: var(--text-secondary); }
+.rtab-managed { font-size: 11.5px; color: var(--text-muted); }
+.rtab-scope {
+  display: inline-flex; align-items: center; gap: 4px; max-width: 100%;
+  padding: 0 6px; border-radius: 3px; background: var(--panel-2);
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.rtab-scope svg { width: 11px; height: 11px; flex-shrink: 0; color: var(--text-muted); }
+
+.rtab-rule-value { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; min-width: 0; }
+.rtab-value-line { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; }
+.rtab-val { font-family: var(--font-mono); font-size: 12.5px; font-weight: 600; color: var(--text-primary); }
+.rtab-val.critical { color: var(--critical); }
+.rtab-val.warning { color: var(--warning); }
+.rtab-val.info { color: var(--info); }
+.rtab-val.is-none { color: var(--text-muted); font-weight: 400; }
+.rtab-multiple { font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); }
+.rtab-trend-line { display: flex; align-items: center; gap: 6px; }
+.rtab-spark { display: block; width: 72px; height: 18px; flex-shrink: 0; }
+/* Information, never severity: one info colour whichever way the value moved
+   (CLAUDE.md rules 2 and 6), the chip Errors and Explore use. */
+.rtab-delta {
+  font-family: var(--font-mono); font-size: 9.5px; font-weight: 600; white-space: nowrap;
+  padding: 1px 4px; border-radius: 3px; background: var(--info-tint); color: var(--info);
+}
+.rtab-delta[data-dir="flat"], .rtab-delta[data-dir="none"] { background: none; color: var(--text-muted); font-weight: 400; }
+
+.rtab-rule-since { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.rtab-since { color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.rtab-notifies { display: flex; align-items: center; gap: 5px; min-width: 0; font-size: 11.5px; color: var(--text-secondary); }
+.rtab-notifies svg { width: 12px; height: 12px; flex-shrink: 0; color: var(--text-muted); }
+.rtab-notifies-names { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rtab-notifies.is-none { color: var(--text-muted); }
+
+.rtab-rule-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; cursor: default; }
+
+/* "‖ 2 paused rules": a group's paused rules as one line (R47). */
+.rtab-fold {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 7px 14px 7px 42px; border: 0; border-top: 1px solid var(--border-subtle); background: none;
+  font: inherit; font-size: 12px; color: var(--text-muted); text-align: left; cursor: pointer;
+}
+.rtab-fold:hover { color: var(--text-primary); background: var(--overlay-hover); }
+.rtab-fold:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.rtab-fold svg { width: 13px; height: 13px; flex-shrink: 0; }
+
+/* ── A rule, expanded in place (D3) ────────────────────────────────────── */
+
+.rtab-details {
+  padding: 4px 14px 14px 42px; background: var(--panel);
+  font-size: 12.5px; line-height: 1.5; color: var(--text-secondary);
+  cursor: default;
+}
+.rtab-d-sentence { margin: 0 0 10px; color: var(--text-primary); }
+.rtab-d-grid { display: grid; grid-template-columns: 128px minmax(0, 1fr); gap: 5px 14px; margin: 0; }
+.rtab-d-grid dt { font-size: 10.5px; font-weight: 600; letter-spacing: .4px; text-transform: uppercase; color: var(--text-muted); padding-top: 2px; }
+.rtab-d-grid dd { margin: 0; min-width: 0; color: var(--text-primary); }
+.rtab-d-settings { display: flex; flex-wrap: wrap; gap: 4px 18px; }
+.rtab-d-settings b { font-weight: 600; font-family: var(--font-mono); font-size: 12px; }
+.rtab-d-settings span { color: var(--text-secondary); }
+.rtab-d-list { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; }
+.rtab-cp { display: inline-flex; align-items: center; gap: 5px; }
+.rtab-cp svg { width: 13px; height: 13px; color: var(--text-secondary); flex-shrink: 0; }
+.rtab-cp-targets { color: var(--text-muted); font-size: 11.5px; }
+.rtab-tag { display: inline-flex; padding: 0 6px; border-radius: 3px; background: var(--brand-muted); color: var(--brand-on-muted); font-family: var(--font-mono); font-size: 11px; }
+.rtab-d-muted { color: var(--text-muted); }
+.rtab-d-error {
+  margin: 10px 0 0; padding: 8px 10px; border-left: 2px solid var(--border-strong); border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--panel-2); font-family: var(--font-mono); font-size: 11.5px; color: var(--text-primary);
+  white-space: pre-wrap; word-break: break-word; overflow-x: auto;
+}
+.rtab-d-error-label { display: block; margin-bottom: 2px; font-family: var(--font-sans); font-size: 10.5px; font-weight: 600; letter-spacing: .4px; text-transform: uppercase; color: var(--text-muted); }
+.rtab-link-btn { background: none; border: 0; padding: 0; font: inherit; font-weight: 600; color: var(--brand); cursor: pointer; }
+.rtab-link-btn:hover { color: var(--brand-active); text-decoration: underline; }
+.rtab-link-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 2px; }
+
+.rtab-inst { margin-top: 12px; }
+.rtab-inst-head { margin: 0 0 4px; font-size: 10.5px; font-weight: 600; letter-spacing: .4px; text-transform: uppercase; color: var(--text-muted); }
+.rtab-inst-row {
+  display: grid; grid-template-columns: 96px minmax(0, 1fr) 190px 110px auto; column-gap: 12px; align-items: center;
+  padding: 6px 0; border-top: 1px solid var(--border-subtle);
+}
+.rtab-inst-labels { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.rtab-inst-value { display: flex; align-items: center; justify-content: flex-end; gap: 6px; white-space: nowrap; }
+.rtab-inst-of { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); }
+.rtab-inst-links { display: flex; gap: 6px; justify-content: flex-end; }
+.rtab-d-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.rtab-d-foot .hbtn svg, .rtab-inst-links .hbtn svg { width: 12px; height: 12px; }
+.rtab-d-foot a.hbtn { text-decoration: none; }
+
+/* ── Loading and empty ─────────────────────────────────────────────────── */
+
+.rtab-sk-lane { height: 12px; margin: 5px 0; }
+.rtab-sk-row { display: grid; grid-template-columns: 22px 112px minmax(0, 1fr) 170px 150px 160px; column-gap: 12px; align-items: center; padding: 14px 14px 14px 8px; border-top: 1px solid var(--border-subtle); }
+.rtab-sk-lines { display: flex; flex-direction: column; gap: 6px; }
+.rtab-empty-list { margin: 10px 0 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.rtab-empty-filter {
+  display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 3px;
+  background: var(--panel-2); font-size: 11.5px; color: var(--text-secondary);
+}
+.rtab-empty-filter .v { color: var(--text-primary); font-weight: 500; }
+.rtab-empty-filter .zero { color: var(--text-muted); }
+.rtab-empty-actions { display: flex; justify-content: center; gap: 8px; margin-top: 12px; }
+.rtab-empty-suggest { margin: 12px auto 0; padding: 0; list-style: none; text-align: left; max-width: 460px; }
+.rtab-empty-suggest li { display: flex; gap: 8px; padding: 5px 0; border-top: 1px solid var(--border-subtle); font-size: 12px; }
+.rtab-empty-suggest li:first-child { border-top: 0; }
+.rtab-empty-suggest .svc { font-family: var(--font-mono); color: var(--text-primary); flex-shrink: 0; }
+.rtab-empty-suggest .what { color: var(--text-muted); }
+
+/* ── Narrower ─────────────────────────────────────────────────────────── */
+
+@media (max-width: 1280px) {
+  .rtab-rule { grid-template-columns: 22px 104px minmax(0, 1fr) 150px auto; }
+  .rtab-rule-since { grid-column: 3 / 5; grid-row: 2; flex-direction: row; flex-wrap: wrap; gap: 3px 12px; margin-top: 4px; }
+  .rtab-rule-actions { grid-column: 5; grid-row: 1; }
+  .rtab-sk-row { grid-template-columns: 22px 104px minmax(0, 1fr) 150px 160px; }
+  .rtab-sk-row > :nth-child(5) { display: none; }
+}
+@media (max-width: 960px) {
+  .rtab-frame { grid-template-columns: minmax(0, 1fr); }
+  .rtab-frame > .logs-filters { position: static; max-height: 280px; }
+  .rtab-tl-grid { grid-template-columns: minmax(110px, 150px) minmax(0, 1fr); }
+}

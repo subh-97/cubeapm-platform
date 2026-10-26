@@ -29,7 +29,7 @@ import { LogRecordDrawer } from '@/components/LogRecordDrawer'
 import FacetGroup from '@/components/explorer/FacetGroup'
 import FieldsDropdown from '@/components/explorer/FieldsDropdown'
 import QueryHistoryDrawer from '@/components/explorer/QueryHistoryDrawer'
-import AlertDrawer from '@/components/explorer/AlertDrawer'
+import { alertPayloadForQuery } from '@/utils/alerts/editorPayloads'
 import { GRID_PROPS, valueAxisProps, fmtCount } from '@/components/charts/chartDefaults'
 import { buildTimeAxis } from '@/components/charts/timeAxis'
 import { useTimeFocus, useMeasuredWidth } from '@/components/charts/useTimeFocus'
@@ -537,7 +537,6 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
   const [activeFields, setActiveFields] = useState(DEFAULT_FIELDS)
   const [filtersWidth, setFiltersWidth] = useState(FILTERS_MIN_W)
   const [graphVisible, setGraphVisible] = useState(true)
-  const [alertOpen, setAlertOpen] = useState(false)
   const [patternsOpen, setPatternsOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [myQueriesOpen, setMyQueriesOpen] = useState(false)
@@ -974,6 +973,12 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
     onOpenLink?.({ view: 'explore', datasource: 'vlogs', query: toExploreLogsQuery(composedQuery) })
   }, [onOpenLink, composedQuery])
 
+  // Create Alert opens the rule editor on the same LogsQL Explore gets: the
+  // bar as it stands, counted (docs/alerts/DESIGN.md D13).
+  const openAlertEditor = useCallback(() => {
+    onOpenLink?.({ view: 'alertEditor', ...alertPayloadForQuery({ datasource: 'vlogs', query: toExploreLogsQuery(composedQuery) }) })
+  }, [onOpenLink, composedQuery])
+
   // The save controls read the query that has been RUN, not the one in the bar.
   // Everything else on this surface splits the same way — the preview is live,
   // the results lag behind Run — and saving belongs on the results side of that
@@ -1222,7 +1227,7 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                   Download CSV
                 </button>
-                <button role="menuitem" className="logs-more-item" onClick={() => { setAlertOpen(true); setMoreOpen(false) }}>
+                <button role="menuitem" className="logs-more-item" onClick={() => { openAlertEditor(); setMoreOpen(false) }}>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 10a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 20a2 2 0 004 0"/><line x1="12" y1="2" x2="12" y2="4"/></svg>
                   Create Alert
                 </button>
@@ -1468,7 +1473,7 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             CSV
           </button>
-          <button className="hbtn small" onClick={() => setAlertOpen(true)} title="Create alert from this query">
+          <button className="hbtn small" onClick={openAlertEditor} title="Create an alert rule from this query">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 10a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 20a2 2 0 004 0"/><line x1="12" y1="2" x2="12" y2="4"/></svg>
             Alert
           </button>
@@ -1610,14 +1615,6 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
       )}
       </div>
     </div>
-    {alertOpen && (
-      <AlertDrawer
-        filters={filters}
-        query={query}
-        onClose={() => setAlertOpen(false)}
-        emptyLabel="All logs"
-      />
-    )}
     {patternsOpen && <PatternsDrawer onClose={() => setPatternsOpen(false)} />}
     {myQueriesOpen && (
       <MyQueriesDrawer

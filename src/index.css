@@ -457,10 +457,6 @@ a { color: inherit; }
 /* A section name with no page behind it: drawn like a link, but inert. */
 .card-crumbs .crumb-static { color: var(--text-secondary); cursor: default; }
 .card-crumbs .current { color: var(--text-primary); font-size: 14px; font-weight: 600; letter-spacing: -.2px; }
-.crumb-select { display: inline-flex; align-items: center; gap: 3px; cursor: pointer; padding: 2px 4px; margin: -2px -4px; border-radius: 5px; }
-.crumb-select:hover, .crumb-select.open { background: var(--panel); }
-.crumb-select svg { width: 13px; height: 13px; color: var(--text-muted); transition: transform .12s; }
-.crumb-select.open svg { transform: rotate(180deg); color: var(--text-secondary); }
 /* When no tab-strip follows, the crumbs themselves provide the header/content divider */
 .card-crumbs:not(:has(+ .card-tab-strip)):not(:has(+ .logs-layout-stitched)):not(:has(+ .tw-main)):not(:has(+ .svc-main)) { border-bottom: 1px solid var(--border-subtle); margin-bottom: 16px; }
 /* The trace view and Infrastructure keep the rule but not the gap under it:
@@ -965,9 +961,23 @@ tbody tr:hover { background: var(--panel-2); }
 .drill2-go-btn:hover .drill2-go { opacity: 1; color: var(--brand); }
 .drill2-go-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 0; }
 .drill2-empty { font-size: 11.5px; color: var(--text-muted); padding: 4px 0; }
-.drill2-row { display: flex; align-items: center; gap: 7px; }
+/* A legend row wraps rather than truncates: a name wider than the legend
+ * column runs on to a second line instead of being cut with an ellipsis, which
+ * in a column of host- or path-qualified upstreams cut away the very part that
+ * told them apart. The row is top-aligned, so the swatch, the value and the
+ * open-link button stay beside the label's FIRST line however many lines it
+ * takes. One line-height on the row lines those three up with that first line
+ * whatever size each is set in; the swatch, shorter than the line, is centred
+ * on it. `overflow-wrap: anywhere` also lets the label shrink below its longest
+ * word, so an unbroken path breaks instead of pushing the value out of view. */
+.drill2-row { display: flex; align-items: flex-start; gap: 7px; line-height: 16px; }
 .drill2-swatch { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; margin-top: 1px; }
-.drill2-label { flex: 1; font-size: 11.5px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.drill2-row > .drill2-swatch { margin-top: 4px; }
+/* The button's -2px margin pulls its 12px glyph off the top of the line;
+ * dropping it on the top side alone centres the glyph on that first line
+ * while the row's own negative margins keep the hit area the size it was. */
+.drill2-row > .drill2-go-btn { margin-top: 0; }
+.drill2-label { flex: 1; min-width: 0; font-size: 11.5px; color: var(--text-secondary); overflow-wrap: anywhere; }
 .drill2-val { font-size: 12px; font-weight: 600; color: var(--text-primary); white-space: nowrap; }
 .drill2-unit { font-size: 10px; font-weight: 400; color: var(--text-muted); margin-left: 1px; font-family: inherit; }
 .drill2-total { display: flex; align-items: center; gap: 8px; padding-top: 10px; border-top: 1px solid var(--border-subtle); margin-top: 2px; cursor: default; }
@@ -1336,7 +1346,7 @@ tbody tr:hover { background: var(--panel-2); }
 .sk-block::after,
 .sk-onboard-h::after, .sk-onboard-line::after,
 .sk-chart-card .sk-lbl::after, .sk-chart-card .sk-val::after, .sk-chart-card .sk-graph::after,
-.sk-pill .sk-lbl::after, .sk-table-head .sk-lbl::after, .sk-row .sk-cell::after {
+.sk-table-head .sk-lbl::after, .sk-row .sk-cell::after {
   content: ''; position: absolute; inset: 0;
   background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.045) 45%, rgba(255,255,255,0.07) 50%, rgba(255,255,255,0.045) 55%, transparent 100%);
   animation: skShimmer 1.4s linear infinite;
@@ -1348,11 +1358,6 @@ tbody tr:hover { background: var(--panel-2); }
 .sk-onboard-h { height: 12px; width: 60%; background: rgba(255,255,255,0.06); border-radius: 4px; position: relative; overflow: hidden; }
 .sk-onboard-line { height: 10px; width: 90%; background: rgba(255,255,255,0.04); border-radius: 4px; position: relative; overflow: hidden; }
 .sk-onboard-line.short { width: 65%; }
-.sk-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
-.sk-pill { height: 88px; background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; justify-content: center; }
-.sk-pill .sk-num { height: 22px; width: 30%; background: var(--panel); border-radius: 4px; position: relative; overflow: hidden; }
-.sk-pill .sk-num::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.05), transparent); animation: skShimmer 1.4s linear infinite; }
-.sk-pill .sk-lbl { height: 9px; width: 55%; background: var(--panel); border-radius: 3px; position: relative; overflow: hidden; }
 .sk-charts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .sk-chart-card { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); padding: 13px 15px 8px; }
 .sk-chart-card .sk-lbl { height: 10px; width: 40%; background: var(--panel); border-radius: 3px; margin-bottom: 8px; position: relative; overflow: hidden; }

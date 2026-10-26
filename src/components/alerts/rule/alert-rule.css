@@ -1,0 +1,250 @@
+/* The alert rule page (/alerts/:id, docs/alerts/DESIGN.md D5).
+
+   Built from the platform's own pieces wherever one exists — the crumbs, the
+   card tab strip and ViewTabs, .svc-main, .panel, .kpi-card, the incident
+   banner, LegendLineChart's .drill2 columns, .seg-toggle — and only what they
+   do not cover is here. Every colour is a token, so both themes work; a status
+   hue reaches an element only through a tone class (tone-critical, …) that
+   statusForAlertState() picked (CLAUDE.md rule 1). */
+
+/* --- Tone classes: a status key → its token ------------------------------- */
+/* Scoped to the page, and to .alr-tones: a piece of the page drawn elsewhere
+   (RuleChart in the editor's preview rail) carries its tones on its own root. */
+:is(.alr-rule-page, .alr-tones) .tone-critical { --tone: var(--critical); --tone-fg: var(--critical-fg); --tone-tint: var(--critical-tint); }
+:is(.alr-rule-page, .alr-tones) .tone-warning { --tone: var(--warning); --tone-fg: var(--warning-fg); --tone-tint: var(--warning-tint); }
+:is(.alr-rule-page, .alr-tones) .tone-info { --tone: var(--info); --tone-fg: var(--info); --tone-tint: var(--info-tint); }
+:is(.alr-rule-page, .alr-tones) .tone-healthy { --tone: var(--healthy); --tone-fg: var(--healthy-fg); --tone-tint: var(--healthy-tint); }
+:is(.alr-rule-page, .alr-tones) .tone-neutral { --tone: var(--neutral); --tone-fg: var(--text-secondary); --tone-tint: var(--panel-2); }
+
+.alr-rule-page { display: contents; }
+.alr-muted { color: var(--text-muted); }
+.alr-failed { color: var(--critical-fg); }
+.alr-link { color: var(--brand); text-decoration: none; }
+.alr-link:hover { text-decoration: underline; }
+.alr-linkbtn {
+  background: none; border: 0; padding: 0 0 0 6px; cursor: pointer;
+  font: inherit; font-size: 11.5px; color: var(--brand);
+}
+.alr-linkbtn:hover { text-decoration: underline; }
+.alr-linkbtn:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 2px; }
+.alr-empty { margin: 0; padding: 18px 16px; font-size: 12.5px; color: var(--text-secondary); }
+.alr-note {
+  margin: 0 0 12px; padding: 8px 12px; border-radius: var(--radius-sm);
+  background: var(--panel); font-size: 12px; color: var(--text-secondary);
+}
+/* A control that is unavailable but still says why when pressed or hovered:
+   aria-disabled rather than disabled, so the title still shows. */
+.hbtn.is-inert, .hbtn[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
+.hbtn.is-inert:hover, .hbtn[aria-disabled="true"]:hover { color: var(--text-secondary); border-color: var(--border-subtle); }
+
+/* --- The top: head, banner, tab strip ------------------------------------- */
+.alr-rule-top { padding-top: 10px; }
+.alr-head { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.alr-head-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.alr-head-title { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 320px; }
+.alr-head-name {
+  margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 17px; font-weight: 600; letter-spacing: -.2px; color: var(--text-primary);
+}
+.alr-head-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; flex-wrap: wrap; }
+.alr-head-sentence { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--text-secondary); }
+.alr-head-group {
+  display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 99px;
+  background: var(--panel); color: var(--text-muted); font-size: 11px; vertical-align: 1px;
+}
+.alr-head-note { margin: 0; font-size: 11.5px; color: var(--text-muted); }
+.alr-head-error {
+  display: flex; align-items: flex-start; gap: 7px; margin: 2px 0 0; padding: 7px 10px;
+  border-radius: var(--radius-sm); background: var(--panel); font-size: 12px; color: var(--text-secondary);
+}
+.alr-head-error svg { width: 14px; height: 14px; flex-shrink: 0; margin-top: 1px; color: var(--text-muted); }
+.alr-head-error strong { color: var(--text-primary); font-weight: 600; }
+
+/* The incident banner wraps: a sentence, then the ways out. */
+.alr-banner { flex-direction: column; align-items: stretch; gap: 8px; padding: 9px 12px; margin-bottom: 10px; }
+.alr-banner-text { display: flex; align-items: baseline; gap: 9px; min-width: 0; }
+.alr-banner-text .incident-pulse { align-self: center; }
+.alr-banner-sentence { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--text-primary); }
+.alr-banner-sentence .incident-title { font-size: 12.5px; white-space: normal; }
+.alr-banner-reading { color: var(--text-primary); }
+.alr-banner-cause { white-space: normal; font-size: 12px; }
+.alr-banner-actions { display: flex; flex-wrap: wrap; gap: 6px; padding-left: 16px; }
+.alr-evidence { margin: -2px 0 10px; }
+.alr-evidence .alr-banner-actions { padding-left: 0; }
+
+/* --- Overview -------------------------------------------------------------- */
+.alr-overview .panel { margin-bottom: 16px; }
+.alr-chart-head .panel-head-left { flex-wrap: wrap; }
+.alr-chart-isolated { font-size: 11.5px; font-weight: 400; color: var(--text-secondary); }
+.alr-chart-isolated .mono { color: var(--text-primary); }
+.alr-chart-panel .red-chart-section { border-top: 0; }
+
+/* The strip row repeats LegendLineChart's two columns (.drill2), so its track
+   spans exactly the plot above it; the spacer stands in for the legend. */
+.alr-strip-row { border-top: 0; }
+.alr-strip-cell { padding-top: 0; padding-bottom: 12px; }
+.alr-strip-spacer { padding-top: 0; padding-bottom: 0; }
+.alr-strip-track { position: relative; height: 12px; border-radius: 2px; background: var(--panel); }
+.alr-strip-seg {
+  position: absolute; top: 0; bottom: 0;
+  background: var(--tone); opacity: 1;
+}
+.alr-strip-seg.tone-healthy { opacity: .5; }
+.alr-strip-seg.is-pending {
+  background: repeating-linear-gradient(135deg, var(--tone) 0 3px, transparent 3px 6px);
+}
+.alr-strip-seg.is-future { background: transparent; }
+.alr-strip-tick {
+  position: absolute; top: -5px; width: 1px; height: 4px; margin-left: -.5px;
+  background: var(--text-secondary);
+}
+.alr-strip-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; font-size: 10.5px; color: var(--text-muted); }
+.alr-strip-key { display: inline-flex; align-items: center; gap: 5px; }
+.alr-strip-swatch { width: 10px; height: 8px; border-radius: 1px; background: var(--tone); }
+.alr-strip-swatch.tone-healthy { opacity: .5; }
+.alr-strip-swatch.is-pending { background: repeating-linear-gradient(135deg, var(--tone) 0 2px, transparent 2px 4px); }
+.alr-strip-swatch.is-tick { width: 1px; height: 8px; background: var(--text-secondary); }
+
+.alr-kpis { margin-bottom: 16px; }
+.alr-kpi .val { font-size: 26px; }
+.alr-kpi-sub { margin-top: 6px; font-size: 11.5px; line-height: 1.4; color: var(--text-secondary); }
+.alr-delta {
+  font-size: 10.5px; font-weight: 600; padding: 1px 6px; border-radius: 99px;
+  background: var(--panel); color: var(--text-secondary); white-space: nowrap;
+}
+
+.alr-event-list { list-style: none; margin: 0; padding: 6px 0; }
+.alr-event {
+  display: grid; grid-template-columns: 92px 10px minmax(0, auto) minmax(0, 1fr); align-items: baseline;
+  gap: 10px; padding: 6px 16px; font-size: 12.5px;
+}
+.alr-event + .alr-event { border-top: 1px solid var(--border-subtle); }
+.alr-event-time { font-size: 11.5px; color: var(--text-muted); }
+.alr-event-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--tone); align-self: center; }
+.alr-event-text { color: var(--text-primary); }
+.alr-event-detail { color: var(--text-muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+
+/* --- Instances --------------------------------------------------------------- */
+.alr-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.alr-table th {
+  text-align: left; font-size: 11px; font-weight: 600; color: var(--text-muted);
+  padding: 9px 12px; border-bottom: 1px solid var(--border-head); white-space: nowrap;
+}
+.alr-table td { padding: 8px 12px; border-bottom: 1px solid var(--border-subtle); vertical-align: middle; }
+.alr-table tr:last-child td { border-bottom: 0; }
+.alr-table .num { text-align: right; }
+.alr-table tr.is-selected td { background: var(--brand-muted); }
+.alr-series-btn {
+  display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 2px; margin: -2px;
+  background: none; border: 0; border-radius: var(--radius-sm); cursor: pointer; text-align: left; font: inherit; color: inherit;
+}
+.alr-series-btn:hover .alr-label { border-color: var(--border-strong); }
+.alr-series-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.alr-label {
+  display: inline-flex; align-items: baseline; gap: 5px; padding: 1px 7px; border-radius: 3px;
+  border: 1px solid var(--border-subtle); background: var(--panel);
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-primary); white-space: nowrap;
+}
+.alr-label + .alr-label { margin-left: 4px; }
+.alr-label-k { color: var(--text-muted); }
+.alr-reading { color: var(--text-primary); }
+.alr-reading-vs { color: var(--text-muted); font-size: 11px; }
+.alr-spark-cell { width: 140px; }
+.alr-spark { display: block; width: 120px; height: 24px; }
+.alr-row-actions { white-space: nowrap; text-align: right; }
+.alr-row-actions .hbtn + .hbtn { margin-left: 6px; }
+
+/* --- Notifications ---------------------------------------------------------- */
+.alr-notif-head, .alr-notif-row {
+  display: grid; grid-template-columns: 120px minmax(160px, 1.2fr) 86px minmax(0, 2fr) 92px;
+  align-items: center; gap: 12px;
+}
+.alr-notif-head {
+  padding: 9px 16px; border-bottom: 1px solid var(--border-head);
+  font-size: 11px; font-weight: 600; color: var(--text-muted);
+}
+.alr-notif-head .num, .alr-notif-time { text-align: right; }
+.alr-notif-list { list-style: none; margin: 0; padding: 0; }
+.alr-notif + .alr-notif { border-top: 1px solid var(--border-subtle); }
+.alr-notif-row {
+  width: 100%; padding: 8px 16px; background: none; border: 0; cursor: pointer;
+  font: inherit; font-size: 12.5px; color: var(--text-primary); text-align: left;
+}
+.alr-notif-row:hover { background: var(--panel); }
+.alr-notif-row:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.alr-notif-event { display: inline-flex; align-items: center; gap: 4px; }
+.alr-chev { width: 13px; height: 13px; color: var(--text-muted); transition: transform .12s; flex-shrink: 0; }
+.alr-notif.is-open .alr-chev { transform: rotate(90deg); }
+.alr-notif-dest { display: inline-flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; overflow: hidden; }
+.alr-notif-dest svg { width: 14px; height: 14px; flex-shrink: 0; color: var(--text-secondary); }
+.alr-notif-details { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); font-size: 12px; }
+.alr-notif-time { font-size: 11.5px; color: var(--text-muted); }
+.alr-status {
+  justify-self: start; padding: 1px 7px; border-radius: 2px; font-size: 11px; font-weight: 500;
+  background: var(--tone-tint); color: var(--tone-fg);
+}
+.alr-notif-more {
+  display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 6px 14px;
+  margin: 0; padding: 4px 16px 14px 36px; font-size: 12px;
+}
+.alr-notif-more dt { color: var(--text-muted); }
+.alr-notif-more dd { margin: 0; color: var(--text-primary); overflow-wrap: anywhere; }
+.alr-error-block, .alr-pre {
+  margin: 0; padding: 8px 10px; max-height: 180px; overflow: auto;
+  border-radius: var(--radius-sm); background: var(--panel); border: 1px solid var(--border-subtle);
+  font-family: var(--font-mono); font-size: 11.5px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere;
+  color: var(--text-primary);
+}
+
+/* --- Definition ------------------------------------------------------------ */
+.alr-def-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.alr-def-bar p { margin: 0; font-size: 12px; }
+.alr-definition .panel { margin-bottom: 14px; }
+.alr-def-body { padding: 12px 16px 14px; font-size: 12.5px; }
+.alr-def-lead { margin: 0 0 8px; color: var(--text-primary); font-weight: 500; }
+.alr-tiers { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 4px; color: var(--text-secondary); }
+.alr-tier-name {
+  display: inline-block; min-width: 58px; padding: 0 6px; margin-right: 4px; border-radius: 2px;
+  font-size: 11px; font-weight: 500; text-align: center; background: var(--tone-tint); color: var(--tone-fg);
+}
+.alr-dl { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 8px 16px; margin: 0; }
+.alr-dl dt { color: var(--text-muted); font-size: 12px; }
+.alr-dl dd { margin: 0; color: var(--text-primary); overflow-wrap: anywhere; }
+.alr-dl dt[title] { text-decoration: underline dotted var(--border-strong); text-underline-offset: 3px; cursor: help; justify-self: start; }
+.alr-query { display: flex; flex-direction: column; gap: 10px; }
+.alr-query .seg-toggle { align-self: flex-start; }
+.alr-query .seg { border: 0; font-family: inherit; background: transparent; }
+.alr-query .seg.active { background: var(--card); }
+.alr-query .seg:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.alr-query-note { margin: 0; font-size: 12px; }
+.alr-stored summary { cursor: pointer; font-size: 12px; color: var(--text-secondary); }
+.alr-stored p { margin: 6px 0; font-size: 11.5px; }
+.alr-stored .alr-pre + .alr-pre { margin-top: 6px; }
+.alr-cp-list, .alr-int-list, .alr-plain-list { list-style: none; margin: 0; padding: 0; }
+.alr-cp-list > li + li { margin-top: 10px; }
+.alr-cp-name { font-weight: 600; color: var(--text-primary); }
+.alr-int-list { margin-top: 4px; display: flex; flex-direction: column; gap: 3px; }
+.alr-int-list li { display: flex; align-items: center; gap: 7px; color: var(--text-primary); }
+.alr-int-list svg { width: 14px; height: 14px; color: var(--text-secondary); flex-shrink: 0; }
+.alr-plain-list { display: flex; flex-direction: column; gap: 6px; }
+.alr-plain-list + .alr-plain-list { margin-top: 10px; }
+.alr-mute-state.is-active { color: var(--text-primary); font-weight: 500; }
+.alr-snooze { display: flex; align-items: center; gap: 8px; }
+.alr-snooze svg { width: 14px; height: 14px; color: var(--text-secondary); flex-shrink: 0; }
+.alr-snooze .hbtn { margin-left: auto; }
+
+/* --- Not found --------------------------------------------------------------- */
+.alr-notfound {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  padding: 80px 16px; text-align: center;
+}
+.alr-notfound h2 { margin: 0; font-size: 22px; font-weight: 700; color: var(--text-primary); }
+.alr-notfound p { margin: 0; max-width: 440px; font-size: 12.5px; color: var(--text-secondary); }
+
+@media (max-width: 900px) {
+  .alr-notif-head { display: none; }
+  .alr-notif-row { grid-template-columns: 1fr auto; }
+  .alr-notif-details { grid-column: 1 / -1; }
+  .alr-event { grid-template-columns: 72px 10px minmax(0, 1fr); }
+  .alr-event-detail { grid-column: 3; }
+}

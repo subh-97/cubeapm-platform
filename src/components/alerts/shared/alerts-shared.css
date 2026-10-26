@@ -1,0 +1,101 @@
+/* The shared alert controls: state and suppression chips, the labelled menus,
+   the small dialogs, and the toast's Undo. Every colour is a token, so both
+   themes work; the status hues reach a chip only through the tone class that
+   statusForAlertState() picked (CLAUDE.md rule 1). */
+
+/* --- Chips ------------------------------------------------------------------
+   The geometry is StatusBadge's (components/shared/StatusBadge.jsx), so an
+   alert state reads like every other severity badge on the platform. Loud
+   states are a solid fill; quiet ones are a tint that recedes. */
+.alr-chip {
+  display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;
+  padding: 3px 8px; border-radius: 2px;
+  font-size: 11px; font-weight: 500; line-height: 1.25; white-space: nowrap;
+}
+.alr-chip svg { width: 11px; height: 11px; flex-shrink: 0; }
+.alr-chip.loud { color: #fff; }
+.alr-chip.loud.critical { background: var(--critical); }
+.alr-chip.loud.warning { background: var(--warning); }
+.alr-chip.loud.info { background: var(--info); }
+.alr-chip.loud.neutral { background: var(--neutral); }
+/* Text on a solid fill holds 4.5:1 (7c). The dark theme's fills are bright —
+   white reads 3.8:1 on its red, 2.5:1 on its blue — so they carry the darkest
+   ink; so does amber in both themes (2.2:1 and 3.2:1 in white). The light
+   theme's deeper red and blue, and slate in both, keep white. */
+.alr-chip.loud.warning,
+:root:not([data-theme="light"]) .alr-chip.loud.critical,
+:root:not([data-theme="light"]) .alr-chip.loud.info { color: var(--slate-950); }
+.alr-chip.quiet.healthy { background: var(--healthy-tint); color: var(--healthy-fg); }
+.alr-chip.quiet.neutral { background: var(--panel-2); color: var(--text-secondary); }
+/* A suppression is an overlay on the state, not another state: neutral, and
+   dashed so it never reads as a severity. */
+.alr-chip.suppressed {
+  background: transparent; color: var(--text-secondary);
+  border: 1px dashed var(--border-strong); padding: 2px 7px;
+}
+
+/* --- Menus ------------------------------------------------------------------
+   The trigger is a small header button with its word; the panel and its items
+   are CardMenu's classes, extended here for disabled and destructive items. */
+.alr-menu-btn { gap: 5px; white-space: nowrap; }
+.alr-menu-btn svg { width: 13px; height: 13px; }
+.alr-menu-btn .chev { width: 11px; height: 11px; opacity: .65; }
+.alr-menu-btn.open { background: var(--panel-2); color: var(--text-primary); border-color: var(--border-strong); }
+.alr-menu-btn:disabled { opacity: .5; cursor: not-allowed; }
+.alr-menu-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.alr-menu-panel .card-menu-item.disabled { opacity: .5; cursor: not-allowed; }
+.alr-menu-panel .card-menu-item.disabled:hover { background: none; color: var(--text-secondary); }
+.alr-menu-panel .card-menu-item.danger { color: var(--critical-fg); }
+.alr-menu-panel .card-menu-item.danger svg { color: var(--critical-fg); }
+
+/* --- Dialogs ----------------------------------------------------------------
+   The exception modal's overlay and box (.tw-modal-*), narrowed, with a
+   neutral title: .tw-modal-type is an exception's red. */
+.alr-dialog { width: min(440px, 100%); }
+.alr-dialog-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 14px 16px; border-bottom: 1px solid var(--border-subtle); flex-shrink: 0;
+}
+.alr-dialog-title { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.alr-dialog-body { padding: 14px 16px; overflow-y: auto; }
+.alr-dialog-text { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--text-secondary); }
+.alr-dialog-text strong { color: var(--text-primary); font-weight: 600; }
+.alr-dialog-foot {
+  display: flex; justify-content: flex-end; gap: 8px;
+  padding: 12px 16px; border-top: 1px solid var(--border-subtle); flex-shrink: 0;
+}
+.alr-btn-danger { background: var(--critical); border-color: var(--critical); color: #fff; }
+.alr-btn-danger:hover { background: var(--critical); border-color: var(--critical); color: #fff; filter: brightness(1.08); }
+
+.alr-form { display: flex; flex-direction: column; gap: 14px; }
+.alr-field { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.alr-field-label {
+  padding: 0; font-size: 10.5px; font-weight: 600; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: .5px;
+}
+.alr-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.alr-radio { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--text-primary); cursor: pointer; }
+.alr-num { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-muted); }
+.alr-num .alr-input { width: 64px; }
+.alr-input {
+  background: var(--panel); border: 1px solid var(--border-panel); color: var(--text-primary);
+  font-family: inherit; font-size: 12.5px; border-radius: var(--radius-sm); padding: 6px 9px; outline: none;
+}
+.alr-input.wide { width: 100%; }
+.alr-input:focus-visible { border-color: var(--brand); box-shadow: var(--focus-ring); }
+.alr-input:disabled { opacity: .55; }
+.alr-hint { font-size: 11.5px; color: var(--text-muted); }
+.alr-error { font-size: 11.5px; color: var(--critical-fg); }
+
+/* --- Toast Undo -------------------------------------------------------------- */
+.alr-undo { display: inline-flex; align-items: center; gap: 12px; }
+.alr-undo-btn {
+  background: none; border: 0; padding: 0; cursor: pointer;
+  font-family: inherit; font-size: inherit; font-weight: 600; color: var(--brand);
+}
+.alr-undo-btn:hover { text-decoration: underline; }
+.alr-undo-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 2px; }
+.alr-undo-kbd {
+  margin-left: -6px; padding: 0 4px; border: 1px solid var(--border-panel); border-radius: 3px;
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-muted);
+}

@@ -10,26 +10,30 @@ import { budgetOffer } from './seriesBudget'
  *   Showing 28 of 64 hosts    Show 20 more · Show all
  *   Showing all 64 hosts
  *
- * There is no way back to the chart's own count from here: once more is drawn
- * it stays drawn until the list or the page changes. An action is offered only
- * when the budget has a handler for it, so a list that borrows this footer
- * with Show all alone (the error groups panel) draws exactly that.
+ * A chart's footer has no way back to its own count: once more is drawn it
+ * stays drawn until the list or the page changes. A footer that asks for one
+ * (`collapsible`, the alert timeline's lanes) offers "Show less" whenever more
+ * than the cap is shown, through the budget's `showFewer`. Otherwise an action
+ * is offered only when the budget has a handler for it, so a list that borrows
+ * this footer with Show all alone (the error groups panel) draws exactly that.
  *
  * The visible count changes every frame while a chart fills in, which is too
  * chatty to announce; the screen-reader line only speaks when the state does.
  */
-export default function SeriesBudgetFooter({ budget, noun = 'series' }) {
+export default function SeriesBudgetFooter({ budget, noun = 'series', collapsible = false }) {
   const { status, count, total } = budget
   if (status === 'all') return null
   const offer = budgetOffer(budget)
   const more = budget.showMore ? offer.more : 0
   const all = budget.showAll ? offer.all : false
+  const less = collapsible && budget.showFewer ? offer.fewer : false
   const announce = status === 'drawing' ? `Drawing ${budget.target ?? total} of ${total} ${noun}`
     : status === 'expanded' ? `Showing all ${total} ${noun}`
       : `Showing ${count} of ${total} ${noun}`
   const actions = [
     more > 0 && <button key="more" type="button" className="series-budget-btn" onClick={budget.showMore}>Show {more} more</button>,
     all && <button key="all" type="button" className="series-budget-btn" onClick={budget.showAll}>Show all</button>,
+    less && <button key="less" type="button" className="series-budget-btn" onClick={budget.showFewer}>Show less</button>,
   ].filter(Boolean)
   return (
     <div className="series-budget">
