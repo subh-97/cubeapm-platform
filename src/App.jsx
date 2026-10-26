@@ -4,6 +4,7 @@ import HomeSkeleton from '@/pages/HomeSkeleton'
 import Walkthrough from '@/components/Walkthrough'
 import Toast from '@/components/Toast'
 import Sidebar from '@/components/layout/Sidebar'
+import MainRegion, { SkipLink } from '@/components/layout/MainRegion'
 import InfraIcon from '@/components/layout/InfraIcons'
 import HomePage from '@/pages/HomePage'
 import ServiceOverview from '@/pages/ServiceOverview'
@@ -397,6 +398,7 @@ export default function App() {
 
   return (
     <div className={`app${navCollapsed ? ' nav-collapsed' : ''}`}>
+      <SkipLink />
       <Sidebar
         navCollapsed={navCollapsed}
         setNavCollapsed={setNavCollapsed}
@@ -412,7 +414,12 @@ export default function App() {
         theme={theme}
         setTheme={setTheme}
       />
-      <div className="main">
+      <MainRegion
+        // A new page is a new path in the address's one spelling: correcting
+        // / to /home is not one, and neither is a query string changing (Logs,
+        // Traces and Errors rewrite theirs as you type).
+        page={targetUrl.split('?')[0]}
+      >
         <div className={`surface-card${isInfra ? ' svc-view' : ''}`}>
           {isInfra && (
             <div className="svc-sidebar">
@@ -611,7 +618,7 @@ export default function App() {
             )}
           </div>
         </div>
-      </div>
+      </MainRegion>
       {settingsOpen && (
         <>
           <div className="settings-backdrop open" onClick={() => { setSettingsOpen(false); setSettingsTab(null) }} />

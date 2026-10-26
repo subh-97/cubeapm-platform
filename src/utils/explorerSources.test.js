@@ -449,8 +449,9 @@ test('the Mobile Traces page', () => {
   assert.match(html, /class="current">Mobile Traces</)
   assert.ok(html.includes(`>${mobileRows1h.length.toLocaleString()} events<`), 'event count missing')
   assert.ok(!html.includes('Chart this query in Explore'), 'Explore has no mobile datasource')
-  // The rail is the pinned list, in order.
-  const rail = [...html.matchAll(/class="facet-title">([^<]+)</g)].map(m => m[1])
+  // The rail is the pinned list, in order. Each title is its group's fold
+  // button, read whatever attributes it carries.
+  const rail = [...html.matchAll(/class="facet-title-btn"[^>]*>([^<]+)</g)].map(m => m[1])
   assert.deepEqual(rail, MOBILE_FACET_FIELDS)
   // Four bands, worst first, each in its status token.
   assert.match(html, /background:var\(--critical\)"><\/span><span class="lvl-key">5xx · 0 · crash<\/span><span class="lvl-val val-critical">/)

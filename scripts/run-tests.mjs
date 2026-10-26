@@ -41,9 +41,9 @@ for (const file of tests) {
       format: 'esm',
       outfile,
       alias: { '@': join(root, 'src') },
-      // An imported .svg (a vendor mark in assets/) is its data: URL, as Vite
-      // would hand back a URL for it.
-      loader: { '.js': 'jsx', '.svg': 'dataurl' },
+      // An imported image is its URL, as Vite gives it (the Infra sources'
+      // logos), so a test can render a module that shows one.
+      loader: { '.js': 'jsx', '.svg': 'file' },
       // Automatic runtime, so a component under test compiles without each
       // module importing React itself - the app's JSX is written that way.
       jsx: 'automatic',
