@@ -15,7 +15,7 @@ import { errorSeriesForWindow } from '@/data/errors'
 import { createAlertsStore, alertsFor } from '@/utils/alerts/store'
 import { applyChipsToLog, chipsToString } from '@/components/QueryBuilder'
 import { getSpanFieldValue } from '@/utils/traceFields'
-import { filtersToChips, errorSamplesFor, mergeErrorSpans } from '@/utils/tracesHandoff'
+import { filtersToChips, mergeErrorSpans, traceSamplesFor } from '@/utils/tracesHandoff'
 import { errorsStateFromLink } from '@/utils/errorsPage'
 import { applyErrorFacets } from '@/utils/errorFields'
 import { parseRoute, serviceUrl } from '@/utils/route'
@@ -36,12 +36,14 @@ const view = id => alerts.byId(id)
 // When a rule's worst instance became active: the anchor the page uses.
 const anchorOf = id => instanceRows(view(id), alerts.seriesFor(id))[0]?.activeAt ?? view(id).since
 
-// What the Traces page shows for a link: its seeded spans plus the error
-// samples a query names the exception of, through the chips App builds.
+// What the Traces page shows for a link: its seeded spans plus what its source
+// pulls in for the query — the error samples a query names the exception of,
+// and the requests of a service-page endpoint it names — through the chips App
+// builds.
 function tracesRows(handoff) {
   const chips = filtersToChips(handoff.link.filters)
   const w = resolveWindow(handoff.range)
-  const stream = mergeErrorSpans(spanRowsForWindow(w), errorSamplesFor(w, chips))
+  const stream = mergeErrorSpans(spanRowsForWindow(w), traceSamplesFor(w, chips))
   return stream.filter(r => applyChipsToLog(r, chips, getSpanFieldValue))
 }
 

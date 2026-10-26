@@ -259,3 +259,79 @@ test('half-typed decoration is not treated as syntax yet', () => {
   // A leading star alone is not valid syntax in this grammar.
   assert.equal(deriveFreeText('*text').explicit, false)
 })
+
+// ---------- Comparisons ----------
+// `duration:>=8.8ms`. `:>` is a proper prefix of `:>=`, so it waits a key, and
+// the value is a number or a duration, which changes what a space means.
+
+import { isComparison, normalizeComparisonValue, comparisonError } from './typedQuery.js'
+
+const NUM_FIELDS = [...FIELDS, 'duration']
+
+test('`:>` and `:<` wait for the next key; `:>=` and `:<=` resolve at once', () => {
+  assert.deepEqual(resolveOperator(':>'), { status: 'pending' })
+  assert.deepEqual(resolveOperator(':<'), { status: 'pending' })
+  assert.deepEqual(resolveOperator(':>='), { status: 'resolved', op: 'gte', rest: '' })
+  assert.deepEqual(resolveOperator(':<='), { status: 'resolved', op: 'lte', rest: '' })
+  assert.deepEqual(resolveOperator(':>5'), { status: 'resolved', op: 'gt', rest: '5' })
+  assert.deepEqual(resolveOperator(':<5'), { status: 'resolved', op: 'lt', rest: '5' })
+  assert.deepEqual(resolveOperator(':>=8.8ms'), { status: 'resolved', op: 'gte', rest: '8.8ms' })
+})
+
+test('matchOperator reads the longest comparison symbol', () => {
+  assert.equal(matchOperator(':>=5').op, 'gte')
+  assert.equal(matchOperator(':<=5').op, 'lte')
+  assert.equal(matchOperator(':>5').op, 'gt')
+  assert.equal(matchOperator(':<5').op, 'lt')
+})
+
+test('a typed comparison is a field filter, kept as the text written', () => {
+  const r = interpret('duration:>=8.8ms', NUM_FIELDS)
+  assert.deepEqual([r.kind, r.op, r.value], ['complete', 'gte', '8.8ms'])
+  assert.deepEqual(buildChip('lt', '27.83ms'), { op: 'lt', value: '27.83ms' })
+  assert.deepEqual(buildChip('gt', '500'), { op: 'gt', value: '500' })
+  assert.equal(buildChip('gt', '   '), null)
+})
+
+test('a space straight after a number is content, the gap before a unit', () => {
+  assert.equal(isCommittable('gte', '8.8'), false)
+  assert.equal(isCommittable('gte', '500'), false)
+  // Once the gap is there, or after a unit, a space commits.
+  assert.equal(isCommittable('gte', '8.8 '), true)
+  assert.equal(isCommittable('gte', '8.8ms'), true)
+  assert.equal(isCommittable('gte', '8.8 ms'), true)
+  assert.equal(isCommittable('gte', ''), false)
+  // A space before the number does not make the number committable on its own.
+  assert.equal(isCommittable('gte', ' 8.8'), false)
+  assert.equal(isCommittable('gt', '  -5'), false)
+  assert.equal(isCommittable('gte', ' 8.8 '), true)
+  assert.deepEqual(buildChip('gte', ' 8.8 ms'), { op: 'gte', value: '8.8ms' })
+  // Other operators are as they were.
+  assert.equal(isCommittable('eq', '500'), true)
+})
+
+test('`8.8 ms` is closed up at commit', () => {
+  assert.equal(normalizeComparisonValue('8.8 ms'), '8.8ms')
+  assert.equal(normalizeComparisonValue(' 1.2  s '), '1.2s')
+  assert.equal(normalizeComparisonValue('8.8 '), '8.8')
+  assert.deepEqual(buildChip('gte', '8.8 ms'), { op: 'gte', value: '8.8ms' })
+  // Only a number and a unit; anything else is left as typed, for comparisonError.
+  assert.equal(normalizeComparisonValue('8 8'), '8 8')
+})
+
+test('a value that is not a number or a duration is refused, with the reason', () => {
+  assert.equal(comparisonError('duration', 'gte', '8.8ms'), null)
+  assert.equal(comparisonError('duration', 'gte', '8.8 ms'), null)
+  assert.equal(comparisonError('http.status', 'lt', '500'), null)
+  assert.equal(comparisonError('size', 'gt', '1KiB'), null)
+  assert.equal(comparisonError('duration', 'gt', ''), null)   // nothing to commit yet
+  assert.match(comparisonError('duration', 'gte', 'slow'), /“slow” isn’t a number or a duration — duration:>= takes one/)
+  assert.match(comparisonError('duration', 'lt', '8 8'), /“8 8”/)
+  // Only comparisons are checked.
+  assert.equal(comparisonError('service', 'eq', 'slow'), null)
+})
+
+test('isComparison names the four range operators', () => {
+  assert.deepEqual(['gt', 'gte', 'lt', 'lte', 'eq', 'word', 'toString'].map(isComparison),
+    [true, true, true, true, false, false, false])
+})

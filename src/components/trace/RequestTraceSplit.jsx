@@ -109,7 +109,15 @@ export function TraceErrorSummary({ trace, onOpenException }) {
  *
  *   sortBy / onSortBy      the sort, when the caller keeps it (in a URL, say)
  *   limit                  how many rows show, cut after sorting
+ *   headLead               a control in the head, before Sort by — the Slow
+ *                          Requests panel's "Show preview" choice
  *   headExtra              a control in the head, before the card menu
+ *   controlsAt             'head' (default) or 'list': where Sort by and
+ *                          headExtra sit. 'list' puts them on a bar at the top
+ *                          of the list, over the rows they order and count —
+ *                          for a panel whose head and list are far apart (the
+ *                          Slow Requests chart between them). With no rows
+ *                          left (emptyList) the bar goes with the list.
  *   resolveTrace(id)       how a trace id becomes a trace (default buildTrace)
  *   onOpenException(span, trace)
  *                          when given, a failed trace's preview opens with an
@@ -126,13 +134,18 @@ export function TraceErrorSummary({ trace, onOpenException }) {
  *   stickyPreview          the preview keeps beside the rows in view while a
  *                          long list scrolls under it, rather than staying at
  *                          the top of the split (see request-trace-split.css)
+ *   above                  a section between the head and the split — the
+ *                          Slow Requests panel's latency chart, which filters
+ *                          the list under it. It stays when the list empties
+ *                          (emptyList), so the chart that emptied it is still
+ *                          there to widen it again.
  */
 export default function RequestTraceSplit({
   onOpenTrace, data, title = 'Slow Requests', initialSort = 'latency',
-  sortBy: sortByProp, onSortBy, limit, headExtra, resolveTrace = buildTrace,
+  sortBy: sortByProp, onSortBy, limit, headLead, headExtra, controlsAt = 'head', resolveTrace = buildTrace,
   onOpenException, emptyList, emptyPreview = 'Select a request to view its trace',
   rowMeta = defaultMeta, durationLabel = defaultDuration,
-  initialSelected = null, stickyPreview = false,
+  initialSelected = null, stickyPreview = false, above,
 }) {
   const [ownSort, setOwnSort] = useState(initialSort)
   const sortBy = sortByProp ?? ownSort
@@ -188,14 +201,26 @@ export default function RequestTraceSplit({
       <div className="panel-head is-divided">
         <div className="panel-head-left">{title}</div>
         <div className="panel-head-right">
-          <SortBy sortBy={sortBy} onSort={setSortBy} />
-          {headExtra}
+          {headLead}
+          {controlsAt === 'head' && (
+            <>
+              <SortBy sortBy={sortBy} onSort={setSortBy} />
+              {headExtra}
+            </>
+          )}
           <CardMenu kind="list" title={title} />
         </div>
       </div>
+      {above}
       {rows.length === 0 && emptyList != null ? emptyList : (
         <div className="slowreq-split">
           <div className="slowreq-list">
+            {controlsAt === 'list' && (
+              <div className="rts-list-bar">
+                <div className="rts-list-bar-sort"><SortBy sortBy={sortBy} onSort={setSortBy} /></div>
+                {headExtra}
+              </div>
+            )}
             {rows.map(r => (
               <button
                 type="button"

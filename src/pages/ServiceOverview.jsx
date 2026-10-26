@@ -28,6 +28,7 @@ import { SortableTh, CellBar } from '@/components/shared/SortableTable'
 import { useSortedRows } from '@/hooks/useSortedRows'
 import { useScrollReveal, revealClass } from '@/hooks/useScrollReveal'
 import RequestTraceSplit, { RequestTraceList } from '@/components/trace/RequestTraceSplit'
+import SlowRequestsPanel from '@/components/trace/SlowRequestsPanel'
 import ErrorGroupsPanel from '@/components/errors/ErrorGroupsPanel'
 import BreakAtSlashes from '@/components/browser/BreakAtSlashes'
 import { errorGroupsForWindow, tracesFiltersFor } from '@/data/errors'
@@ -180,7 +181,7 @@ function syntheticEndpoint(name) {
 // The endpoint view: the same four numbers as the service, narrowed to one
 // route. It exists because a log record knows its endpoint, and sending that
 // link to the service overview would drop the one thing the record told us.
-function EndpointTab({ data, endpoint, onOpenUpstream, onOpenTrace, syncId, win, onFocus }) {
+function EndpointTab({ data, serviceId, endpoint, onOpenUpstream, onOpenTrace, onOpenLink, syncId, win, onFocus }) {
   // An endpoint arriving from a log record will often not be in the RED list -
   // that list is what the service page happens to chart, not everything the
   // service serves. Showing the picker's first row instead would quietly answer
@@ -192,6 +193,10 @@ function EndpointTab({ data, endpoint, onOpenUpstream, onOpenTrace, syncId, win,
       : data.red
   ), [data.red, endpoint])
   const ep = eps.find(e => e.endpoint === endpoint) ?? eps[0]
+  // An endpoint the RED table does not list is modelled from the figures shown
+  // for it here, so its Slow Requests chart describes the same endpoint the
+  // cards above do.
+  const fallback = useMemo(() => ({ rpm: ep.rpm, p90: ep.p90 }), [ep.rpm, ep.p90])
   const latS = statusForLatency(ep.p90)
   const errS = statusForErrorRate(ep.errPct)
 
@@ -250,7 +255,15 @@ function EndpointTab({ data, endpoint, onOpenUpstream, onOpenTrace, syncId, win,
           </table>
         </div>
       )} />
-      <RequestTraceSplit onOpenTrace={onOpenTrace} data={data.slow} />
+      <SlowRequestsPanel
+        serviceId={serviceId}
+        endpoint={ep.endpoint}
+        fallback={fallback}
+        win={win}
+        onOpenTrace={onOpenTrace}
+        onOpenLink={onOpenLink}
+        setTimeRange={onFocus}
+      />
       <RequestTraceSplit onOpenTrace={onOpenTrace} data={data.errors} title="Requests with Errors" initialSort="none" />
       <InfraCorrelation hosts={data.infra} win={win} />
     </>
@@ -1709,7 +1722,7 @@ export default function ServiceOverview({ serviceId, onSelectService, onOpenTrac
   if (serviceSubTab === 'overview') {
     body = <OverviewTab svc={svc} data={data} win={win} syncId={syncId} onFocus={setTimeRange} onOpenTrace={onOpenTrace} onOpenUpstream={openExternal} />
   } else if (serviceSubTab === 'detail') {
-    body = <EndpointTab data={data} endpoint={endpoint} onOpenUpstream={openExternal} onOpenTrace={onOpenTrace} syncId={syncId} win={win} onFocus={setTimeRange} />
+    body = <EndpointTab data={data} serviceId={svc.id} endpoint={endpoint} onOpenUpstream={openExternal} onOpenTrace={onOpenTrace} onOpenLink={onOpenLink} syncId={syncId} win={win} onFocus={setTimeRange} />
   } else if (serviceSubTab === 'red') {
     body = <RedTab win={win} endpoints={data.red} syncId={syncId} onFocus={setTimeRange} />
   } else if (serviceSubTab === 'external') {

@@ -746,8 +746,10 @@ Open, each with where its fix belongs.
   draws the same profile. A cap needs a recalibration, because `pinToReference` won't pin a profile
   with a ceiling. *Fix:* `observability.js`'s host profiles, as a task of its own. Rule 515's 90/95
   tiers must be checked afterwards.
-- **Traces for a latency rule has no duration floor.** The Traces search has no numeric comparison.
-  *Fix:* the Traces search.
+- **Traces for a latency rule has no duration floor.** The Traces search had no numeric
+  comparison. It has one now (`duration:>=8.8ms`; `docs/decisions/query-builder-phase8.md`), so
+  the grammar half is closed. *Fix:* `tracesHandoff` in `components/alerts/rule/handoffs.js`
+  adds a `duration` `gte` chip at the rule's threshold.
 - **Logs for a service rule lands empty.** The Logs mock names the service `payment` and holds no
   payment error records (e.g. 501). A log-source rule (504) lands. *Fix:* the Logs mock, or a
   service-name map.

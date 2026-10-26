@@ -113,9 +113,14 @@ or a week, and the window inherited that end. A wide range opened late in a
 quarter hour therefore lost most of an incident that is still running: Last 7
 days could count a quarter of the pool errors the hour did. A trailing preset's window
 now runs to the current minute (the minute, not the second, so the reference
-hour stays sixty whole buckets). An absolute range keeps `resolveRange`'s end,
-and `resolveRange` itself is unchanged, because it mirrors the reference's query
-alignment.
+hour stays sixty whole buckets). An absolute range ends exactly where it was
+told to, its raw end. It used to keep `resolveRange`'s floored end, which
+dropped up to fifteen minutes off a selection handed over from another page:
+the Slow Requests heatmap's "View in Traces" then opened Traces on a shorter
+span than the panel had counted (`slow-requests-latency.md`). Its start is
+still floored to the chart step, so the window also carries the range's exact
+bounds as `exactMs`. `resolveRange` itself is unchanged, because it mirrors
+the reference's query alignment.
 
 **A profile pinned with one aggregate and read with another.** `pinToReference`
 calibrates against whatever aggregate it is handed, so a p90 pinned as a mean
@@ -191,6 +196,12 @@ keeps one sample span per error group, and the Traces page merges in the ones
 whose exception the applied query names, so every group's link lands on a row
 while any other query, or none, reads only the seeded stream the histogram
 draws.
+
+The Detail tab's Slow Requests goes one step further and models one
+endpoint's requests minute by minute, off the same profiles, so its histogram,
+heatmap and list are counts of requests in the window rather than a sample of
+fixed rows. Its p90 is over requests, which parts from the RED table's p90 of
+minutes at an hour: see `slow-requests-latency.md`.
 
 ## What is still static
 

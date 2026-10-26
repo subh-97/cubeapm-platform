@@ -2,10 +2,11 @@
 // lifted out so the Browser page's Traces tab is the same panel.
 //
 // The original is kept below as a fixture, copied exactly as it stood in
-// ServiceOverview.jsx, and each of the service page's three uses (Slow
-// Requests on Overview and on an endpoint, Requests with Errors) is rendered
-// both ways over every range and sort, character for character — so the
-// switch moves nothing. The one difference allowed is what the extraction added
+// ServiceOverview.jsx, and each of the uses that render it plain (Slow
+// Requests on Overview, Requests with Errors; the Detail tab's Slow Requests is
+// now SlowRequestsPanel, with a chart in the `above` slot) is rendered both
+// ways over every range and sort, character for character — so the switch
+// moves nothing. The one difference allowed is what the extraction added
 // on purpose: the sort toggle's role, focus and pressed state. The new options
 // are then checked for what they add. A row is picked by a click, which a
 // static render cannot make, so the error summary is checked on its own.
@@ -228,6 +229,48 @@ test('a head control sits after the sort and before the card menu', () => {
   const menu = h.indexOf('class="card-menu-btn')
   assert.ok(seg >= 0 && seg < extra && extra < menu, `${seg} < ${extra} < ${menu}`)
   assert.match(h, /<div class="panel-head-left">Traces<\/div>/)
+})
+
+test('a lead control sits in the head before Sort by, and is absent unless given', () => {
+  const h = html(<RequestTraceSplit data={BROWSER_ROWS} headLead={<span className="probe-lead">views</span>} />)
+  const right = h.indexOf('class="panel-head-right"')
+  const lead = h.indexOf('class="probe-lead"')
+  const sort = h.indexOf('class="sort-lbl"')
+  assert.ok(right >= 0 && right < lead && lead < sort, `${right} < ${lead} < ${sort}`)
+  assert.doesNotMatch(html(<RequestTraceSplit data={BROWSER_ROWS} />), /probe-lead/)
+})
+
+test('controls at the list: Sort by and the head control on a bar over the rows, gone from the head', () => {
+  const extra = <span className="probe-extra">10 results</span>
+  const h = html(<RequestTraceSplit data={BROWSER_ROWS} headExtra={extra} controlsAt="list" />)
+  const head = h.slice(h.indexOf('class="panel-head'), h.indexOf('class="slowreq-split"'))
+  assert.doesNotMatch(head, /sort-lbl|probe-extra/, 'nothing left in the head but the title and the menu')
+  assert.match(head, /card-menu-btn/)
+  const list = h.indexOf('class="slowreq-list"')
+  const bar = h.indexOf('class="rts-list-bar"')
+  const sort = h.indexOf('class="sort-lbl"')
+  const ex = h.indexOf('class="probe-extra"')
+  const row = h.indexOf('class="slowreq-row')
+  assert.ok(list < bar && bar < sort && sort < ex && ex < row, `${list} < ${bar} < ${sort} < ${ex} < ${row}`)
+  // No rows left: the caller's empty state, and the bar goes with the list.
+  const empty = html(<RequestTraceSplit data={[]} headExtra={extra} controlsAt="list" emptyList={<div className="probe-empty">none</div>} />)
+  assert.match(empty, /probe-empty/)
+  assert.doesNotMatch(empty, /rts-list-bar/)
+  // The default is the head, as every other use draws it.
+  assert.doesNotMatch(html(<RequestTraceSplit data={BROWSER_ROWS} headExtra={extra} />), /rts-list-bar/)
+})
+
+test('a section above sits between the head and the split, and stays when the list empties', () => {
+  const above = <div className="probe-above">chart</div>
+  const h = html(<RequestTraceSplit data={BROWSER_ROWS} above={above} />)
+  const head = h.indexOf('class="panel-head')
+  const at = h.indexOf('class="probe-above"')
+  const split = h.indexOf('class="slowreq-split"')
+  assert.ok(head >= 0 && head < at && at < split, `${head} < ${at} < ${split}`)
+  // The chart that emptied the list is still there to widen it again.
+  const empty = html(<RequestTraceSplit data={[]} above={above} emptyList={<div className="probe-empty">none</div>} />)
+  assert.ok(empty.indexOf('class="probe-above"') < empty.indexOf('class="probe-empty"'))
+  assert.doesNotMatch(html(<RequestTraceSplit data={BROWSER_ROWS} />), /probe-above/)
 })
 
 test('an empty list shows the caller\'s empty state in place of the split; without one, the split as before', () => {

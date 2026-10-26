@@ -49,7 +49,7 @@
  */
 
 import { spanRowsForWindow, spanVolumeForWindow, buildSpanFacets, spanFacetFieldsFor } from '@/data/tracesExplorer'
-import { errorSamplesFor, mergeErrorSpans } from '@/utils/tracesHandoff'
+import { traceSamplesFor, mergeErrorSpans } from '@/utils/tracesHandoff'
 import { BASE_TIME } from '@/data/observability'
 import { bucketIndexOf } from '@/data/timeWindow'
 import {
@@ -112,9 +112,10 @@ export const TRACES_SOURCE = {
   emptyText: 'No spans match this filter',
 
   rowsForWindow: spanRowsForWindow,
-  // A link from the Errors page names an exception, and the window's seeded
-  // spans may not hold one of it — see `errorSamplesFor`.
-  extraRowsFor: errorSamplesFor,
+  // A link from the Errors page names an exception, and one from the service
+  // page's Slow Requests an endpoint, and the window's seeded spans may hold
+  // neither — see `errorSamplesFor` and `requestSamplesFor`.
+  extraRowsFor: traceSamplesFor,
   mergeExtraRows: mergeErrorSpans,
 
   volumeForWindow: spanVolumeForWindow,

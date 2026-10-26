@@ -446,3 +446,59 @@ test('inside an open group the words land in the group', () => {
   const next = landChips(open, words, { insertionPath: [1] })
   assert.deepEqual(next[1].children, [words[0], { connector: 'AND', ...words[1] }])
 })
+
+// ---------- Comparisons ----------
+// `duration:>=8.8ms`, LogsQL's range filters. A span's `duration` is a number
+// of nanoseconds, and the value is matched the way Explore's evaluator matches
+// it (utils/logsqlNumber.js): a duration as integer nanoseconds.
+
+const span = (duration) => ({ spanName: 'GET /x', tags: duration === undefined ? {} : { duration } })
+const spanValue = (s, f) => s.tags?.[f]
+
+test('a latency band keeps its lower bound and drops its upper one', () => {
+  const band = [leaf('duration', 'gte', '8.799ms'), leaf('duration', 'lt', '27.83ms', 'AND')]
+  const hit = ns => applyChipsToLog(span(ns), band, spanValue)
+  assert.equal(hit(8798999), false)
+  assert.equal(hit(8799000), true)
+  assert.equal(hit(27829999), true)
+  assert.equal(hit(27830000), false)
+})
+
+test('each comparison, against a number of nanoseconds', () => {
+  const m = (op, value, ns) => applyChipsToLog(span(ns), [leaf('duration', op, value)], spanValue)
+  assert.equal(m('gt', '1ms', 1e6), false)
+  assert.equal(m('gt', '1ms', 1e6 + 1), true)
+  assert.equal(m('gte', '1ms', 1e6), true)
+  assert.equal(m('lt', '1.2s', 1.2e9), false)
+  assert.equal(m('lte', '1.2s', 1.2e9), true)
+  // A bare number is taken as written: on duration, nanoseconds.
+  assert.equal(m('gt', '500', 501), true)
+})
+
+test('a comparison never matches a record without the field', () => {
+  for (const op of ['gt', 'gte', 'lt', 'lte']) {
+    assert.equal(applyChipsToLog(span(undefined), [leaf('duration', op, '5ms')], spanValue), false, op)
+  }
+})
+
+test('a comparison on numeric text compares numbers; on other text, text', () => {
+  const row = { service: 'payment', level: 'error', message: '', tags: { 'http.status': '503' } }
+  assert.equal(applyChipsToLog(row, [leaf('http.status', 'gte', '500')]), true)
+  assert.equal(applyChipsToLog(row, [leaf('http.status', 'lt', '1000')]), true)  // as text, '503' > '1000'
+  assert.equal(applyChipsToLog(row, [leaf('service', 'gt', 'order')]), true)
+})
+
+test('a comparison chip shows its symbol, and its value raw', () => {
+  assert.deepEqual(chipSegments('gte', '8.8ms'), { prefix: ':>=', value: '8.8ms', suffix: '' })
+  assert.deepEqual(chipSegments('lt', 'a b'), { prefix: ':<', value: 'a b', suffix: '' })
+  assert.equal(chipsToString([leaf('duration', 'lte', '1.2s')]), 'duration:<=1.2s')
+  assert.equal(chipsToString([leaf('f', 'gt', 'a b')]), 'f:>"a b"')
+})
+
+test('a word or starts-with opening with < or > is written quoted, so it never reads back as a comparison', () => {
+  assert.equal(chipsToString([leaf('message', 'word', '>5')]), 'message:">5"')
+  assert.equal(chipsToString([leaf('message', 'word', '<html>')]), 'message:"<html>"')
+  assert.equal(roundTrips([leaf('f', 'prefix', '>5')]), 'f:">5"*')
+  // Quoted, a word reads back as the phrase on the same text, as any quoted word does.
+  assert.deepEqual(tryParseConditions('message:">5"').chips, [leaf('message', 'phrase', '>5')])
+})

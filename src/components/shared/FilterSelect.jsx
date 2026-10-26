@@ -27,7 +27,10 @@ const PLACEHOLDER_STYLE = { color: 'var(--text-muted)', fontFamily: 'inherit', f
 // key. `value` is the option shown as chosen; '' or null means nothing is
 // chosen, which shows `placeholder` when one is given. `clearLabel` adds a first
 // row ("All endpoints") that chooses nothing, by calling onSelect('').
-export default function FilterSelect({ label, value, options, onSelect, className, placeholder, clearLabel }) {
+// `hideLabel` draws the value alone, for a value that says what it is ("10
+// results"); the label still names the control in its title and to a screen
+// reader.
+export default function FilterSelect({ label, value, options, onSelect, className, placeholder, clearLabel, hideLabel = false }) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   // The row the keyboard is on: an index into `rows` below, or -1 for none.
@@ -207,6 +210,7 @@ export default function FilterSelect({ label, value, options, onSelect, classNam
         ref={btnRef}
         className={`filter-select${className ? ` ${className}` : ''}${open ? ' dd-open' : ''}`}
         title={`${label}: ${showPlaceholder ? placeholder : value}`}
+        aria-label={hideLabel ? `${label}: ${showPlaceholder ? placeholder : value}` : undefined}
         role="button"
         tabIndex={0}
         aria-haspopup="listbox"
@@ -214,7 +218,7 @@ export default function FilterSelect({ label, value, options, onSelect, classNam
         onClick={(e) => { e.stopPropagation(); if (open) close(); else openPanel(false) }}
         onKeyDown={onTriggerKeyDown}
       >
-        <span className="filter-label">{label}</span>
+        {!hideLabel && <span className="filter-label">{label}</span>}
         <span className="filter-value">
           {showPlaceholder
             ? <span className="filter-placeholder" style={PLACEHOLDER_STYLE}>{placeholder}</span>

@@ -1,0 +1,91 @@
+/* The Slow Requests panel's chart section: src/components/trace/SlowRequestsPanel.jsx
+   and LatencyCharts.jsx. The panel, its head and the request/trace split under
+   the chart are the service page's own (.panel, .slowreq-*) and are not
+   restyled here. Every colour is a token, so both themes follow. */
+
+/* The preview keeps beside a long list (stickyPreview) just under the Detail
+   tab's sticky Endpoint strip — the strip is 51px from the scroller's top, an
+   8px gap, less the scroller's own top padding — as on the Browser Traces tab. */
+.srq-host { --rts-sticky-top: calc(59px - var(--svc-pad-top, 18px)); }
+
+/* The section between the head and the list: what the chart is showing (the
+   hint, or the selection with Clear and View in Traces), then the chart. The
+   view switch is up in the panel's head. A rule under it, so
+   the list reads as the chart's result rather than as more of the chart.
+   Positioned, so the live region's .sr-only (absolute) is held inside it:
+   with no positioned ancestor it sits below the page's scroller and makes the
+   whole document scroll. */
+.srq { position: relative; padding: 10px 16px 20px; border-bottom: 1px solid var(--border-subtle); }
+/* Show preview: None. A selection still in force keeps its line, alone; with
+   nothing selected the section is only the live region, and takes no room. */
+.srq.is-bare { padding: 8px 16px; }
+.srq.is-bare .srq-sub { margin-bottom: 0; }
+.srq.is-hidden { padding: 0; border-bottom: 0; }
+.srq-sub { display: flex; align-items: center; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; margin-bottom: 8px; }
+.srq-sub-right { display: flex; align-items: center; gap: 4px 10px; min-width: 0; flex: 1 1 auto; justify-content: flex-end; flex-wrap: wrap; }
+/* Show preview: Histogram | Heatmap | None, in the head (Sort by and "N
+   results" are on the list's own bar). Buttons in the seg-toggle, so the
+   choice is reached and worked from the keyboard; Tailwind's preflight
+   already strips the button chrome. */
+.srq-views .seg { border: 0; }
+.srq-views .seg:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.srq-hint { font-size: 11.5px; color: var(--text-muted); text-align: right; }
+.srq-sel {
+  font-size: 11.5px; color: var(--text-primary); font-variant-numeric: tabular-nums;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.srq-clear { white-space: nowrap; }
+.srq-clear:focus-visible, .srq-traces:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.srq-traces {
+  display: inline-flex; align-items: center; gap: 2px; padding: 2px 4px; border-radius: 3px;
+  font-size: 11.5px; font-weight: 500; color: var(--brand); white-space: nowrap; cursor: pointer;
+}
+.srq-traces:hover { background: var(--panel-2); }
+.srq-traces svg { width: 13px; height: 13px; }
+/* "5 results": the platform's filter dropdown (FilterSelect, in the service
+   page's .subtab-filters look, value only) on the list's bar, as tall as the
+   Sort by toggle beside it, and as wide as its value rather than the filters'
+   177px, which with no label would leave the pill half empty. */
+.srq-limit { height: 28px; }
+/* Above .subtab-filters .filter-select whichever stylesheet loads last. */
+.subtab-filters.srq-limit .filter-select { min-width: 0; }
+.srq-nochart { height: 238px; display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--text-muted); }
+
+/* A selection that holds nothing: the list's place says so, with the way back. */
+.srq-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 36px 16px; font-size: 12px; color: var(--text-muted); text-align: center; }
+
+/* ---- the charts ---- */
+
+.lat-chart { position: relative; }
+.lat-row { display: flex; align-items: stretch; }
+.lat-y { position: relative; flex-shrink: 0; font-size: 10px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.lat-y-tick { position: absolute; right: 6px; transform: translateY(50%); white-space: nowrap; line-height: 1; }
+.lat-plot {
+  position: relative; flex: 1; min-width: 0; cursor: crosshair; user-select: none;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.lat-plot.is-dragging { cursor: ew-resize; }
+.lat-plot.is-heatmap.is-dragging { cursor: crosshair; }
+.lat-plot:focus { outline: none; }
+.lat-plot:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 2px; }
+.lat-svg { display: block; overflow: visible; }
+.lat-grid { stroke: var(--border-subtle); stroke-dasharray: 3 3; }
+.lat-cursor { fill: var(--overlay-hover); pointer-events: none; }
+.lat-bar { fill: var(--brand); }
+.lat-cell { fill: var(--brand); stroke: var(--card); stroke-width: 1; }
+/* The heatmap cell being read: outlined in the text colour rather than
+   recoloured, so it keeps its own fill (production's red would read as a
+   severity). A hovered bar has no outline, only the column band behind it. */
+.lat-outline { fill: none; stroke: var(--text-primary); stroke-width: 1.5; pointer-events: none; }
+.lat-cross { stroke: var(--border-strong); stroke-dasharray: 3 3; pointer-events: none; }
+/* The platform's brush band (useTimeFocus, Home's health strip). */
+.lat-brush { fill: var(--brand); fill-opacity: .14; stroke: var(--brand); stroke-opacity: .6; pointer-events: none; }
+
+.lat-tip { position: absolute; z-index: 20; pointer-events: none; transform: translate(12px, -50%); }
+.lat-tip.is-flipped { transform: translate(calc(-100% - 12px), -50%); }
+
+.lat-x-row { height: 18px; }
+.lat-x { position: relative; height: 100%; font-size: 10px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.lat-x-tick { position: absolute; top: 4px; transform: translateX(-50%); white-space: nowrap; }
+.lat-x-tick.is-first { transform: none; }
+.lat-x-tick.is-last { transform: translateX(-100%); }
