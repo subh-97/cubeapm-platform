@@ -371,8 +371,10 @@ explains.
   Explore's PromQL parser. Its "Open in Explore" button is disabled with the title "Explore can't
   read this query yet" instead of opening Explore on a parse error. Every other seeded query
   opens. The fix belongs in Explore's parser.
-- **Traces for a latency rule** has no duration floor, because the Traces search has no numeric
-  comparison. It lands on the service and endpoint's spans around the alert.
+- **Traces for a latency rule** has no duration floor. The Traces search had no numeric
+  comparison when this was built; it has one now (`duration:>=8.8ms`, the range comparisons in
+  `docs/decisions/query-builder-phase8.md`), but the hand-off has not been taught to use it. It
+  lands on the service and endpoint's spans around the alert.
 - **Logs for a service rule** lands empty, because the Logs mock names the service `payment` and
   holds no payment error records. A log-source rule (504) lands on its records.
 - **Compare** offers Off or Previous period.

@@ -62,6 +62,14 @@ unchanged.
 - **No Run button.** Chips apply as they are committed, the way the original's
   search filters as you type; the data is local and a chip still being composed
   never filters.
+- **`http_code` takes range comparisons** (`http_code:>=500`, `http_code:<400`),
+  a departure from the original Errors search, which has none. They came with
+  the shared grammar (`query-builder-phase8.md`, "Comparison operators"):
+  `http_code` is a `keyword` field, and every keyword field's operator list
+  gained `>`, `>=`, `<`, `<=`. They filter series, one code each, so
+  `http_code:>=500` keeps the 5xx series as `http_code:5*` does. The original's
+  URL dialect has no way to say one, so a comparison lives in the bar's text
+  (`q`), not in a key of its own.
 
 `chipsToString` quotes what needs quoting and `rawQuery` reads every spelling
 the builder writes, so the bar's text round-trips through the URL, history and

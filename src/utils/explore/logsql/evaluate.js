@@ -33,6 +33,7 @@
 
 import { getField } from '@/data/explore/eventsStore'
 import { LogsqlError } from './parser.js'
+import { toNumber, compareValues as compare } from '@/utils/logsqlNumber'
 
 // ---------- values ----------
 
@@ -48,31 +49,9 @@ function cellText(v) {
 
 // LogsQL compares durations and sizes numerically, so `duration:>100ms` has to
 // mean 1e8 against a nanosecond field and `size:>1KB` 1000 against a byte one.
-const DURATION_NS = { ns: 1, us: 1e3, 'µs': 1e3, ms: 1e6, s: 1e9, m: 6e10, h: 3.6e12, d: 8.64e13, w: 6.048e14, y: 3.1536e16 }
-const DURATION_TEXT = /^[+-]?(?:\d+(?:\.\d+)?(?:ns|us|µs|ms|s|m|h|d|w|y))+$/
-const DURATION_PART = /(\d+(?:\.\d+)?)(ns|us|µs|ms|s|m|h|d|w|y)/g
-const SIZE_TEXT = /^([+-]?\d+(?:\.\d+)?)([kmgt])?(i)?b$/i
-const SIZE_EXP = { k: 1, m: 2, g: 3, t: 4 }
-
-function unitNumber(s) {
-  if (DURATION_TEXT.test(s)) {
-    let ns = 0
-    DURATION_PART.lastIndex = 0
-    for (let m = DURATION_PART.exec(s); m; m = DURATION_PART.exec(s)) ns += Number(m[1]) * DURATION_NS[m[2]]
-    return s[0] === '-' ? -ns : ns
-  }
-  const size = SIZE_TEXT.exec(s)
-  if (!size) return NaN
-  return Number(size[1]) * (size[3] ? 1024 : 1000) ** (SIZE_EXP[(size[2] || '').toLowerCase()] || 0)
-}
-
-function toNumber(v) {
-  if (typeof v === 'number') return v
-  const s = cellText(v).trim()
-  if (!s) return NaN
-  const n = Number(s)
-  return Number.isFinite(n) ? n : unitNumber(s)
-}
+// How a value reads as a number, and how two compare, live in logsqlNumber.js:
+// the Logs and Traces builder matches its comparison chips through the same
+// two functions, so a filter means one thing on every page.
 
 // A regexp the parser let through but JS cannot compile matches nothing. The
 // alternative — throwing from inside a per-row loop — would turn one bad
@@ -169,20 +148,6 @@ function matchStream(m, row) {
   if (m.op === '=' || m.op === '!=') return (s === m.value) === (m.op === '=')
   const re = regexFor(`^(?:${m.value})$`)
   return (!!re && re.test(s)) === (m.op === '=~')
-}
-
-function compare(op, left, right) {
-  const a = toNumber(left)
-  const b = toNumber(right)
-  const numeric = Number.isFinite(a) && Number.isFinite(b)
-  const x = numeric ? a : cellText(left)
-  const y = numeric ? b : cellText(right)
-  switch (op) {
-    case 'gt': return x > y
-    case 'gte': return x >= y
-    case 'lt': return x < y
-    default: return x <= y
-  }
 }
 
 function matchTerm(node, row) {

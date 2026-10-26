@@ -237,6 +237,22 @@ function parseOpAndValue(cur, field) {
     const { value } = parseValueToken(cur)
     return { op: 'regex', value }
   }
+  // The range comparisons, `f:>v` `f:>=v` `f:<v` `f:<=v`, longest first so `>=`
+  // is never read as `>` with a value starting `=` (the writer quotes such a
+  // value, so it never has to be). The value is quoted or bare like any other,
+  // and kept as written: '8.8ms' stays '8.8ms'. This text used to parse as a
+  // word chip on `>5`, which matched nothing; it is a comparison now, as it is
+  // in LogsQL. A word or starts-with on a value opening with `<` or `>` is
+  // written quoted (QueryBuilder's BARE_LEADS), so it still reads back as one.
+  if (cur.peek() === '>' || cur.peek() === '<') {
+    const sym = cur.startsWith('>=') ? '>=' : cur.startsWith('<=') ? '<=' : cur.peek()
+    cur.i += sym.length
+    const op = { '>': 'gt', '>=': 'gte', '<': 'lt', '<=': 'lte' }[sym]
+    // Only a bare nothing is missing: `f:>""` is the empty value, written.
+    const { value, quoted } = parseValueToken(cur)
+    if (value === '' && !quoted) throw new QueryError(`Missing value after "${field}:${sym}".`, cur.i)
+    return { op, value }
+  }
   if (cur.peek() === '"' || cur.peek() === "'") {
     const value = parseQuoted(cur)
     // `field:"Could not"*` = starts with, quoted for a space or an awkward
@@ -463,6 +479,10 @@ const ALL_FIELDS = [
 const OP_SUGGESTIONS = [
   { value: ':', detail: 'word match', kind: 'operator' },
   { value: ':=', detail: 'exact match', kind: 'operator' },
+  { value: ':>', detail: 'greater than', kind: 'operator' },
+  { value: ':>=', detail: 'at least', kind: 'operator' },
+  { value: ':<', detail: 'less than', kind: 'operator' },
+  { value: ':<=', detail: 'at most', kind: 'operator' },
   { value: '!=', detail: 'not equal', kind: 'operator' },
   { value: ':*', detail: 'exists (any non-empty)', kind: 'operator' },
   { value: ':""', detail: 'is empty', kind: 'operator' },
@@ -565,7 +585,7 @@ export function suggestRaw(text, caret) {
 
   // Conditions section.
   // If the token already contains an operator, suggest values for that field.
-  const opMatch = word.match(/^([\w._]+)(:=|:~|!~|!=|:)(.*)$/)
+  const opMatch = word.match(/^([\w._]+)(:=|:~|!~|!=|:>=|:<=|:>|:<|:)(.*)$/)
   if (opMatch) {
     const [, field, , typed] = opMatch
     const values = valuesForField(field)

@@ -38,6 +38,9 @@ import ChartTooltip from '@/components/charts/ChartTooltip'
 const AGG_ALL_FIELDS = FIELD_CATALOG.map(f => f.field)
 const AGG_NUMERIC_FIELDS = new Set(FIELD_CATALOG.filter(f => f.type === 'keyword').map(f => f.field))
 
+// Message chips whose value is not text in the line, so is not highlighted.
+const NOT_SEARCHED_OPS = new Set(['regex', 'nregex', 'gt', 'gte', 'lt', 'lte'])
+
 // Compact chip display for a saved stats function inside the Aggregation pill.
 function summarizeFn(f) {
   if (f.as) return f.as
@@ -870,10 +873,11 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
 
   // Literal strings the user is searching the message body for — the free-text
   // chips plus the facet search box. Regex chips are left out: their value is a
-  // pattern, not the text that will appear in the line.
+  // pattern, not the text that will appear in the line. So are comparisons
+  // (`_msg:>m`): a line passes a bound without ever containing it.
   const searchTerms = useMemo(() => {
     const terms = flattenLeaves(appliedChips)
-      .filter(c => c.field === '_msg' && c.op !== 'regex' && c.op !== 'nregex')
+      .filter(c => c.field === '_msg' && !NOT_SEARCHED_OPS.has(c.op))
       .flatMap(c => (Array.isArray(c.value) ? c.value : [c.value]))
       .map(v => String(v ?? '').trim())
       .filter(Boolean)

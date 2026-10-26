@@ -25,6 +25,40 @@ value, unclosed stream selector, unsupported stream-selector operator, unmatched
 generic fallback. `tryParseConditions` wraps them non-throwingly as
 `{ ok, chips, error }`.
 
+**Comparison operators** — landed 2026-10-26. `field:>v`, `:>=`, `:<`, `:<=`
+(chip ops `gt`, `gte`, `lt`, `lte`), LogsQL's range filters, so Traces can say
+`duration:>=8.799ms duration:<27.83ms`. One grammar, every reader:
+
+- **The picker** offers them on `keyword` fields, in a Range category after
+  Equality. The parser and the typed bar know no field types, so `service:>m`
+  is a `gt` chip too; it edits as a typed value like any comparison.
+- **The value is a number, or a duration or size LogsQL reads as one**, kept as
+  the text written ('8.799ms', never 8799000). It is matched the way Explore's
+  evaluator matches it, through one module both import,
+  `src/utils/logsqlNumber.js`: a duration is integer nanoseconds (rounded after
+  the unit multiply, so '8.799ms' is exactly 8799000), a size bytes, a bare
+  number itself (`duration:>5` is 5 ns, since a span's `duration` is ns). Text
+  that is no number compares as text, as LogsQL does. A record without the
+  field never matches.
+- **What now reads differently.** `f:>v` used to parse as a word chip on `>v`,
+  which matched nothing; it is a comparison now. The writer quotes a word or
+  starts-with value that opens with `<` or `>` (`message:">5"`), so no chip the
+  builder writes changes meaning on the way back.
+- **The typed bar** holds `:>` pending until the next key (it may be `:>=`). A
+  space straight after a number is content, the gap before a unit, and
+  `8.8 ms` is closed up to `8.8ms` at commit. A value that is no number or
+  duration is refused at commit with the reason; the raw parser still reads
+  one, so pasted text keeps every filter.
+- An empty value raises `Missing value after "duration:>=".`, naming the
+  operator. The raw-mode suggestions offer the four after a field name, and
+  keep the operator when offering values.
+- Explore's converter (`toExploreLogsQuery`) reads the value quoted or bare and
+  re-emits it, bare when it is a number, duration or size; the Logs highlight
+  leaves comparison values out of the terms it marks.
+
+Still not done with it: an alert rule's latency hand-off to Traces carries no
+duration floor (`docs/alerts/PLAN.md`); the grammar can say one now.
+
 ## Still outstanding
 
 **URL state sync.** Chips and raw text should serialize into the URL so a query

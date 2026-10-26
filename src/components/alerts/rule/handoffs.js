@@ -133,9 +133,10 @@ function queryChips(view) {
  * (evidence.js reads it off the Errors data). Named, the Traces page merges in
  * the error samples that make every Errors link land (tracesHandoff.js); the
  * seeded span stream alone holds almost no failures of any one service in ten
- * minutes. A latency rule carries no duration floor: the Traces search has no
- * numeric comparison to express one, so it lands on the service's spans for
- * the reader to sort by duration.
+ * minutes. A latency rule carries no duration floor. The Traces search can say
+ * one now (`duration:>=8.8ms`, the range comparisons), but this hand-off has
+ * not been taught to: it lands on the service's spans for the reader to sort
+ * by duration, as it did when the grammar had no comparison to offer.
  *
  * Returns `{ link, range }`, or null when there is nothing to filter on.
  */

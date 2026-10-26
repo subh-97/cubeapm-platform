@@ -614,6 +614,29 @@ export function redEndpointSeriesForWindow(win, key) {
  * differently depending on which page was opened first.
  */
 export function errorRateProfiles(table) {
+  return builtTable(table).map(({ row, profiles }) => ({
+    endpoint: row.endpoint,
+    rpm: profiles.rpm,
+    err: profiles.errPct,
+  }))
+}
+
+/**
+ * The calibrated request-rate and p90 profiles behind one of the derived
+ * tables, one entry per row: what the service page's Slow Requests panel
+ * models each endpoint's requests from (data/requestLatency.js), so its
+ * histogram's minutes are the same minutes the p90 chart above it draws.
+ * Built through the same tables, in the same order, as errorRateProfiles.
+ */
+export function latencyProfiles(table) {
+  return builtTable(table).map(({ row, profiles }) => ({
+    endpoint: row.endpoint,
+    rpm: profiles.rpm,
+    p90: profiles.p90,
+  }))
+}
+
+function builtTable(table) {
   // Inside the function: the DB and External rows are declared further down.
   const tables = {
     red: [redEndpoints, RED_SPEC],
@@ -623,11 +646,7 @@ export function errorRateProfiles(table) {
   if (!tables[table]) return []
   for (const [rows, spec] of Object.values(tables)) derivedTable(rows, spec)
   const [rows, spec] = tables[table]
-  return derivedTable(rows, spec).map(({ row, profiles }) => ({
-    endpoint: row.endpoint,
-    rpm: profiles.rpm,
-    err: profiles.errPct,
-  }))
+  return derivedTable(rows, spec)
 }
 
 /**

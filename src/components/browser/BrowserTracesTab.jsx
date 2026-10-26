@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FilterX } from 'lucide-react'
 import RequestTraceSplit from '@/components/trace/RequestTraceSplit'
+import { LIMITS, LIMIT_OPTIONS, resultsLabel } from '@/components/trace/requestLimits'
 import TitleDropdown from '@/components/shared/TitleDropdown'
 import SpanExceptionModal from '@/components/errors/SpanExceptionModal'
 import BrowserExceptionModal from '@/components/browser/BrowserExceptionModal'
@@ -15,15 +16,11 @@ import { formatLocal } from '@/utils/timeRange'
 import '@/components/errors/errors.css'
 import './browser-traces.css'
 
-// Production's "N results" choices, and its default. The list is that many
+// Production's "N results" choices (shared with the service page's Slow
+// Requests, requestLimits.js), and this tab's default. The list is that many
 // requests sampled across the range, newest first (browserTracesForWindow:
-// spread through the window, an error's samples where its counts are), and the
-// Sort by toggle orders those — so "Latency" is the slowest of the ten, a
-// sample of the range rather than its slowest ten.
-const LIMITS = [5, 10, 20, 50, 100]
+// spread through the window, an error's samples where its counts are).
 const DEFAULT_LIMIT = 10
-const resultsLabel = n => `${n} results`
-const LIMIT_OPTIONS = LIMITS.map(resultsLabel)
 
 const KIND_LABEL = Object.fromEntries(BROWSER_KINDS.map(k => [k.id, k.label]))
 const KIND_NOUN = { server: 'page loads', client: 'Ajax calls' }

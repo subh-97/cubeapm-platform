@@ -60,8 +60,12 @@ export function timeAgo(ms, nowMs) {
  * @param {object}  [props.footer] { label, value } under a rule
  * @param {number}  [props.limit]  most rows to list; the rest are counted, not listed
  * @param {number}  [props.minWidth]
+ * @param {string}  [props.heading]  a heading for a reading that is not an instant
+ *                                   — a latency bucket's range, "11.36 ms - 12.92 ms".
+ *                                   Drawn only when there is no `tMs`: a time
+ *                                   chart's heading is always its full instant.
  */
-export default function ChartTooltip({ tMs, nowMs, items, hoverKey, footer, limit, minWidth = 200, suppressed }) {
+export default function ChartTooltip({ tMs, nowMs, items, hoverKey, footer, limit, minWidth = 200, suppressed, heading }) {
   // Charts that share a syncId all go active at once, so without this every
   // chart on the page opens a panel when any one of them is hovered — six
   // overlays for one question. The cursor line still draws on all of them
@@ -97,6 +101,9 @@ export default function ChartTooltip({ tMs, nowMs, items, hoverKey, footer, limi
         boxShadow: '0 2px 6px rgba(0,0,0,.14)',
       }}
     >
+      {tMs == null && heading && (
+        <div style={{ color: 'var(--text-primary)', fontWeight: 600, marginBottom: 5 }}>{heading}</div>
+      )}
       {tMs != null && (
         <>
           <div style={{ color: 'var(--text-primary)', fontWeight: 600, marginBottom: 1 }}>

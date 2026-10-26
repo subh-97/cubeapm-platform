@@ -30,6 +30,16 @@
   overflow-wrap: anywhere;
 }
 
+/* controlsAt="list": Sort by (left) and the caller's control (right, the
+   "N results" picker) on a bar at the top of the list, over the rows they
+   order and count, inset like the rows. The first row keeps its rule, which
+   now parts it from the bar. */
+.rts-list-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px 12px; flex-wrap: wrap; padding: 8px 16px;
+}
+.rts-list-bar-sort { display: flex; align-items: center; gap: 6px; }
+
 /* stickyPreview: a list of up to a hundred requests is several screens tall,
    and the preview — at the top of its grid cell — scrolled away with the
    first rows, so picking the eightieth showed nothing beside it. The preview

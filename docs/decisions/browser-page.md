@@ -105,7 +105,10 @@ Figures are page-view means, as in the original, so nothing calls them a p75.
   - Ten rows show, with "Show all" below.
 - **Traces** is `RequestTraceSplit` (APM's Slow Requests split). It has Sort
   by Latency | Time | None (default None), an "N results" picker, an error
-  summary, the shared waterfall, and "Trace ID ↗" to `/trace/<id>`.
+  summary, the shared waterfall, and "Trace ID ↗" to `/trace/<id>`. The
+  picker's options (`LIMITS`, `resultsLabel`) live in
+  `components/trace/requestLimits.js`, because the service page's Slow
+  Requests offers the same counts (in a FilterSelect).
 - **"N results" is a sample of the range, newest first, not the newest N.**
   Production returns the latest N requests. At hundreds of page loads or calls
   a minute, those all come from the last few seconds or minutes, whatever

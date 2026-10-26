@@ -359,9 +359,19 @@ test('a wide range holds as much of the incident as the hour, wherever in the qu
   }
 })
 
-// Only a trailing range moves. An absolute one ends where it was told to.
+// Only a trailing range moves. An absolute one ends where it was told to: not
+// on to now, and not back to the query step either (fifteen minutes on a span
+// of a day or more), which would drop the end of a selection another page
+// handed over. Its exact bounds ride along for a reader that needs them.
 test('an absolute range keeps the end it was given', () => {
   const now = BASE_TIME.getTime()
-  const r = { kind: 'absolute', from: now - 3 * 86400000, to: now - 7 * 60000 }
-  assert.equal(resolveWindow(r).end, resolveRange(r, now, 15).end)
+  // An end 7m23s before a quarter hour: never on the 15-minute query step.
+  const quarter = new Date(BASE_TIME)
+  quarter.setMinutes(quarter.getMinutes() - (quarter.getMinutes() % 15), 0, 0)
+  const r = { kind: 'absolute', from: now - 3 * 86400000, to: quarter.getTime() - 7 * 60000 - 23000 }
+  const w = resolveWindow(r)
+  assert.equal(w.end, Math.floor(r.to / 1000))
+  assert.ok(w.end > resolveRange(r, now, 15).end, 'past the query step it would have floored to')
+  assert.deepEqual(w.exactMs, [r.from, r.to])
+  assert.equal(resolveWindow({ kind: 'preset', value: '3d' }).exactMs, null)
 })
