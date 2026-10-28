@@ -20,6 +20,7 @@ import { SortableTable, SortableTh, CellBar } from './SortableTable.jsx'
 import FilterSelect from './FilterSelect.jsx'
 import ServicePicker from '../ServicePicker.jsx'
 import ViewTabs from './ViewTabs.jsx'
+import FilterChips from './FilterChips.jsx'
 import { viewTabId, viewTabPanelId } from './viewTabIds.js'
 import { Gauge, Crosshair, ChartLine, Globe, Database, TriangleAlert, Cpu, PanelsTopLeft, ArrowLeftRight, Activity, TextSearch } from 'lucide-react'
 import { SERVICE_TABS } from '@/utils/route'
@@ -413,4 +414,19 @@ test('a count follows the label when given, and nothing is added when it is not'
   assert.match(out, /id="alr-tab-alerts" data-tab="alerts" type="button" role="tab" aria-selected="true" aria-controls="alr-tab-panel" tabindex="0"/)
   const extra = html(<ViewTabs tabs={tabs} active="x" onSelect={noop} ariaLabel="A" className="is-alerts" />)
   assert.match(extra, /^<div class="view-tabs is-alerts" role="tablist" aria-label="A">/)
+})
+
+test('FilterChips: one choice among capsules, only it in the Tab order, an empty one dimmed, the mark decoration', () => {
+  const out = html(
+    <FilterChips
+      ariaLabel="Kinds"
+      active="b"
+      onChange={noop}
+      options={[{ id: 'a', label: 'All', count: 3 }, { id: 'b', label: 'Bees', count: 3, icon: <svg /> }, { id: 'c', label: 'Cats', count: 0 }]}
+    />,
+  )
+  assert.match(out, /^<div class="chips" role="radiogroup" aria-label="Kinds">/)
+  assert.match(out, /<button type="button" role="radio" aria-checked="false" tabindex="-1" class="chip">All<span class="chip-count">3<\/span><\/button>/)
+  assert.match(out, /<button type="button" role="radio" aria-checked="true" tabindex="0" class="chip is-on"><span class="chip-icon" aria-hidden="true"><svg><\/svg><\/span>Bees<span class="chip-count">3<\/span><\/button>/)
+  assert.match(out, /class="chip is-empty">Cats<span class="chip-count">0<\/span>/)
 })

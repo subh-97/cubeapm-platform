@@ -127,19 +127,22 @@ export function buildLanes(timeline, byId, win, seriesFor = null) {
     || a.sub.localeCompare(b.sub))
 }
 
+/** The range in short: "Last 1 hr", "Last 15 min"; days, Today and an absolute range as they are. */
+export function shortRangeLabel(win) {
+  return String(win?.label ?? '')
+    .replace(/\b(\d+) hours?\b/, '$1 hr')
+    .replace(/\b(\d+) minutes?\b/, '$1 min')
+}
+
 /**
- * The timeline head's summary: the range in short ("Last 1 hr", "Last 15
- * min"; days, Today and an absolute range as they are), then how many lanes
+ * The timeline head's summary: the range in short, then how many lanes
  * reached critical and how many warning at worst. A lane that only pended
  * counts in neither.
  */
 export function timelineSummary(lanes, win) {
-  const range = String(win?.label ?? '')
-    .replace(/\b(\d+) hours?\b/, '$1 hr')
-    .replace(/\b(\d+) minutes?\b/, '$1 min')
   const critical = lanes.filter(l => l.worst === 'critical').length
   const warning = lanes.filter(l => l.worst === 'warning').length
-  return `${range} · ${critical} critical · ${warning} warning`
+  return `${shortRangeLabel(win)} · ${critical} critical · ${warning} warning`
 }
 
 /** A bar's state word: "Critical", "Warning", "Pending". */

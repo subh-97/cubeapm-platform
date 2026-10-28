@@ -173,6 +173,7 @@ export default function RulesTab({
   return (
     <div className="rtab" ref={rootRef}>
       <CreateRuleBanners
+        rules={rules}
         onTemplate={t => openLink({ view: 'alertEditor', ...t.payload() })}
         onScratch={onNewRule}
       />

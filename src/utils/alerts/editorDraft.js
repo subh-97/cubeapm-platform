@@ -23,7 +23,7 @@ import { cleanModel, draftQuery, setTab as exploreSetTab } from '@/utils/explore
 import { tiersOf, expressionsFor } from './condition'
 import {
   RULE_DEFAULTS, DEFAULT_GROUP, RESERVED_TAG_KEYS, RECEIVER_TYPES, DEFAULT_STATIC_OPERATOR, DEFAULT_ANOMALY_OPERATOR,
-  DEFAULT_ANOMALY_DEVIATIONS,
+  DEFAULT_ANOMALY_DEVIATIONS, EVALUATION_INTERVALS,
 } from './catalog'
 import { labelAction, usesTemplate } from './template'
 import { effectiveReceivers, receiverSummary } from './routing'
@@ -366,13 +366,17 @@ export function draftFromPayload(payload = {}) {
   const tiers = payload.tiers ?? (payload.condition != null && payload.threshold != null
     ? { critical: { op: payload.condition, threshold: Number(payload.threshold) } }
     : null)
+  // An anomaly payload (a template's) carries deviations; it reads Metrics only.
+  if (payload.kind === 'anomaly' && datasource === 'prometheus') draft.kind = 'anomaly'
   for (const name of ['warning', 'critical']) {
     const tier = tiers?.[name]
-    if (tier) draft.tiers.static[name] = { op: tier.op, value: tierText(tier) }
+    if (tier) draft.tiers[draft.kind][name] = { op: tier.op, value: tierText(tier) }
   }
   if (payload.name) draft.name = String(payload.name)
   if (payload.group) draft.group = String(payload.group)
   if (Number.isFinite(payload.forSec)) draft.forSec = payload.forSec
+  // One of the editor's own choices, or the default stands.
+  if (EVALUATION_INTERVALS.includes(payload.intervalSec)) draft.intervalSec = payload.intervalSec
   return draft
 }
 

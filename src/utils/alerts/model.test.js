@@ -61,6 +61,14 @@ test('what a rule measures, and the unit its threshold is in', () => {
     'Error %|%', 'Error %|%', 'p90 latency|ms', 'Log count|count', 'RPM|rpm', 'Memory|MB', 'CPU|%', 'Burn rate|x', 'Monitor up|null',
   ])
   assert.deepEqual(ruleMetric({ query: '(sum(x)) > 3', datasource: 'prometheus' }), { metric: 'Value', unit: null })
+  // A grouped count is still a count, and the templates' measures have names.
+  const of = (query, datasource = 'prometheus') => ruleMetric({ query, datasource })
+  assert.deepEqual(of('log.level:="error" | stats by (service) count() > 25', 'vlogs'), { metric: 'Log count', unit: 'count' })
+  assert.deepEqual(of('event.domain:="k8s" AND object.reason:="BackOff" | stats by (k8s.namespace.name) count() > 20', 'vlogs'), { metric: 'K8s event count', unit: 'count' })
+  assert.deepEqual(of('system_memory_usage_bytes / (system_memory_usage_bytes offset 1h) * 100 > 115'), { metric: 'Memory vs an hour ago', unit: '%' })
+  assert.deepEqual(of('sum by (service, group_name) (rate(cube_apm_calls_total{span_kind="client"}[5m])) / sum by (service, group_name) (rate(cube_apm_calls_total{span_kind="client"}[5m] offset 1h)) * 100 > 130'), { metric: 'Calls vs an hour ago', unit: '%' })
+  assert.deepEqual(of('redis_connected_clients > 150'), { metric: 'Redis clients', unit: null })
+  assert.deepEqual(of('k8s_pod_cpu_utilization * 100 > 80'), { metric: 'Pod CPU', unit: '%' })
 })
 
 test('rules other modules manage say which, and the SLO\'s cannot be edited here', () => {

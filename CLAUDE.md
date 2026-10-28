@@ -101,6 +101,7 @@ Note: canvas is MID-TONE, card is DARKER — intentionally inverted for floating
 - **Panel** — card with header row, used for every data section
 - **DataTable** — sortable, right-aligned numerics, status-colored cells
 - **TabBar** — compact pill tabs, one pattern everywhere
+- **FilterChips** — capsules that narrow one list to one kind (All, then each with its mark and count); a radio group, not tabs
 - **KpiCard** — label + status chip + mono value + sparkline + threshold
 - **StatusDot** / **StatusBadge** — always resolve through status utils
 - **IncidentBanner** — left-border severity accent, surfaces root cause prominently

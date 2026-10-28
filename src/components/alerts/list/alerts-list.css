@@ -91,19 +91,6 @@
 .rtab-create.is-scratch .rtab-create-cta { background: #fff; border-color: #fff; color: var(--blue-600); font-weight: 600; }
 .rtab-create.is-scratch .rtab-create-cta:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 
-/* The template picker. */
-.rtab-tpl-list { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.rtab-tpl {
-  display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; text-align: left;
-  background: var(--card); border: 1px solid var(--border-subtle); border-radius: var(--radius-md);
-  font: inherit; color: var(--text-primary); cursor: pointer;
-}
-.rtab-tpl:hover { border-color: var(--border-strong); background: var(--overlay-hover); }
-.rtab-tpl:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
-.rtab-tpl-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.rtab-tpl-title { font-size: 13px; font-weight: 600; }
-.rtab-tpl-desc { font-size: 12px; line-height: 1.45; color: var(--text-secondary); }
-.rtab-tpl > svg { width: 14px; height: 14px; flex-shrink: 0; color: var(--text-muted); }
 @media (max-width: 960px) {
   .rtab-slots { grid-template-columns: minmax(0, 1fr); }
 }
