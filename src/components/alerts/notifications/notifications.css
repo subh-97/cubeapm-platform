@@ -1,0 +1,65 @@
+/* The notification log (docs/alerts/DESIGN.md D12), on the Notifications tab
+   and on a rule's page. A failed send is the one red; held ones are neutral,
+   as suppression is everywhere (D10). */
+
+.nlog-tab { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 16px; align-items: start; padding-bottom: 40px; }
+@media (max-width: 900px) { .nlog-tab { grid-template-columns: minmax(0, 1fr); } }
+.nlog-rail { display: flex; flex-direction: column; gap: 8px; position: sticky; top: 0; }
+.nlog-rule-filter { display: flex; flex-direction: column; gap: 4px; }
+.nlog-rule-chip {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-primary);
+  padding: 4px 4px 4px 10px; background: var(--brand-muted); border-radius: var(--radius-sm);
+}
+.nlog-rule-chip .hbtn { padding: 3px; border: none; }
+.nlog-rule-chip svg { width: 12px; height: 12px; }
+.nlog-main { min-width: 0; }
+
+.nlog { border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--card); overflow-x: auto; }
+/* Six columns need about 780px; narrower, the log scrolls sideways rather than
+   dropping its last column, Why, which is the one that matters most. */
+.nlog-head, .nlog-list { min-width: 780px; }
+.nlog.compact .nlog-head, .nlog.compact .nlog-list { min-width: 620px; }
+.nlog-head, .nlog-toggle {
+  display: grid; align-items: baseline; gap: 10px;
+  grid-template-columns: 120px minmax(150px, 1.4fr) 80px minmax(160px, 1.3fr) 70px minmax(140px, 2fr);
+}
+.nlog.compact .nlog-head, .nlog.compact .nlog-toggle { grid-template-columns: 120px 80px minmax(160px, 1.3fr) 70px minmax(140px, 2fr); }
+.nlog-head {
+  padding: 8px 12px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .02em;
+  color: var(--text-muted); border-bottom: 1px solid var(--border-subtle);
+}
+.nlog-list { list-style: none; margin: 0; padding: 0; }
+.nlog-row + .nlog-row { border-top: 1px solid var(--border-subtle); }
+.nlog-toggle {
+  width: 100%; padding: 8px 12px; font: inherit; font-size: 12.5px; text-align: left; color: var(--text-secondary);
+  background: none; border: none; cursor: pointer;
+}
+.nlog-toggle:hover { background: var(--panel); }
+.nlog-time { display: inline-flex; align-items: center; gap: 4px; color: var(--text-primary); font-family: var(--font-mono); font-size: 12px; white-space: nowrap; }
+.nlog-chev { width: 12px; height: 12px; color: var(--text-muted); transition: transform .15s; flex: none; }
+.nlog-row.is-open .nlog-chev { transform: rotate(90deg); }
+.nlog-rule { color: var(--text-primary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nlog-series { margin-left: 6px; font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
+.nlog-event { color: var(--text-primary); }
+.nlog-dest { display: inline-flex; align-items: baseline; gap: 6px; min-width: 0; overflow: hidden; white-space: nowrap; }
+.nlog-dest svg { width: 13px; height: 13px; color: var(--text-muted); align-self: center; flex: none; }
+.nlog-int { color: var(--text-muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; }
+.nlog-status { font-weight: 600; }
+.nlog-status.healthy { color: var(--healthy-fg); }
+.nlog-status.critical { color: var(--critical-fg); }
+.nlog-status.neutral { color: var(--text-secondary); }
+.nlog-why { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); }
+
+.nlog-panel { padding: 4px 12px 14px 36px; display: flex; flex-direction: column; gap: 10px; font-size: 12.5px; }
+.nlog-panel dl { margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.nlog-panel dl > div { display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: 10px; }
+.nlog-panel dt { color: var(--text-muted); }
+.nlog-panel dd { margin: 0; color: var(--text-primary); overflow-wrap: anywhere; }
+.nlog-panel code { font-family: var(--font-mono); font-size: 11.5px; }
+.nlog-block pre {
+  margin: 4px 0 0; padding: 8px 10px; max-height: 240px; overflow: auto; font-family: var(--font-mono); font-size: 11.5px;
+  background: var(--panel-2); border-radius: var(--radius-sm); color: var(--text-primary); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.nlog-links { display: flex; gap: 14px; }
+.nlog-foot { display: flex; align-items: center; gap: 8px; padding: 8px 12px; font-size: 12px; color: var(--text-muted); border-top: 1px solid var(--border-subtle); }
+.nlog-empty { margin: 0; padding: 24px 16px; font-size: 12.5px; color: var(--text-secondary); border: 1px dashed var(--border-panel); border-radius: var(--radius-md); }

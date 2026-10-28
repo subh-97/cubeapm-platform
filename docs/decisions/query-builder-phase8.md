@@ -25,6 +25,40 @@ value, unclosed stream selector, unsupported stream-selector operator, unmatched
 generic fallback. `tryParseConditions` wraps them non-throwingly as
 `{ ok, chips, error }`.
 
+**Comparison operators** — landed 2026-10-26. `field:>v`, `:>=`, `:<`, `:<=`
+(chip ops `gt`, `gte`, `lt`, `lte`), LogsQL's range filters, so Traces can say
+`duration:>=8.799ms duration:<27.83ms`. One grammar, every reader:
+
+- **The picker** offers them on `keyword` fields, in a Range category after
+  Equality. The parser and the typed bar know no field types, so `service:>m`
+  is a `gt` chip too; it edits as a typed value like any comparison.
+- **The value is a number, or a duration or size LogsQL reads as one**, kept as
+  the text written ('8.799ms', never 8799000). It is matched the way Explore's
+  evaluator matches it, through one module both import,
+  `src/utils/logsqlNumber.js`: a duration is integer nanoseconds (rounded after
+  the unit multiply, so '8.799ms' is exactly 8799000), a size bytes, a bare
+  number itself (`duration:>5` is 5 ns, since a span's `duration` is ns). Text
+  that is no number compares as text, as LogsQL does. A record without the
+  field never matches.
+- **What now reads differently.** `f:>v` used to parse as a word chip on `>v`,
+  which matched nothing; it is a comparison now. The writer quotes a word or
+  starts-with value that opens with `<` or `>` (`message:">5"`), so no chip the
+  builder writes changes meaning on the way back.
+- **The typed bar** holds `:>` pending until the next key (it may be `:>=`). A
+  space straight after a number is content, the gap before a unit, and
+  `8.8 ms` is closed up to `8.8ms` at commit. A value that is no number or
+  duration is refused at commit with the reason; the raw parser still reads
+  one, so pasted text keeps every filter.
+- An empty value raises `Missing value after "duration:>=".`, naming the
+  operator. The raw-mode suggestions offer the four after a field name, and
+  keep the operator when offering values.
+- Explore's converter (`toExploreLogsQuery`) reads the value quoted or bare and
+  re-emits it, bare when it is a number, duration or size; the Logs highlight
+  leaves comparison values out of the terms it marks.
+
+Still not done with it: an alert rule's latency hand-off to Traces carries no
+duration floor (`docs/alerts/PLAN.md`); the grammar can say one now.
+
 ## Still outstanding
 
 **URL state sync.** Chips and raw text should serialize into the URL so a query
@@ -50,9 +84,25 @@ filters) survives. Logs is still untouched, but its URL sync should follow the
 same shape: parse and print in a tested util, read from the location, change it
 by navigating, and replace rather than push when correcting an invalid URL.
 
-## Loose end spotted while verifying
+## Builder / Lucene toggle (reinstated 2026-10-14)
 
-`src/components/RawQueryInput.jsx` (187 lines) and
-`src/components/QueryModeToggle.jsx` (29 lines) are not imported anywhere. Raw
-mode was wired up through `LogsView` directly instead. Either adopt them or
-delete them — do not assume they are live just because they exist.
+The toggle was dropped in `19e0213` (the setter went, the plumbing stayed) and
+is back. `QueryModeToggle` sits in the leading slot of the Logs query bar in
+both modes; `RawQueryInput` replaces `QueryBuilder` in Lucene mode. Query
+Builder is the default.
+
+- **Switching carries the query.** Builder → Lucene spells chips and pipes as
+  text; Lucene → builder parses it back. Each direction is refused, with the
+  reason as the segment's tooltip, when crossing would lose something: a
+  half-built chip, or text that doesn't parse.
+- **One pipes state.** A hand-typed pipe section that parses feeds the pill
+  toolbar (and so the run); pill edits rewrite the pipe section, but leave it
+  as typed when it already means the same thing, so nothing re-spells under
+  the caret.
+- **Chip-speaking entry points** (facet "add to query", history, saved
+  queries, the trace view's hand-off) go through `setBarChips`, which rewrites
+  the Lucene text's conditions head when that mode is showing.
+- **Errors match the builder's.** Run is blocked on a parse error throughout,
+  with it as the tooltip. The inline message uses the builder's
+  `qb-composing-error` and, like the builder, stays quiet mid-build: it shows
+  once typing pauses (700 ms), on blur, or on Enter.

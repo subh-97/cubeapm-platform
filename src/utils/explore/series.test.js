@@ -189,9 +189,21 @@ test('more than 20 series: the top 20 are listed and the limit is flagged', () =
   assert.equal(m.total, 25)
   assert.equal(m.matchCount, 25)
   assert.equal(m.limited, true)
-  const all = buildChartModel({ series: many(25), limitOn: false })
+  const all = buildChartModel({ series: many(25), limit: Infinity })
   assert.equal(all.datasets.length, 25)
   assert.equal(all.limited, false)
+})
+
+test('Show 20 more lists the next twenty, and the limit never falls below the first twenty', () => {
+  const more = buildChartModel({ series: many(45), limit: LEGEND_LIMIT + 20 })
+  assert.equal(more.shownCount, 40)
+  assert.equal(more.limit, 40)
+  assert.equal(more.limited, true)
+  assert.deepEqual(more.datasets.map(d => d.label).slice(38), ['i=38', 'i=39'], 'in Legend value order, carrying on from the first twenty')
+  const rest = buildChartModel({ series: many(45), limit: LEGEND_LIMIT + 40 })
+  assert.equal(rest.shownCount, 45)
+  assert.equal(rest.limited, false)
+  assert.equal(buildChartModel({ series: many(45), limit: 5 }).shownCount, LEGEND_LIMIT)
 })
 
 test('an isolated series past the top 20 stays listed and drawn', () => {
@@ -295,7 +307,7 @@ test('chart rows carry the ghost line under its own key', () => {
 })
 
 test('tooltip: every drawn series with a point at x, highest first, capped with "+N more"', () => {
-  const m = buildChartModel({ series: many(18), limitOn: false })
+  const m = buildChartModel({ series: many(18), limit: Infinity })
   const tip = tooltipAt(m, T0, { nearestKey: m.drawn[17].dataKey })
   assert.equal(tip.items.length, 15)
   assert.equal(tip.more, 3)

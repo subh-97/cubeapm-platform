@@ -52,7 +52,7 @@ const NAV_GROUPS = [
   { label: 'Analyze', items: [
     { id: 'explore', label: 'Explore', icon: 'compass', enabled: true },
     { id: 'slo', label: 'SLO', title: 'SLOs', icon: 'target' },
-    { id: 'alerts', label: 'Alerts', icon: 'bell' },
+    { id: 'alerts', label: 'Alerts', icon: 'bell', enabled: true },
     { id: 'monitors', label: 'Monitors', title: 'Synthetic Monitors', icon: 'bot' },
     { id: 'investigation', label: 'Investigation', icon: 'scanSearch' },
   ]},
@@ -71,6 +71,7 @@ const NAV_VIEWS = {
   mtraces: 'mtraces',
   errors: 'errors',
   explore: 'explore',
+  alerts: 'alerts',
 }
 
 // `trace` and `mtrace` are the one trace view seen from its two datasets: App
@@ -81,6 +82,8 @@ const ACTIVE_ITEM = {
   logs: 'logs', infra: 'infra', traces: 'traces', trace: 'traces',
   mtraces: 'mtraces', mtrace: 'mtraces',
   errors: 'errors', explore: 'explore', browser: 'rum',
+  // A rule's page and the rule editor belong to Alerts.
+  alerts: 'alerts', alertRule: 'alerts', alertEditor: 'alerts',
 }
 
 export default function Sidebar({ navCollapsed, setNavCollapsed, view, goHome, setView, onOpenHelp, onLogout, theme, setTheme }) {

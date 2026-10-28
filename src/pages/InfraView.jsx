@@ -1,25 +1,38 @@
-import { useState, useMemo, useRef, useEffect, useCallback, createContext, useContext } from 'react'
-import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+import { useState, useMemo, useCallback, createContext, useContext } from 'react'
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts'
 import {
   INFRA_SOURCE_INDEX, infraHostsForWindow, HOST_PROCESSES,
   k8sAllocationForWindow, k8sContainersSeriesForWindow, k8sClusterSummary, k8sNamespaceSummary, k8sDeploymentSummary, k8sNamespaceDetailForWindow,
   k8sNodesForWindow, k8sPodsForWindow, K8S_NAMESPACES,
-  mysqlSummary, mysqlSeriesForWindow, redisSummary, redisSeriesForWindow,
+  mysqlSummary, mysqlSeriesForWindow, redisSummary, redisSeriesForWindow, BASE_TIME,
 } from '@/data/observability'
 import { resolveWindow } from '@/data/timeWindow'
 import PageBar from '@/components/layout/PageBar'
 import TableQuerySearch from '@/components/TableQuerySearch'
-import { parsePodQuery, matchesPod, highlightsFor, tagHighlightsFor, tagTerms, POD_FIELDS, POD_NODE_FIELDS } from '@/utils/tableQuery'
+import CardMenu, { CardActionContext } from '@/components/CardMenu'
+import { alertPayloadForHostCpu } from '@/utils/alerts/editorPayloads'
+import SearchGlyph from '@/components/shared/SearchGlyph'
+import FilterSelect from '@/components/shared/FilterSelect'
+import { useScrollReveal, revealClass } from '@/hooks/useScrollReveal'
+import { parsePodQuery, matchesPod, highlightsFor, tagHighlightsFor, tagTerms, POD_FIELDS, POD_NODE_FIELDS, HOST_FIELDS } from '@/utils/tableQuery'
 import { highlightTerms } from '@/utils/highlight'
-import { buildTimeAxis, withX } from '@/components/charts/timeAxis'
-import ChartTooltip from '@/components/charts/ChartTooltip'
-import { useTimeFocus, useMeasuredWidth, useSeriesHover } from '@/components/charts/useTimeFocus'
-import { GRID_PROPS, NO_ANIM, AREA_PROPS, LINE_PROPS, valueAxisProps, maxOf, niceAxis, formatDecimals, fmtBytes, fmtCount } from '@/components/charts/chartDefaults'
-import { useSeriesBudget } from '@/components/charts/useSeriesBudget'
-import SeriesBudgetFooter from '@/components/charts/SeriesBudgetFooter'
-import { fixesAxis, TOOLTIP_ROWS } from '@/components/charts/seriesBudget'
-import { cycledColor } from '@/utils/chartPalette'
+import { withX } from '@/components/charts/timeAxis'
+import { TimeChart, SvcTooltip } from '@/components/charts/TimeChart'
+import CardChart from '@/components/charts/CardChart'
+import { TOOLTIP_ROWS } from '@/components/charts/seriesBudget'
+import LegendLineChart from '@/components/charts/LegendLineChart'
+import { GRID_PROPS, NO_ANIM, LINE_PROPS, LIMIT_DASH, valueAxisProps, maxOf, fmtBytes, fmtCount, fmtCompact, fmtPct1, fmtPct2, fmtPctTick } from '@/components/charts/chartDefaults'
+import { infraColor, RESOURCE_COLORS } from '@/utils/chartPalette'
 import { SortableTable, CellBar } from '@/components/shared/SortableTable'
+import QueryBuilder, { chipsToString, FIELD_CATALOG } from '@/components/QueryBuilder'
+import PipeToolbar from '@/components/PipeToolbar'
+import QueryHistoryDrawer from '@/components/explorer/QueryHistoryDrawer'
+import { composeQuery, serializePipes, withImpliedCount, parsePipes } from '@/utils/pipes'
+import { tryParseConditions, splitQuery } from '@/utils/rawQuery'
+// The process column borrows a legend's scrolling rule (.drill2-legend.is-scroll)
+// from LegendLineChart's stylesheet, so it is named here rather than left to
+// arrive with that component.
+import '@/components/charts/legend-line-chart.css'
 
 // The window every chart on this page draws, the setter a drag commits to, and
 // the syncId that lines the charts of one view up on the same instant.
@@ -30,15 +43,6 @@ import { SortableTable, CellBar } from '@/components/shared/SortableTable'
 // them once instead, and a chart asks for them where it is drawn.
 const InfraTime = createContext({ win: null, setTimeRange: () => {}, syncId: undefined })
 
-/**
- * Everything one chart needs to sit on the page's window: a tick ladder sized
- * to that chart's own measured width, the drag that turns a span of it into the
- * page's time range, and the view's syncId.
- *
- * `focusable` is false only for a chart with no <Tooltip>. Recharts never
- * delivers move events to those, so a crosshair there would advertise a gesture
- * that can be started and never finished.
- */
 /* ============ Tables ============ */
 
 // Every list on this page is one table, SortableTable
@@ -91,6 +95,10 @@ const NODE_COLUMNS = [
   { key: 'pods', label: 'Pods' },
 ]
 
+// The columns a table's ⋮ menu offers an alert and an exploration on: the
+// measured ones, not the name columns a row is identified by.
+const metricLabels = columns => columns.filter(c => c.align !== 'left').map(c => c.label)
+
 const NAMESPACE_COLUMNS = [
   { key: 'namespace', label: 'Namespace', align: 'left', mono: true },
   { key: 'cpuUsed', label: 'CPU Used' },
@@ -129,6 +137,22 @@ const CONTAINER_COLUMNS = [
   { key: 'memLimit', label: 'Memory Limit', render: p => fmtBytes(p.memLimit) },
 ]
 
+// A node's pods. The name cell highlights search hits, so the page fills in
+// its renderer where the table is drawn.
+const NODE_POD_COLUMNS = [
+  { key: 'name', label: 'Pod', align: 'left', mono: true, clip: 300, title: p => p.name },
+  { key: 'cpuUsed', label: 'CPU Used (cores)' },
+  { key: 'memUsed', label: 'Memory Used (bytes)', render: p => fmtBytes(p.memUsed) },
+  // No memory limit, nothing remaining: a dash, and last whichever
+  // way the column sorts.
+  { key: 'memRemaining', label: 'Memory Remaining (bytes)', render: p => (p.memRemaining == null ? '-' : fmtBytes(p.memRemaining)) },
+  { key: 'disk', label: 'Disk Used (%)', render: p => <CellBar fill={p.disk}>{p.disk.toFixed(2)}</CellBar> },
+  { key: 'netIn', label: 'Network In (bytes/s)', render: p => p.netIn.toFixed(2) },
+  { key: 'netOut', label: 'Network Out (bytes/s)', render: p => p.netOut.toFixed(2) },
+  // Every pod here runs the one container its page lists.
+  { key: 'containers', label: 'Containers', sortable: false, render: () => 1 },
+]
+
 const MYSQL_COLUMNS = [
   { key: 'host', label: 'Host', align: 'left', mono: true, clip: 220, title: s => s.host },
   { key: 'connections', label: 'Connections' },
@@ -152,13 +176,47 @@ const REDIS_COLUMNS = [
 // lists nothing.
 const emptyColumns = labels => labels.map((label, i) => ({ key: label, label, align: i === 0 ? 'left' : undefined }))
 
-function useChartTime({ kind = 'time', focusable = true } = {}) {
+/* ============ Charts ============ */
+
+// Every chart on this page is one of the APM service page's, so the two read as
+// one product rather than two that drift apart:
+//
+//   - A fleet — every host, every node — is three of the Runtime tab's cards
+//     in a row, a line per host on each and no legend (FleetCards).
+//   - Anything else is the Runtime tab's card (CardChart): a title with its ⋮
+//     menu and the window's reading beside it, the plot, and a legend under any
+//     chart that draws more than one series.
+//   - A host's CPU and memory sit in the Latency Drilldown's frame, the chart
+//     beside the processes that use it (ProcessChartPanel).
+//
+// Series colours are identity, never severity (rule 2): infraColor for a fleet,
+// RESOURCE_COLORS for a reading and its ceilings, the brand blue for a lone
+// series. This page shows severity in its tables' dots and bars, and a red
+// memory line beside them would read as a memory alarm.
+
+/** A CardChart on this page's window, with its drag and crosshair. */
+function InfraCard(props) {
   const { win, setTimeRange, syncId } = useContext(InfraTime)
-  const [wrapRef, width] = useMeasuredWidth()
-  const axis = useMemo(() => buildTimeAxis(win, { width, kind }), [win, width, kind])
-  const focus = useTimeFocus(win, { onFocus: setTimeRange, kind, enabled: focusable })
-  return { win, wrapRef, width, axis, focus, syncId }
+  return <CardChart win={win} onFocus={setTimeRange} syncId={syncId} {...props} />
 }
+
+// One reading, labelled with what it was read from: a single-series card has no
+// legend, so its tooltip row names the host, node or pod instead, as the
+// Runtime tab's names the host.
+const one = (label, rows) => [{ key: 'value', label, color: RESOURCE_COLORS.used, rows }]
+
+// Traffic both ways, stacked into what crossed the interface. A host, a node
+// and a pod draw it alike.
+const netSeries = e => [
+  { key: 'transmit', label: 'transmit', color: RESOURCE_COLORS.alt, rows: e.netOutSeries },
+  { key: 'receive', label: 'receive', color: RESOURCE_COLORS.used, rows: e.netInSeries },
+]
+
+const fmtCores2 = v => (v == null || Number.isNaN(v) ? '' : `${v.toFixed(2)} cores`)
+const fmtCores3 = v => (v == null || Number.isNaN(v) ? '' : `${v.toFixed(3)} cores`)
+// A cores tick with the figures to tell ticks apart: a system pod's axis steps
+// by 0.00005, which four decimals print as 0.0001 twice.
+const fmtCoresTick = v => (v == null || Number.isNaN(v) ? '' : v === 0 ? '0' : String(+v.toPrecision(3)))
 
 /**
  * The newest value a series actually holds.
@@ -175,446 +233,349 @@ function lastReading(series) {
   return null
 }
 
-/**
- * Several per-entity series of the same metric, merged into the one row shape a
- * chart reads. The bucket's instant - `t` in unix seconds, and the `x` in ms the
- * time axis plots on - is taken from the first entity and carried onto the
- * merged row, because the series are sampled over the same buckets. The tooltip
- * reads `t` off the row it is pointing at, so the merged row has to carry it.
- */
-function mergeSeries(win, entities, metric) {
-  const base = entities[0]?.[metric] ?? []
-  return withX(base, win).map((d, i) => {
-    const row = { t: d.t, x: d.x }
-    entities.forEach((e, ei) => { row[`h${ei}`] = e[metric]?.[i]?.value })
-    return row
-  })
-}
+const FLEET_METRICS = [
+  { title: 'CPU Used %', dataKey: 'cpu', seriesKey: 'cpuSeries' },
+  { title: 'Memory Used %', dataKey: 'mem', seriesKey: 'memSeries' },
+  { title: 'Disk Used %', dataKey: 'disk', seriesKey: 'diskSeries' },
+]
 
 /**
- * One line per host, under a series budget: a fleet chart draws the first few
- * hosts its width can make legible and says how many it is holding back (see
- * components/charts/seriesBudget.js).
+ * A fleet's CPU, memory and disk (every host, or every node) as three cards in
+ * a row, a line per host on each, with no legend: the tooltip names the lines.
  *
- * Every host is merged into the rows. While the budget is holding hosts back,
- * the y axis is sized from all of them, drawn or not, so it does not jump as
- * "Show all" adds lines and the capped chart's scale still admits that a
- * held-back host runs higher. A chart under its cap keeps its automatic axis.
+ * A host keeps its colour on all three cards (it is keyed on the host's place
+ * in the data's own order). Each card lists its hosts busiest first by the
+ * window's mean, the order the tables sort by, and keeps a series budget of
+ * its own, as the legend charts did: it draws the busiest its width can make
+ * legible and offers the rest under the plot ("Show 20 more · Show all"). Its
+ * tooltip lists the busiest TOOLTIP_ROWS of what is drawn, keeps the one under
+ * the pointer, and counts the rest.
  */
-function MultiHostChart({ metric, unit, formatVal, height = 130, palette, hosts, nameKey = 'host' }) {
-  const { win, wrapRef, width, axis, focus, syncId } = useChartTime()
-  const [hoverKey, hoverProps] = useSeriesHover()
-  const budget = useSeriesBudget(hosts.length, width)
-  const data = useMemo(() => mergeSeries(win, hosts, metric), [win, hosts, metric])
-  const allMax = useMemo(() => maxOf(data, hosts.map((_, hi) => `h${hi}`)), [data, hosts])
-  const y = useMemo(() => (
-    fixesAxis(budget.status) ? niceAxis(allMax, 4, { decimals: formatVal ? formatDecimals(formatVal) : Infinity }) : null
-  ), [budget.status, allMax, formatVal])
-  const drawn = hosts.slice(0, budget.count)
+function FleetCards({ rows, nameKey, noun }) {
+  const series = useMemo(() => Object.fromEntries(FLEET_METRICS.map(m => {
+    const busiest = rows.map((r, i) => i).sort((a, b) => rows[b][m.dataKey] - rows[a][m.dataKey])
+    return [m.dataKey, busiest.map(i => ({
+      key: rows[i][nameKey], label: rows[i][nameKey], color: infraColor(i), rows: rows[i][m.seriesKey],
+    }))]
+  })), [rows, nameKey])
   return (
-    <>
-      <div ref={wrapRef} style={{ width: '100%', height }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data} margin={{ top: 6, right: 6, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
-            <CartesianGrid {...GRID_PROPS} />
-            <XAxis {...axis.props} />
-            <YAxis {...valueAxisProps({ format: formatVal, maxValue: y?.top ?? allMax, domain: y ? [0, y.top] : undefined })} ticks={y?.ticks} />
-            <Tooltip content={p => <MultiTooltip {...p} unit={unit} formatVal={formatVal} palette={palette} hosts={hosts} nameKey={nameKey} hoverKey={hoverKey} suppressed={!focus.hovered} limit={TOOLTIP_ROWS} />} {...NO_ANIM} />
-            {drawn.map((h, hi) => (
-              <Line {...LINE_PROPS} key={h[nameKey]} dataKey={`h${hi}`} stroke={cycledColor(palette, hi)} strokeWidth={1.4} dot={false} activeDot={{ r: 3, strokeWidth: 0 }} {...hoverProps(`h${hi}`)} />
-            ))}
-            {focus.overlay}
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-      <SeriesBudgetFooter budget={budget} noun={nameKey === 'host' ? 'hosts' : 'series'} />
-    </>
-  )
-}
-
-// Both tooltips take their instant off the hovered ROW rather than off Recharts'
-// `label`. On a numeric time axis that label is the x the row plots at, which is
-// the bucket's CENTRE rather than its opening instant - half a bucket out, and
-// on a seven-day window that is ninety minutes. The row has carried `t` all
-// along, so the heading reads the bucket the reading belongs to.
-//
-// `x` is the fallback rather than the source for the same reason: it is only
-// reached by a row that somehow arrived without `t`, and a heading half a bucket
-// out still beats no heading at all.
-function rowInstantMs(row) {
-  if (row?.t != null) return row.t * 1000
-  return row?.x ?? null
-}
-
-// The per-host palette survives the move to the shared tooltip - it is series
-// IDENTITY, which is exactly what a palette is for - but it moves off the row
-// text and onto the swatch. Every host then reads at the same contrast, instead
-// of the pale ones being harder to read than the rest for no reason the data
-// supports.
-function MultiTooltip({ active, payload, unit = '', formatVal, palette, hosts, nameKey = 'host', hoverKey, suppressed, limit }) {
-  const { win } = useContext(InfraTime)
-  if (!active || !payload?.length) return null
-  const items = payload.flatMap((p, i) => {
-    // A bucket that has not happened yet carries `value: null` - "Today" runs to
-    // midnight, so most of that window is in that state - and Recharts still
-    // hands those rows to the tooltip. Formatting one is never right: the
-    // formatters here round, so `null` would print a confident `0%` for a
-    // reading nobody took. `0` itself is a reading and stays.
-    if (p.value == null) return []
-    // Which host a row belongs to comes from its own dataKey (`h3`) rather
-    // than from its position in the payload, so a series Recharts leaves
-    // out cannot slide every name below it onto the wrong host.
-    const keyed = Number(String(p.dataKey).slice(1))
-    const hi = Number.isInteger(keyed) ? keyed : i
-    return [{
-      key: p.dataKey ?? hi,
-      label: hosts[hi]?.[nameKey],
-      value: `${formatVal ? formatVal(p.value) : Math.round(p.value)}${unit}`,
-      color: cycledColor(palette, hi),
-    }]
-  })
-  if (!items.length) return null
-  return (
-    <ChartTooltip
-      tMs={rowInstantMs(payload[0]?.payload)}
-      nowMs={win.end * 1000}
-      hoverKey={hoverKey}
-      suppressed={suppressed}
-      items={items}
-      limit={limit}
-    />
-  )
-}
-
-// One series, so there is nothing to name beside it and nothing to emphasise
-// against: the swatch carries the colour the line is drawn in, and the heading
-// does the rest of the work.
-/**
- * One reading, or several.
- *
- * Three charts here stack or overlay more than one series — containers
- * ready/notReady, network transmit/receive, the allocation lines — and all
- * three used to report a single row, so the tooltip answered a different
- * question from the one the chart was drawing. Pass `series` to list them all;
- * the hovered one is emphasised and the rest recede.
- */
-function SingleAreaTooltip({ active, payload, unit = '', formatVal, color, series, hoverKey, suppressed }) {
-  const { win } = useContext(InfraTime)
-  if (!active || !payload?.length) return null
-  const fmt = v => `${formatVal ? formatVal(v) : Math.round(v)}${unit}`
-  if (series) {
-    const items = series.flatMap(sr => {
-      const row = payload.find(p => p.dataKey === sr.key)
-      // A bucket that has not happened yet carries null; formatting one would
-      // print a confident number for a reading nobody took.
-      if (row?.value == null) return []
-      return [{ key: sr.key, label: sr.label, value: fmt(row.value), color: sr.color }]
-    })
-    if (!items.length) return null
-    return (
-      <ChartTooltip
-        tMs={rowInstantMs(payload[0]?.payload)}
-        nowMs={win.end * 1000}
-        hoverKey={hoverKey}
-        suppressed={suppressed}
-        minWidth={170}
-        items={items}
-      />
-    )
-  }
-  const raw = payload[0]?.value
-  // No reading, no tooltip - the same thing the chart itself says here, which
-  // draws nothing across the part of the window that has not happened. Several
-  // of these formatters are `v => v.toFixed(n)`, so handing them a null does
-  // not merely print something wrong, it throws out of the render.
-  if (raw == null) return null
-  return (
-    <ChartTooltip
-      tMs={rowInstantMs(payload[0]?.payload)}
-      nowMs={win.end * 1000}
-      suppressed={suppressed}
-      minWidth={140}
-      items={[{ key: 'value', label: '', value: fmt(raw), color }]}
-    />
-  )
-}
-
-function HostChart({ title, series, color, unit, formatVal, value, height = 130 }) {
-  const { win, wrapRef, axis, focus, syncId } = useChartTime()
-  const data = useMemo(() => withX(series, win), [series, win])
-  return (
-    <div className="infra-chart-card">
-      <div className="clbl">{title} {value != null && <span className="cval">{value}{unit}</span>}</div>
-      <div ref={wrapRef} className="chart-host" style={{ height }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data} margin={{ top: 6, right: 6, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
-            <CartesianGrid {...GRID_PROPS} />
-            <XAxis {...axis.props} />
-            <YAxis {...valueAxisProps({ format: formatVal, maxValue: maxOf(data, 'value') })} />
-            <Tooltip content={p => <SingleAreaTooltip {...p} color={color} unit={unit} formatVal={formatVal} suppressed={!focus.hovered} />} {...NO_ANIM} />
-            <Area {...AREA_PROPS} dataKey="value" stroke={color} strokeWidth={1.6} fill={color} dot={false} activeDot={{ r: 3 }} />
-            {focus.overlay}
-          </AreaChart>
-        </ResponsiveContainer>
-      </div>
-    </div>
-  )
-}
-
-function ProcessLegend({ metric }) {
-  const [showAll, setShowAll] = useState(false)
-  const sorted = useMemo(() => [...HOST_PROCESSES].sort((a, b) => b[metric] - a[metric]), [metric])
-  const visible = showAll ? sorted : sorted.slice(0, 6)
-  return (
-    <div className="infra-chart-legend">
-      <div className="ilegend-hdr">Top processes</div>
-      {visible.map(p => (
-        <div key={p.name} className="ilegend-row">
-          <span className="ilegend-swatch" style={{ background: p.color }} />
-          <span className="ilegend-name">{p.name}</span>
-          <span className="ilegend-val">{p[metric].toFixed(2)}</span>
-        </div>
+    <div className="infra-card-grid is-fleet">
+      {FLEET_METRICS.map(m => (
+        <InfraCard
+          key={m.dataKey}
+          title={m.title}
+          span="third"
+          legend={false}
+          tooltipLimit={TOOLTIP_ROWS}
+          budgetNoun={noun}
+          fmt={fmtPctTick}
+          tipFmt={fmtPct2}
+          series={series[m.dataKey]}
+        />
       ))}
-      {sorted.length > 6 && (
-        <div className="ilegend-showall">
-          <span className="ilegend-showall-count">{showAll ? `${sorted.length} of ${sorted.length}` : `6 of ${sorted.length}`}</span>
-          <button className="ilegend-showall-btn" onClick={() => setShowAll(s => !s)}>{showAll ? 'Show less' : 'Show all'}</button>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function OneMetricChart({ title, series, color, height = 160, unit = '', formatVal = v => v.toFixed(1) }) {
-  const { win, wrapRef, axis, focus, syncId } = useChartTime()
-  const data = useMemo(() => withX(series, win), [series, win])
-  return (
-    <div className="infra-chart-full">
-      <div className="infra-chart-head"><div className="clbl">{title}</div></div>
-      <div className="infra-chart-body">
-        <div className="infra-chart-svg-wrap">
-          <div ref={wrapRef} style={{ width: '100%', height }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={data} margin={{ top: 6, right: 6, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
-                <CartesianGrid {...GRID_PROPS} />
-                <XAxis {...axis.props} />
-                <YAxis {...valueAxisProps({ format: formatVal, maxValue: maxOf(data, 'value') })} />
-                <Tooltip content={p => <SingleAreaTooltip {...p} color={color} unit={unit} formatVal={formatVal} suppressed={!focus.hovered} />} {...NO_ANIM} />
-                <Area {...AREA_PROPS} dataKey="value" stroke={color} strokeWidth={1.6} fill={color} dot={false} activeDot={{ r: 3 }} />
-                {focus.overlay}
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      </div>
     </div>
   )
 }
 
 /**
- * A host's CPU or memory with the process breakdown beside it. Its own
- * component rather than inline JSX so each of the two charts owns one width
- * measurement and one drag, instead of HostDetail juggling both.
+ * A host's CPU or memory over the window, beside the processes that use the
+ * most of it: the service page's Latency Drilldown frame — a panel head that
+ * names the chart and carries its ⋮ menu, the chart, and a searchable column
+ * beside it.
+ *
+ * The column is a ranking rather than a legend. The agent reports a process's
+ * share as one figure, not as a series, so there is no line for a row to name:
+ * the rows carry no swatch, and pressing one isolates nothing. The host's own
+ * reading is the one line, in the brand blue the service page draws every
+ * single-series chart in.
+ *
+ * `tabs` are production's other views of the CPU card. Only the first has data
+ * in this prototype; the rest are stubbed the way the sidebar stubs a page that
+ * is not built yet — dimmed, inert, and saying so on hover.
  */
-function HostProcessChart({ title, series, color, metric, tabs }) {
-  const { win, wrapRef, axis, focus, syncId } = useChartTime()
+function ProcessChartPanel({ title, series, metric, tabs }) {
+  const { win, setTimeRange, syncId } = useContext(InfraTime)
+  const [search, setSearch] = useState('')
   const data = useMemo(() => withX(series, win), [series, win])
+  const ranked = useMemo(() => [...HOST_PROCESSES].sort((a, b) => b[metric] - a[metric]), [metric])
+  const q = search.trim().toLowerCase()
+  const shown = q ? ranked.filter(p => p.name.toLowerCase().includes(q)) : ranked
   return (
-    <div className="infra-chart-full">
-      <div className="infra-chart-head">
-        <div className="clbl">{title}</div>
-        {tabs && (
-          <div className="infra-chart-tabs">
-            {tabs.map((t, i) => <span key={t} className={`ict${i === 0 ? ' active' : ''}`}>{t}</span>)}
-          </div>
-        )}
+    <div className="panel">
+      <div className="panel-head is-divided">
+        <div className="panel-head-left">
+          {tabs ? (
+            <div className="seg-toggle" role="tablist" aria-label={`${title} views`}>
+              {tabs.map((t, i) => (i === 0
+                ? <div key={t} role="tab" aria-selected="true" className="seg active">{t}</div>
+                : <div key={t} role="tab" aria-selected="false" aria-disabled="true" className="seg is-stub" title={`${t} - not part of this prototype yet`}>{t}</div>
+              ))}
+            </div>
+          ) : title}
+        </div>
+        <CardMenu kind="chart" title={title} />
       </div>
-      <div className="infra-chart-body">
-        <div className="infra-chart-svg-wrap">
-          <div ref={wrapRef} style={{ width: '100%', height: '100%', minHeight: 160 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={data} margin={{ top: 6, right: 6, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
+      <div className="drill2">
+        <div className="drill2-chart">
+          <TimeChart win={win} onFocus={setTimeRange} height={260}>
+            {(axis, focus) => (
+              <LineChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
                 <CartesianGrid {...GRID_PROPS} />
                 <XAxis {...axis.props} />
-                <YAxis {...valueAxisProps({ maxValue: 100 })} />
-                <Tooltip content={p => <SingleAreaTooltip {...p} color={color} unit="%" formatVal={v => v.toFixed(1)} suppressed={!focus.hovered} />} {...NO_ANIM} />
-                <Area {...AREA_PROPS} dataKey="value" stroke={color} strokeWidth={1.6} fill={color} dot={false} activeDot={{ r: 3 }} />
+                <YAxis {...valueAxisProps({ format: fmtPct1, maxValue: maxOf(data, 'value') })} />
+                <Tooltip content={p => <SvcTooltip {...p} color={RESOURCE_COLORS.used} unit="" formatVal={fmtPct1} nowMs={win.end * 1000} suppressed={!focus.hovered} />} {...NO_ANIM} />
+                <Line {...LINE_PROPS} dataKey="value" stroke={RESOURCE_COLORS.used} strokeWidth={1.6} dot={false} activeDot={{ r: 3, strokeWidth: 0 }} />
                 {focus.overlay}
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
+              </LineChart>
+            )}
+          </TimeChart>
         </div>
-        <ProcessLegend metric={metric} />
+        <div className="drill2-legend is-scroll">
+          <div className="drill2-legend-hdr">Top processes</div>
+          <div className="drill2-search">
+            <SearchGlyph />
+            <input
+              type="search"
+              aria-label="Search processes"
+              placeholder="Search processes…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </div>
+          {shown.map(p => (
+            <div key={p.name} className="drill2-item is-static">
+              <span className="drill2-row">
+                <span className="drill2-label">{p.name}</span>
+                <span className="drill2-val">{p[metric].toFixed(2)}<span className="drill2-unit">%</span></span>
+              </span>
+            </div>
+          ))}
+          {shown.length === 0 && (
+            <div className="drill2-empty">No processes match "{search.trim()}"</div>
+          )}
+        </div>
       </div>
     </div>
   )
 }
 
-function HostDetail({ host }) {
+// A host's page. The strip above its charts is the service page's Endpoint
+// strip, sliding away and back with `reveal`, and holds the page's one choice:
+// which host (the breadcrumb only names it).
+function HostDetail({ host, hosts, onSelectHost, reveal }) {
   return (
     <div className="infra-host-detail">
-      <div className="infra-host-meta">
-        <span className={`badge ${host.status}`}>{host.status}</span>
-        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>traffic → <span className="mono" style={{ color: 'var(--text-secondary)' }}>{host.service ?? 'no APM service'}</span></span>
-      </div>
-
-      <div className="infra-detail-grid">
-        <HostProcessChart
-          title="CPU Used %"
-          series={host.cpuSeries}
-          color="#F59E0B"
-          metric="cpu"
-          tabs={['CPU Used %', 'CPU State %', 'Load Average']}
+      <div className={`endpoint-strip is-sticky${revealClass(reveal)}`}>
+        <FilterSelect
+          className="is-endpoint"
+          label="Host"
+          value={host.host}
+          options={hosts.map(h => h.host)}
+          onSelect={onSelectHost}
         />
-
-        <HostProcessChart title="Memory Used %" series={host.memSeries} color="#EF4444" metric="mem" />
-
-        <div className="infra-detail-row">
-          <HostChart title="Disk Used %" series={host.diskSeries} color="#34D399" unit="%" formatVal={v => Math.round(v)} value={host.disk.toFixed(1)} height={140} />
-          <HostChart title="Network Traffic (bytes/s)" series={host.netInSeries} color="#3B82F6" unit="" formatVal={fmtBytes} value={fmtBytes(host.netIn * (host.unit === 'K' ? 1000 : 1000000))} height={140} />
-        </div>
-        <div className="infra-detail-row">
-          <HostChart title="Disk I/O Utilization %" series={host.diskIoSeries} color="#A78BFA" unit="%" formatVal={v => v.toFixed(1)} value={(lastReading(host.diskIoSeries) ?? 0).toFixed(1)} height={140} />
-        </div>
       </div>
+      <ProcessChartPanel title="CPU Used %" series={host.cpuSeries} metric="cpu" tabs={['CPU Used %', 'CPU State %', 'Load Average']} />
+      <ProcessChartPanel title="Memory Used %" series={host.memSeries} metric="mem" />
+
+      <div className="infra-card-grid">
+        <InfraCard title="Disk Used %" value={fmtPct1(host.disk)} span="third" fmt={fmtPct1} series={one(host.host, host.diskSeries)} />
+        <InfraCard title="Network Traffic (bytes/s)" span="third" area fmt={fmtBytes} series={netSeries(host)} />
+        <InfraCard title="Disk I/O Utilization %" value={fmtPct1(lastReading(host.diskIoSeries) ?? 0)} span="third" fmt={fmtPct1} series={one(host.host, host.diskIoSeries)} />
+      </div>
+    </div>
+  )
+}
+
+/**
+ * The hosts table under the fleet charts, with the multi-column table search
+ * the pod tables use (TableQuerySearch over HOST_FIELDS): a bare word matches
+ * the host or its service, `host:` and `service:` narrow to one. A query that
+ * does not parse yet filters nothing, so the list does not empty itself while
+ * an operator is half typed.
+ */
+function HostTable({ hosts, onSelect }) {
+  const [query, setQuery] = useState('')
+  const { node, ok } = parsePodQuery(query, HOST_FIELDS)
+  const shown = useMemo(() => (ok ? hosts.filter(h => matchesPod(node, h, HOST_FIELDS)) : hosts), [hosts, node, ok])
+  const hits = useMemo(() => (ok ? highlightsFor(node, HOST_FIELDS) : { host: [], service: [] }), [node, ok])
+  const columns = useMemo(() => HOST_COLUMNS.map(c => (
+    c.key === 'host' ? { ...c, render: h => highlightTerms(h.host, hits.host, 'svc-hit') }
+      : c.key === 'service' ? { ...c, render: h => (h.service ? highlightTerms(h.service, hits.service, 'svc-hit') : c.render(h)) }
+        : c
+  )), [hits])
+  return (
+    <div className="panel">
+      <div className="panel-head is-stacked">
+        <div className="panel-head-row">
+          <div className="panel-head-left">Summary</div>
+          <CardMenu kind="table" title="Summary" columns={metricLabels(HOST_COLUMNS)} />
+        </div>
+        <TableQuerySearch onApply={setQuery} fields={HOST_FIELDS} />
+      </div>
+      <SortableTable
+        columns={columns}
+        rows={shown.map(withNetRates)}
+        rowKey={h => h.host}
+        defaultSort="cpu"
+        onRowClick={h => onSelect(h.host)}
+        empty={`No data matches “${query.trim()}”.`}
+      />
+    </div>
+  )
+}
+
+/* ============ Kubernetes: Events ============ */
+
+// Kubernetes events are log records, so the panel queries them with the Logs
+// bar itself: the chip builder, history, Run, the pipe pills and the generated
+// query, plus a hand-off that opens the same query on the Logs page. It opens
+// on everything but routine events, as production does. The builder has no
+// NOT, so production's `NOT object.type:="Normal"` is the `!=` chip here.
+const EVENTS_DEFAULT_CHIPS = [{ field: 'object.type', op: 'neq', value: 'Normal' }]
+const EVENT_AGG_FIELDS = FIELD_CATALOG.map(f => f.field)
+const EVENT_NUMERIC_FIELDS = new Set(FIELD_CATALOG.filter(f => f.type === 'keyword').map(f => f.field))
+const DAY_SEC = 86400
+
+function K8sEvents({ onOpenLink }) {
+  const { win } = useContext(InfraTime)
+  const [chips, setChips] = useState(EVENTS_DEFAULT_CHIPS)
+  const [pipes, setPipes] = useState([])
+  // What the table reflects. Seeded with the default so the panel auto-runs.
+  const [applied, setApplied] = useState({ chips: EVENTS_DEFAULT_CHIPS, pipes: [] })
+  const [blocked, setBlocked] = useState(null)
+  const [recents, setRecents] = useState([])
+  const [history, setHistory] = useState([])
+  const [historyOpen, setHistoryOpen] = useState(false)
+
+  const query = composeQuery(chipsToString(chips), withImpliedCount(pipes))
+  const dirty = chipsToString(chips) !== chipsToString(applied.chips)
+    || serializePipes(withImpliedCount(pipes)) !== serializePipes(withImpliedCount(applied.pipes))
+  const plotting = applied.pipes.some(p => p.kind === 'stats')
+  const days = Math.round(win.spanSec / DAY_SEC)
+
+  const run = useCallback(() => {
+    setApplied({ chips, pipes })
+    if (chips.length) {
+      const key = chipsToString(chips)
+      setRecents(prev => [chips, ...prev.filter(r => chipsToString(r) !== key)].slice(0, 5))
+    }
+    if (query) {
+      setHistory(prev => [
+        { id: `${Date.now()}`, query, time: new Date(BASE_TIME), results: 0 },
+        ...prev.filter(h => h.query !== query),
+      ].slice(0, 20))
+    }
+  }, [chips, pipes, query])
+
+  // A history entry is a whole query: its conditions back as chips, its pipe
+  // section back on the pills, and it runs.
+  const applyHistory = useCallback((q) => {
+    const { conditions, pipes: stages } = splitQuery(q)
+    const parsed = tryParseConditions(conditions)
+    if (!parsed.ok) return
+    const pipeRes = parsePipes(stages)
+    const nextPipes = pipeRes.ok ? pipeRes.pipes : []
+    setChips(parsed.chips)
+    setPipes(nextPipes)
+    setApplied({ chips: parsed.chips, pipes: nextPipes })
+    setHistoryOpen(false)
+  }, [])
+
+  return (
+    <div className="k8s-events">
+      <div className="k8s-events-head">Events</div>
+      <div className="logs-query-bar">
+        <QueryBuilder
+          chips={chips}
+          setChips={setChips}
+          recents={recents}
+          onRun={run}
+          onBlockedChange={setBlocked}
+          onCopyQuery={query ? () => { try { navigator.clipboard.writeText(query)?.catch(() => {}) } catch (_) {} } : null}
+        />
+        <button className="hbtn small icon-only" title="Query history" aria-label="Query history" onClick={() => setHistoryOpen(true)}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>
+        </button>
+        <button
+          className={`hbtn primary run-btn${dirty && !blocked ? ' is-dirty' : ''}`}
+          title={blocked || (dirty ? 'Run query — the bar has changes the results do not show yet' : 'Run query')}
+          aria-label="Run query"
+          disabled={!!blocked}
+          onClick={run}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 10 4 15 9 20"/><path d="M20 4v7a4 4 0 01-4 4H4"/></svg>
+          Run
+        </button>
+        <button
+          className="hbtn"
+          title="Open this query on the Logs page"
+          onClick={() => onOpenLink?.({ view: 'logs', chips, pipes })}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><path d="M15 3h6v6"/><path d="M10 14L21 3"/></svg>
+          Search in Logs
+        </button>
+      </div>
+      <div className="k8s-events-pipes">
+        <PipeToolbar
+          pipes={pipes}
+          setPipes={setPipes}
+          fieldCatalog={FIELD_CATALOG}
+          aggAllFields={EVENT_AGG_FIELDS}
+          aggNumericFields={EVENT_NUMERIC_FIELDS}
+        />
+      </div>
+      <div className="logs-query-preview">
+        <span className="qb-preview-label">Generated Query</span>
+        <code className="qb-preview-code">{query || '*'}</code>
+      </div>
+      <div className="k8s-events-notes">
+        {!plotting && <p>Need to plot? Use Group by and an Aggregation.</p>}
+        {days >= 1 && <p>Reading {days} {days === 1 ? 'day' : 'days'}. If this is slow, a shorter time range or another filter is the quickest win.</p>}
+      </div>
+      <SortableTable columns={EVENT_COLUMNS} rows={[]} rowKey={e => e.id} sortable={false} empty="No abnormal events in the selected time range" />
+      {historyOpen && (
+        <QueryHistoryDrawer history={history} subject="events panel" onClose={() => setHistoryOpen(false)} onApply={applyHistory} />
+      )}
     </div>
   )
 }
 
 /* ============ Kubernetes: Cluster ============ */
 
-const ALLOC_KEYS = ['total', 'request', 'limit', 'used']
-
-// The two stacked pairs, named once so the tooltip rows and the areas cannot
-// drift apart.
-const CONTAINER_BANDS = [
-  { key: 'ready', label: 'ready', color: '#F59E0B' },
-  { key: 'notReady', label: 'not ready', color: '#3B82F6' },
-]
-const NET_BANDS = [
-  { key: 'transmit', label: 'transmit', color: '#F59E0B' },
-  { key: 'receive', label: 'receive', color: '#3B82F6' },
-]
-
-/**
- * CPU or memory allocation: four parallel series merged onto one row apiece,
- * carrying the window's bucket keys so the axis and the tooltip agree.
- *
- * `lines` is in draw order, which is why the two charts that use this differ -
- * the memory chart puts `used` under its ceilings and the CPU one does not.
- */
-function AllocationChart({ title, alloc, lines, legend, axisFormat, tooltipUnit, tooltipFormat }) {
-  const { win, wrapRef, axis, focus, syncId } = useChartTime()
-  const [hoverKey, hoverProps] = useSeriesHover()
-  const data = useMemo(() => {
-    const base = withX(alloc.total, win)
-    return base.map((d, i) => ({
-      t: d.t,
-      x: d.x,
-      total: d.value,
-      request: alloc.request[i]?.value,
-      limit: alloc.limit[i]?.value,
-      used: alloc.used[i]?.value,
-    }))
-  }, [alloc, win])
-
-  return (
-    <div className="infra-chart-card">
-      <div className="clbl">{title}</div>
-      <div ref={wrapRef} style={{ height: 130 }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data} margin={{ top: 6, right: 6, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
-            <CartesianGrid {...GRID_PROPS} />
-            <XAxis {...axis.props} />
-            <YAxis {...valueAxisProps({ ...(axisFormat ? { format: axisFormat } : null), maxValue: maxOf(data, ALLOC_KEYS) })} />
-            <Tooltip
-              content={p => (
-                <SingleAreaTooltip
-                  {...p}
-                  unit={tooltipUnit}
-                  formatVal={tooltipFormat}
-                  hoverKey={hoverKey}
-                  suppressed={!focus.hovered}
-                  series={lines.map(l => ({ key: l.key, label: l.key, color: l.color }))}
-                />
-              )}
-              {...NO_ANIM}
-            />
-            {lines.map(l => (
-              <Line {...LINE_PROPS} key={l.key} dataKey={l.key} stroke={l.color} strokeWidth={l.width} strokeDasharray={l.dash} dot={false} {...hoverProps(l.key)} />
-            ))}
-            {focus.overlay}
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-      <div className="k8s-alloc-legend">
-        {legend.map(g => (
-          <span key={g.label} className="k8s-alloc-legend-item">
-            <span className={`sw${g.dashed ? ' dashed' : ''}`} style={g.dashed ? { color: g.color } : { background: g.color }} />
-            {' '}{g.label}
-          </span>
-        ))}
-      </div>
-    </div>
-  )
+// CPU or memory allocation. Total, request and limit are what the cluster was
+// configured for, so they are dashed (LIMIT_DASH), as the Runtime tab dashes a
+// JVM's limit; `used` is the one reading. Colours are keyed on the role, as on
+// the Runtime tab's heap charts — a request is what is committed to a pod.
+const ALLOC_ROLES = {
+  total: { label: 'total', color: RESOURCE_COLORS.alt, dash: LIMIT_DASH },
+  request: { label: 'request', color: RESOURCE_COLORS.committed, dash: LIMIT_DASH },
+  limit: { label: 'limit', color: RESOURCE_COLORS.limit, dash: LIMIT_DASH },
+  used: { label: 'used', color: RESOURCE_COLORS.used },
 }
 
-/**
- * Containers ready against not-ready. Flat by definition in this cluster, and
- * it still gets the ladder and the drag: an axis that changes shape depending
- * on whether a chart happens to be interesting is an axis a reader cannot
- * trust, and a flat stretch is exactly where someone zooms in to check.
- */
-function ContainersChart({ series }) {
-  const { win, wrapRef, axis, focus, syncId } = useChartTime()
-  const [hoverKey, hoverProps] = useSeriesHover()
-  const data = useMemo(() => {
-    const base = withX(series.ready, win)
-    return base.map((d, i) => ({
-      t: d.t,
-      x: d.x,
-      ready: d.value,
-      notReady: series.notReady[i]?.value,
-    }))
-  }, [series, win])
+// In draw order, which is also the legend's and the tooltip's. The two charts
+// differ on purpose: the memory chart puts `used` under its ceilings and the
+// CPU one does not.
+const allocSeries = (alloc, order) => order.map(key => ({ key, ...ALLOC_ROLES[key], rows: alloc[key] }))
+const CPU_ALLOC_ORDER = ['total', 'request', 'limit', 'used']
+const MEM_ALLOC_ORDER = ['total', 'used', 'limit', 'request']
 
-  return (
-    <div className="infra-chart-card">
-      <div className="clbl">Containers</div>
-      <div ref={wrapRef} style={{ height: 130 }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data} margin={{ top: 6, right: 6, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
-            <CartesianGrid {...GRID_PROPS} />
-            <XAxis {...axis.props} />
-            <YAxis {...valueAxisProps({ format: fmtCount, allowDecimals: false, maxValue: 99 })} />
-            <Tooltip
-              content={p => (
-                <SingleAreaTooltip
-                  {...p}
-                  formatVal={v => Math.round(v)}
-                  hoverKey={hoverKey}
-                  suppressed={!focus.hovered}
-                  series={CONTAINER_BANDS}
-                />
-              )}
-              {...NO_ANIM}
-            />
-            <Area {...AREA_PROPS} dataKey="ready" stackId="c" stroke="#F59E0B" fill="#F59E0B" fillOpacity={0.5} strokeWidth={1.4} dot={false} {...hoverProps('ready')} />
-            <Area {...AREA_PROPS} dataKey="notReady" stackId="c" stroke="#3B82F6" fill="#3B82F6" fillOpacity={0.5} strokeWidth={1.4} dot={false} {...hoverProps('notReady')} />
-            {focus.overlay}
-          </AreaChart>
-        </ResponsiveContainer>
-      </div>
-    </div>
-  )
-}
+// Ready and not ready, stacked into every container the scope runs. Flat by
+// definition in this cluster, and it still gets the ladder and the drag: an
+// axis that changes shape depending on whether a chart happens to be
+// interesting is an axis a reader cannot trust, and a flat stretch is exactly
+// where someone zooms in to check.
+const containerSeries = c => [
+  { key: 'ready', label: 'ready', color: RESOURCE_COLORS.used, rows: c.ready },
+  { key: 'notReady', label: 'not ready', color: RESOURCE_COLORS.alt, rows: c.notReady },
+]
 
 // One view, two scopes. With a namespace it is the namespace overview that a
 // k8s.namespace.name link opens; without one it is the cluster. They share the
 // charts and the stat grid because they answer the same question at different
 // altitudes - the only real difference is that a node is not namespaced, so the
 // node counts drop out when a namespace is selected.
-function K8sClusterView({ namespace, setNamespace }) {
+function K8sClusterView({ namespace, setNamespace, onOpenLink }) {
   const { win } = useContext(InfraTime)
   const detail = useMemo(() => (namespace ? k8sNamespaceDetailForWindow(win, namespace) : null), [win, namespace])
   const s = detail ?? k8sClusterSummary
@@ -645,45 +606,10 @@ function K8sClusterView({ namespace, setNamespace }) {
           </div>
         </div>
       )}
-      <div className="infra-row-charts">
-        <AllocationChart
-          title="CPU Allocation (cores)"
-          alloc={alloc.cpu}
-          tooltipUnit=" cores"
-          tooltipFormat={v => v.toFixed(2)}
-          lines={[
-            { key: 'total', color: '#34D399', width: 1.4, dash: '4 3' },
-            { key: 'request', color: '#F59E0B', width: 1.4 },
-            { key: 'limit', color: '#EF4444', width: 1.4 },
-            { key: 'used', color: '#3B82F6', width: 1.6 },
-          ]}
-          legend={[
-            { label: 'Total', color: '#34D399', dashed: true },
-            { label: 'Request', color: '#F59E0B' },
-            { label: 'Limit', color: '#EF4444' },
-            { label: 'Used', color: '#3B82F6' },
-          ]}
-        />
-        <AllocationChart
-          title="Memory Allocation (bytes)"
-          alloc={alloc.mem}
-          axisFormat={fmtBytes}
-          tooltipUnit=""
-          tooltipFormat={fmtBytes}
-          lines={[
-            { key: 'total', color: '#34D399', width: 1.4, dash: '4 3' },
-            { key: 'used', color: '#3B82F6', width: 1.6 },
-            { key: 'limit', color: '#EF4444', width: 1.4 },
-            { key: 'request', color: '#A78BFA', width: 1.4 },
-          ]}
-          legend={[
-            { label: 'Total', color: '#34D399', dashed: true },
-            { label: 'Used', color: '#3B82F6' },
-            { label: 'Limit', color: '#EF4444' },
-            { label: 'Request', color: '#A78BFA' },
-          ]}
-        />
-        <ContainersChart series={containers} />
+      <div className="infra-card-grid">
+        <InfraCard title="CPU Allocation (cores)" span="third" fmt={fmtCompact} tipFmt={fmtCores2} series={allocSeries(alloc.cpu, CPU_ALLOC_ORDER)} />
+        <InfraCard title="Memory Allocation (bytes)" span="third" fmt={fmtBytes} series={allocSeries(alloc.mem, MEM_ALLOC_ORDER)} />
+        <InfraCard title="Containers" span="third" area allowDecimals={false} fmt={fmtCount} series={containerSeries(containers)} />
       </div>
 
       <div className="k8s-stat-grid">
@@ -692,7 +618,10 @@ function K8sClusterView({ namespace, setNamespace }) {
           const isZeroNeutral = val === 0 && !lbl.includes('Ready') && !lbl.includes('Total')
           return (
             <div key={lbl} className="k8s-stat-card">
-              <div className="k8s-stat-lbl">{lbl}</div>
+              <div className="k8s-stat-head">
+                <div className="k8s-stat-lbl">{lbl}</div>
+                <CardMenu kind="metric" title={lbl} />
+              </div>
               <div className={`k8s-stat-val${isUnhealthy ? ' unhealthy' : isZeroNeutral ? ' zero' : ''}`}>{val}</div>
             </div>
           )
@@ -701,31 +630,23 @@ function K8sClusterView({ namespace, setNamespace }) {
 
       {detail ? (
         <div className="panel">
-          <div className="panel-head">Pods <span className="hint">{detail.podsTotal} in {namespace}</span></div>
+          <div className="panel-head">
+            <div className="panel-head-left">Pods</div>
+            <CardMenu kind="table" title="Pods" columns={metricLabels(NAMESPACE_POD_COLUMNS)} />
+          </div>
           <SortableTable columns={NAMESPACE_POD_COLUMNS} rows={detail.pods} rowKey={p => p.name} />
         </div>
       ) : (
         <div className="panel">
-          <div className="panel-head">Summary <span className="hint">Resource usage by namespace &middot; click a row to scope</span></div>
+          <div className="panel-head">
+            <div className="panel-head-left">Summary</div>
+            <CardMenu kind="table" title="Summary" columns={metricLabels(NAMESPACE_COLUMNS)} />
+          </div>
           <SortableTable columns={NAMESPACE_COLUMNS} rows={k8sNamespaceSummary} rowKey={n => n.namespace} onRowClick={n => setNamespace(n.namespace)} />
         </div>
       )}
 
-      <div className="k8s-events">
-        <div className="k8s-events-head">Events</div>
-        <div className="k8s-events-query">
-          <input readOnly value='NOT object.type:="Normal"' />
-          <button className="k8s-events-search-btn">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></svg>
-            Search
-          </button>
-          <a className="k8s-events-logs-link" href="#" onClick={e => e.preventDefault()}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M9 18l6-6-6-6" /></svg>
-            Search in Logs
-          </a>
-        </div>
-        <SortableTable columns={EVENT_COLUMNS} rows={[]} rowKey={e => e.id} sortable={false} empty="No abnormal events in the selected time range" />
-      </div>
+      <K8sEvents onOpenLink={onOpenLink} />
     </>
   )
 }
@@ -733,27 +654,18 @@ function K8sClusterView({ namespace, setNamespace }) {
 /* ============ Kubernetes: Deployment ============ */
 
 function K8sDeploymentView() {
-  const { win, wrapRef, axis, focus, syncId } = useChartTime()
-  const data = useMemo(() => withX(k8sContainersSeriesForWindow(win).notReady, win), [win])
+  const { win } = useContext(InfraTime)
+  const notAvailable = useMemo(() => k8sContainersSeriesForWindow(win).notReady, [win])
   return (
     <>
-      <div className="infra-chart-card" style={{ marginBottom: 20 }}>
-        <div className="clbl">Pods Desired but not Available</div>
-        <div ref={wrapRef} style={{ height: 130 }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={data} margin={{ top: 6, right: 6, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
-              <CartesianGrid {...GRID_PROPS} />
-              <XAxis {...axis.props} />
-              <YAxis {...valueAxisProps({ format: fmtCount, allowDecimals: false, maxValue: 99 })} />
-              <Tooltip content={p => <SingleAreaTooltip {...p} color="#EF4444" unit="" formatVal={v => Math.round(v)} suppressed={!focus.hovered} />} {...NO_ANIM} />
-              <Line {...LINE_PROPS} dataKey="value" stroke="#EF4444" strokeWidth={1.6} dot={false} />
-              {focus.overlay}
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
+      <div className="infra-card-grid">
+        <InfraCard title="Pods Desired but not Available" span="full" allowDecimals={false} fmt={fmtCount} series={one('not available', notAvailable)} />
       </div>
       <div className="panel">
-        <div className="panel-head">Summary <span className="hint">Deployments by namespace</span></div>
+        <div className="panel-head">
+          <div className="panel-head-left">Summary</div>
+          <CardMenu kind="table" title="Summary" columns={metricLabels(DEPLOYMENT_COLUMNS)} />
+        </div>
         <SortableTable columns={DEPLOYMENT_COLUMNS} rows={k8sDeploymentSummary} rowKey={n => n.namespace} />
       </div>
     </>
@@ -762,71 +674,161 @@ function K8sDeploymentView() {
 
 /* ============ Kubernetes: Node → Pod drill-in ============ */
 
-function K8sPodDetail({ pod }) {
+// `pods` are the ones this pod could be swapped for: the node's, when it was
+// reached through a node, or every pod. The strip is the service page's
+// Endpoint strip, sliding away and back with `reveal`, and holds the page's
+// two choices: the namespace, then a pod in it (the breadcrumb only names the
+// page). A pod lives in exactly one namespace, so picking another opens the
+// first of those pods that lives there.
+//
+// A row of the Containers table picks that container, and the page below it
+// turns to the container (K8sContainerDetail) until Clear Container on the
+// table's head, or another pod, puts it back.
+function K8sPodDetail({ pod, pods, onSelectPod, reveal }) {
+  const namespaces = useMemo(() => [...new Set(pods.map(p => p.namespace))].sort(), [pods])
+  const inNamespace = useMemo(
+    () => pods.filter(p => p.namespace === pod.namespace).map(p => p.name),
+    [pods, pod.namespace],
+  )
+  const pickNamespace = ns => {
+    const first = ns !== pod.namespace && pods.find(p => p.namespace === ns)
+    if (first) onSelectPod(first.name)
+  }
+  // Held with the pod it was picked on, so a pod switched in the strip opens
+  // with no container picked rather than with a name it does not run.
+  const [picked, setPicked] = useState({ pod: pod.name, container: null })
+  const container = picked.pod === pod.name ? picked.container : null
+  const pickContainer = name => setPicked({ pod: pod.name, container: name })
+
   return (
     <div>
-      <div className="infra-host-meta">
-        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>namespace <span className="mono" style={{ color: 'var(--text-secondary)' }}>{pod.namespace}</span></span>
+      <div className={`endpoint-strip is-sticky${revealClass(reveal)}`}>
+        <FilterSelect
+          className="is-endpoint"
+          label="Namespace"
+          value={pod.namespace}
+          options={namespaces}
+          onSelect={pickNamespace}
+        />
+        <FilterSelect
+          className="is-endpoint"
+          label="Pod"
+          value={pod.name}
+          options={inNamespace}
+          onSelect={onSelectPod}
+        />
       </div>
 
       <div className="k8s-containers-table">
-        <div className="k8s-containers-head">Containers</div>
-        <SortableTable columns={CONTAINER_COLUMNS} rows={[pod]} rowKey={p => p.containerName} sortable={false} />
-      </div>
-
-      <div className="infra-detail-grid">
-        <OneMetricChart title="CPU Used (cores)" series={pod.cpuSeries} color="#F59E0B" unit=" cores" formatVal={v => v.toFixed(3)} />
-        <OneMetricChart title="Memory Used (bytes)" series={pod.memSeries} color="#EF4444" unit="" formatVal={fmtBytes} />
-        <HostChart title="Disk Used %" series={pod.diskSeries} color="#34D399" unit="%" formatVal={v => Math.round(v)} height={140} />
-        <div className="infra-detail-row">
-          <HostChart title="Container Restarts" series={pod.restartsSeries} color="#F59E0B" unit="" formatVal={v => Math.round(v)} height={140} />
-          <HostChart title="Network Traffic (bytes/s)" series={pod.netInSeries} color="#3B82F6" unit="" formatVal={fmtBytes} height={140} />
+        {/* Clear Container sits on the table it undoes the pick in, as the
+            service page's Clear Endpoint sits on its endpoint list. */}
+        <div className="k8s-containers-head">
+          <span>Containers</span>
+          {container && (
+            <button type="button" className="split-ep-clear" onClick={() => pickContainer(null)}>Clear Container</button>
+          )}
         </div>
+        <SortableTable
+          columns={CONTAINER_COLUMNS}
+          rows={[pod]}
+          rowKey={p => p.containerName}
+          sortable={false}
+          onRowClick={p => pickContainer(p.containerName)}
+          selectedKey={container}
+        />
       </div>
+
+      {container ? <K8sContainerDetail pod={pod} container={container} /> : (
+        <div className="infra-card-grid">
+          <InfraCard title="CPU Used (cores)" fmt={fmtCoresTick} tipFmt={fmtCores3} series={one(pod.name, pod.cpuSeries)} />
+          <InfraCard title="Memory Used (bytes)" fmt={fmtBytes} series={one(pod.name, pod.memSeries)} />
+          <InfraCard title="Disk Used %" span="third" fmt={fmtPct1} series={one(pod.name, pod.diskSeries)} />
+          <InfraCard title="Container Restarts" span="third" allowDecimals={false} fmt={fmtCount} series={one(pod.name, pod.restartsSeries)} />
+          <InfraCard title="Network Traffic (bytes/s)" span="third" area fmt={fmtBytes} series={netSeries(pod)} />
+        </div>
+      )}
     </div>
   )
 }
 
-/** A node's transmit and receive stacked over the window. */
-function NodeNetworkChart({ node }) {
-  const { win, wrapRef, axis, focus, syncId } = useChartTime()
-  const [hoverKey, hoverProps] = useSeriesHover()
-  const data = useMemo(() => {
-    const base = withX(node.netInSeries, win)
-    return base.map((d, i) => ({
-      t: d.t,
-      x: d.x,
-      transmit: node.netOutSeries[i]?.value,
-      receive: d.value,
-    }))
-  }, [node, win])
+const PROCESS_COLUMNS = [
+  { key: 'pid', label: 'Process ID', align: 'left' },
+  { key: 'ppid', label: 'Parent PID', align: 'left' },
+  { key: 'command', label: 'Command', align: 'left', mono: true },
+  { key: 'host', label: 'Host', align: 'left', mono: true },
+  { key: 'cpuUsed', label: 'CPU Used (cores)' },
+  { key: 'memUsed', label: 'Memory Used (bytes)', render: p => fmtBytes(p.memUsed) },
+]
+const PROCESS_FIELDS = [{ name: 'command', key: 'command' }]
 
+// The detail charts' two lines: the pod's total, then the container's own.
+const CONTAINER_COLORS = [RESOURCE_COLORS.used, RESOURCE_COLORS.committed]
+
+/**
+ * A pod's page with one of its containers picked, as production draws it: the
+ * container's processes, then its CPU, memory and disk as full-width charts
+ * with a legend beside each (the service page's RED chart, LegendLineChart),
+ * then its restarts and traffic as cards.
+ *
+ * The agent reports no processes for a container in this prototype, so the
+ * table says so, as production's did for the container it was captured on;
+ * its search has nothing to narrow. A pod here runs one container, so the
+ * container's readings are the pod's: CPU and memory carry the one Total line,
+ * and disk the Total and the container's line, which coincide.
+ */
+function K8sContainerDetail({ pod, container }) {
+  const { win, setTimeRange, syncId } = useContext(InfraTime)
+  const charts = [
+    { title: 'CPU Used (cores)', fmtFn: fmtCompact, axisFormat: fmtCoresTick, rows: [['Total', pod.cpuUsed, pod.cpuSeries]] },
+    { title: 'Memory Used (bytes)', fmtFn: fmtBytes, axisFormat: fmtBytes, rows: [['Total', pod.memUsed, pod.memSeries]] },
+    {
+      title: 'Disk Used %', fmtFn: fmtPct2, axisFormat: fmtPctTick, yTop: 100,
+      rows: [['Total', pod.disk, pod.diskSeries], [container, pod.disk, pod.diskSeries]],
+    },
+  ]
   return (
-    <div className="infra-chart-card" style={{ marginBottom: 20 }}>
-      <div className="clbl">Network Traffic (bytes/s)</div>
-      <div ref={wrapRef} style={{ height: 160 }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data} margin={{ top: 6, right: 6, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
-            <CartesianGrid {...GRID_PROPS} />
-            <XAxis {...axis.props} />
-            <YAxis {...valueAxisProps({ format: fmtBytes, maxValue: 1e9 })} />
-            <Tooltip
-              content={p => (
-                <SingleAreaTooltip {...p} formatVal={fmtBytes} hoverKey={hoverKey} suppressed={!focus.hovered} series={NET_BANDS} />
-              )}
-              {...NO_ANIM}
-            />
-            <Area {...AREA_PROPS} dataKey="transmit" stackId="n" stroke="#F59E0B" fill="#F59E0B" fillOpacity={0.4} strokeWidth={1.4} dot={false} {...hoverProps('transmit')} />
-            <Area {...AREA_PROPS} dataKey="receive" stackId="n" stroke="#3B82F6" fill="#3B82F6" fillOpacity={0.4} strokeWidth={1.4} dot={false} {...hoverProps('receive')} />
-            {focus.overlay}
-          </AreaChart>
-        </ResponsiveContainer>
+    <>
+      <div className="panel">
+        <div className="panel-head is-stacked">
+          <div className="panel-head-row">
+            <span>Processes</span>
+            <CardMenu kind="list" title="Processes" />
+          </div>
+          <TableQuerySearch onApply={() => {}} fields={PROCESS_FIELDS} />
+        </div>
+        <SortableTable columns={PROCESS_COLUMNS} rows={[]} rowKey={p => p.pid} empty="No data" />
       </div>
-    </div>
+      <div className="panel">
+        {charts.map(c => (
+          <LegendLineChart
+            key={c.title}
+            title={c.title}
+            eps={c.rows.map(([name, value]) => ({ name, value }))}
+            epSeries={c.rows.map(([name, , series]) => ({ name, series }))}
+            dataKey="value"
+            labelKey="name"
+            fmtFn={c.fmtFn}
+            axisFormat={c.axisFormat}
+            yTop={c.yTop}
+            colorFor={i => CONTAINER_COLORS[i]}
+            noun="series"
+            syncId={syncId}
+            win={win}
+            onFocus={setTimeRange}
+          />
+        ))}
+      </div>
+      <div className="infra-card-grid">
+        <InfraCard title="Container Restarts" allowDecimals={false} fmt={fmtCount} series={one(container, pod.restartsSeries)} />
+        <InfraCard title="Network Traffic (bytes/s)" area fmt={fmtBytes} series={netSeries(pod)} />
+      </div>
+    </>
   )
 }
 
-function K8sNodeDetail({ node, pods, onSelectPod }) {
+// A node's page. Its strip, like a pod's, holds the page's one choice: which
+// node (the breadcrumb only names it).
+function K8sNodeDetail({ node, nodes, pods, onSelectNode, onSelectPod, reveal }) {
   const [podQuery, setPodQuery] = useState('')
 
   const onNode = useMemo(() => pods.filter(p => p.node === node.name), [pods, node.name])
@@ -843,36 +845,31 @@ function K8sNodeDetail({ node, pods, onSelectPod }) {
 
   return (
     <div>
-      <div className="infra-row-charts">
-        <HostChart title="CPU Used %" series={node.cpuSeries} color="#F59E0B" unit="%" formatVal={v => Math.round(v)} value={node.cpu.toFixed(1)} />
-        <HostChart title="Memory Used %" series={node.memSeries} color="#EF4444" unit="%" formatVal={v => Math.round(v)} value={node.mem.toFixed(1)} />
-        <HostChart title="Disk Used %" series={node.diskSeries} color="#34D399" unit="%" formatVal={v => Math.round(v)} value={node.disk.toFixed(1)} />
+      <div className={`endpoint-strip is-sticky${revealClass(reveal)}`}>
+        <FilterSelect
+          className="is-endpoint"
+          label="Node"
+          value={node.name}
+          options={nodes.map(n => n.name)}
+          onSelect={onSelectNode}
+        />
       </div>
-
-      <NodeNetworkChart node={node} />
+      <div className="infra-card-grid">
+        <InfraCard title="CPU Used %" value={fmtPct1(node.cpu)} span="third" fmt={fmtPct1} series={one(node.name, node.cpuSeries)} />
+        <InfraCard title="Memory Used %" value={fmtPct1(node.mem)} span="third" fmt={fmtPct1} series={one(node.name, node.memSeries)} />
+        <InfraCard title="Disk Used %" value={fmtPct1(node.disk)} span="third" fmt={fmtPct1} series={one(node.name, node.diskSeries)} />
+        <InfraCard title="Network Traffic (bytes/s)" span="full" area fmt={fmtBytes} series={netSeries(node)} />
+      </div>
 
       <div className="panel">
         <div className="panel-head is-stacked">
           <div className="panel-head-row">
             <span>Pods</span>
-            <span className="hint">
-              {podQuery.trim()
-                ? `${shown.length} of ${onNode.length} pods`
-                : `${node.pods} pods scheduled · click a row to inspect`}
-            </span>
           </div>
           <TableQuerySearch onApply={setPodQuery} fields={POD_FIELDS} />
         </div>
         <SortableTable
-          columns={[
-            { key: 'name', label: 'Pod', align: 'left', mono: true, clip: 300, title: p => p.name, render: p => <PodName pod={p} hits={hits} tagHits={tagHits} /> },
-            { key: 'namespace', label: 'Namespace', align: 'left', mono: true, render: p => highlightTerms(p.namespace, hits.namespace, 'svc-hit') },
-            { key: 'cpuUsed', label: 'CPU Used' },
-            { key: 'memUsed', label: 'Memory Used', render: p => fmtBytes(p.memUsed) },
-            { key: 'memRemaining', label: 'Memory Remaining', render: p => (p.memRemaining == null ? '-' : fmtBytes(p.memRemaining)) },
-            { key: 'netIn', label: 'Network In', sortable: false, render: () => '-' },
-            { key: 'netOut', label: 'Network Out', sortable: false, render: () => '-' },
-          ]}
+          columns={NODE_POD_COLUMNS.map(c => (c.key === 'name' ? { ...c, render: p => <PodName pod={p} hits={hits} tagHits={tagHits} /> } : c))}
           rows={shown.map(p => ({ ...p, memRemaining: p.memRequest ? p.memRequest - p.memUsed : null }))}
           rowKey={p => p.name}
           onRowClick={p => onSelectPod(p.name)}
@@ -883,44 +880,61 @@ function K8sNodeDetail({ node, pods, onSelectPod }) {
   )
 }
 
-function K8sNodeView({ nodes, pods, selectedNode, setSelectedNode, selectedPod, setSelectedPod }) {
+function K8sNodeView({ nodes, pods, selectedNode, setSelectedNode, selectedPod, setSelectedPod, reveal }) {
   if (selectedPod) {
-    return <K8sPodDetail pod={selectedPod} />
+    const onNode = selectedNode ? pods.filter(p => p.node === selectedNode.name) : pods
+    return <K8sPodDetail pod={selectedPod} pods={onNode} onSelectPod={setSelectedPod} reveal={reveal} />
   }
   if (selectedNode) {
-    return <K8sNodeDetail node={selectedNode} pods={pods} onSelectPod={setSelectedPod} />
+    return <K8sNodeDetail node={selectedNode} nodes={nodes} pods={pods} onSelectNode={setSelectedNode} onSelectPod={setSelectedPod} reveal={reveal} />
   }
   return (
     <>
-      <div className="infra-row-charts">
-        <div className="infra-chart-card">
-          <div className="clbl">CPU Used %</div>
-          <MultiHostChart metric="cpuSeries" unit="%" formatVal={v => Math.round(v)} palette={['#3B82F6', '#A78BFA']} hosts={nodes} nameKey="name" />
-        </div>
-        <div className="infra-chart-card">
-          <div className="clbl">Memory Used %</div>
-          <MultiHostChart metric="memSeries" unit="%" formatVal={v => Math.round(v)} palette={['#3B82F6', '#A78BFA']} hosts={nodes} nameKey="name" />
-        </div>
-        <div className="infra-chart-card">
-          <div className="clbl">Disk Used %</div>
-          <MultiHostChart metric="diskSeries" unit="%" formatVal={v => Math.round(v)} palette={['#3B82F6', '#A78BFA']} hosts={nodes} nameKey="name" />
-        </div>
-      </div>
+      <FleetCards rows={nodes} nameKey="name" noun="nodes" />
       <div className="panel">
-        <div className="panel-head">Summary <span className="hint">{nodes.length} nodes · click a row to drill in</span></div>
+        <div className="panel-head">
+          <div className="panel-head-left">Summary</div>
+          <CardMenu kind="table" title="Summary" columns={metricLabels(NODE_COLUMNS)} />
+        </div>
         <SortableTable columns={NODE_COLUMNS} rows={nodes.map(withNetRates)} rowKey={n => n.name} onRowClick={n => setSelectedNode(n.name)} />
       </div>
     </>
   )
 }
 
-function K8sPodListView({ nodes, pods, selectedPod, setSelectedPod }) {
-  const [query, setQuery] = useState('')
+// The Pod page's Filter: the kinds of workload a pod can be listed under, in
+// production's order and spelling. A kind with none in the namespace still
+// shows, and filters the page to nothing, as production's does.
+const POD_KINDS = ['CronJob', 'Daemonset', 'Deployment', 'HPA', 'Job', 'Replicaset', 'Statefulset']
 
+function K8sPodListView({ pods, selectedPod, setSelectedPod, reveal }) {
+  const [query, setQuery] = useState('')
+  // The list opens on the choice of namespace, as PVC's does. An open pod
+  // decides it (a link straight to one, or a namespace switched on its page),
+  // so the way back from a pod lands on that pod's namespace.
+  const [namespace, setNamespace] = useState(() => selectedPod?.namespace ?? null)
+  if (selectedPod && selectedPod.namespace !== namespace) setNamespace(selectedPod.namespace)
+  // The Filter: a kind, then, once one is picked, a workload of that kind. ''
+  // is ALL. Both clear with a new namespace, which has workloads of its own.
+  const [kind, setKind] = useState('')
+  const [workload, setWorkload] = useState('')
+  const pickNamespace = ns => { setNamespace(ns); setKind(''); setWorkload('') }
+
+  const inNamespace = useMemo(() => pods.filter(p => p.namespace === namespace), [pods, namespace])
+  const workloads = useMemo(
+    () => (kind ? [...new Set(inNamespace.map(p => p.owners?.[kind]).filter(Boolean))].sort() : []),
+    [inNamespace, kind],
+  )
+  // What the charts and the table both show: the namespace, narrowed by the
+  // Filter.
+  const scoped = useMemo(
+    () => (kind ? inNamespace.filter(p => p.owners?.[kind] && (!workload || p.owners[kind] === workload)) : inNamespace),
+    [inNamespace, kind, workload],
+  )
   const { node: queryNode, ok } = parsePodQuery(query, POD_NODE_FIELDS)
   const shown = useMemo(
-    () => (ok ? pods.filter(p => matchesPod(queryNode, p, POD_NODE_FIELDS)) : pods),
-    [pods, queryNode, ok],
+    () => (ok ? scoped.filter(p => matchesPod(queryNode, p, POD_NODE_FIELDS)) : scoped),
+    [scoped, queryNode, ok],
   )
   const hits = useMemo(
     () => (ok ? highlightsFor(queryNode, POD_NODE_FIELDS) : { pod: [], namespace: [], node: [] }),
@@ -928,60 +942,97 @@ function K8sPodListView({ nodes, pods, selectedPod, setSelectedPod }) {
   )
   const tagHits = useMemo(() => (ok ? tagHighlightsFor(queryNode, POD_NODE_FIELDS) : {}), [queryNode, ok])
 
-  if (selectedPod) return <K8sPodDetail pod={selectedPod} />
+  // A line per pod on each card. A pod keeps its colour while the Filter
+  // narrows the page (it is keyed on the pod's place in the namespace), and
+  // the tooltip names every line, so the cards carry no legend. A pod with no
+  // memory limit has nothing remaining to draw, and no Memory Remaining line.
+  const lines = useMemo(() => {
+    const perPod = key => scoped.filter(p => p[key]).map(p => ({
+      key: p.name, label: p.name, color: infraColor(inNamespace.indexOf(p)), rows: p[key],
+    }))
+    return { cpu: perPod('cpuSeries'), mem: perPod('memRemainingSeries'), disk: perPod('diskSeries') }
+  }, [scoped, inNamespace])
+
+  // Production's Pods chart: how many of the pods shown reported in each
+  // bucket. A bucket none of them has reached yet (past now) stays empty.
+  const podCount = useMemo(() => (scoped[0]?.cpuSeries ?? []).map((pt, i) => {
+    const reporting = scoped.filter(p => p.cpuSeries[i]?.value != null).length
+    return { ...pt, value: reporting || null }
+  }), [scoped])
+
+  if (selectedPod) return <K8sPodDetail pod={selectedPod} pods={pods} onSelectPod={setSelectedPod} reveal={reveal} />
+  if (!namespace) return <NamespacePicker onPick={pickNamespace} />
   return (
-    <div className="panel">
-      <div className="panel-head is-stacked">
-        <div className="panel-head-row">
-          <span>Pods</span>
-          <span className="hint">
-            {query.trim()
-              ? `${shown.length} of ${pods.length} pods`
-              : `${pods.length} pods across ${nodes.length} nodes · click a row to inspect`}
-          </span>
-        </div>
-        <TableQuerySearch onApply={setQuery} fields={POD_NODE_FIELDS} />
+    <div>
+      <div className={`endpoint-strip is-sticky${revealClass(reveal)}`}>
+        <FilterSelect className="is-endpoint" label="Namespace" value={namespace} options={K8S_NAMESPACES} onSelect={pickNamespace} />
+        <FilterSelect
+          className="is-endpoint"
+          label="Filter"
+          value={kind}
+          options={POD_KINDS}
+          placeholder="Select kind"
+          clearLabel="ALL"
+          onSelect={k => { setKind(k); setWorkload('') }}
+        />
+        {kind && (
+          <FilterSelect
+            className="is-endpoint"
+            label={kind}
+            value={workload}
+            options={workloads}
+            placeholder="ALL"
+            clearLabel="ALL"
+            onSelect={setWorkload}
+          />
+        )}
       </div>
-      <SortableTable
-        columns={[
-          { key: 'name', label: 'Pod', align: 'left', mono: true, clip: 300, title: p => p.name, render: p => <PodName pod={p} hits={hits} tagHits={tagHits} /> },
-          { key: 'namespace', label: 'Namespace', align: 'left', mono: true, render: p => highlightTerms(p.namespace, hits.namespace, 'svc-hit') },
-          { key: 'node', label: 'Node', align: 'left', mono: true, render: p => highlightTerms(p.node, hits.node, 'svc-hit') },
-          { key: 'cpuUsed', label: 'CPU Used' },
-          { key: 'memUsed', label: 'Memory Used', render: p => fmtBytes(p.memUsed) },
-          { key: 'restarts', label: 'Restarts', sortable: false, render: () => 0 },
-        ]}
-        rows={shown}
-        rowKey={p => p.name}
-        onRowClick={p => setSelectedPod(p.name)}
-        empty={`No data matches “${query.trim()}”.`}
-      />
+      <div className="infra-card-grid">
+        <InfraCard title="CPU Used (cores)" legend={false} fmt={fmtCoresTick} tipFmt={fmtCompact} series={lines.cpu} />
+        <InfraCard title="Memory Remaining (bytes)" legend={false} fmt={fmtBytes} series={lines.mem} />
+        <InfraCard title="Disk Used %" legend={false} fmt={fmtPct1} series={lines.disk} />
+        <InfraCard title="Pods" allowDecimals={false} fmt={fmtCount} series={one('pods', podCount)} />
+      </div>
+      <div className="panel">
+        <div className="panel-head is-stacked">
+          <div className="panel-head-row">
+            <div className="panel-head-left">Summary</div>
+            <CardMenu kind="table" title="Summary" columns={metricLabels(NODE_POD_COLUMNS)} />
+          </div>
+          <TableQuerySearch onApply={setQuery} fields={POD_NODE_FIELDS} />
+        </div>
+        <SortableTable
+          columns={[
+            { key: 'name', label: 'Pod', align: 'left', mono: true, clip: 300, title: p => p.name, render: p => <PodName pod={p} hits={hits} tagHits={tagHits} /> },
+            { key: 'cpuUsed', label: 'CPU Used (cores)' },
+            { key: 'memUsed', label: 'Memory Used (bytes)', render: p => fmtBytes(p.memUsed) },
+            // No memory limit, nothing remaining: a dash, and last whichever
+            // way the column sorts.
+            { key: 'memRemaining', label: 'Memory Remaining (bytes)', render: p => (p.memRemaining == null ? '-' : fmtBytes(p.memRemaining)) },
+            { key: 'disk', label: 'Disk Used (%)', render: p => <CellBar fill={p.disk}>{p.disk.toFixed(2)}</CellBar> },
+            { key: 'netIn', label: 'Network In (bytes/s)', render: p => p.netIn.toFixed(2) },
+            { key: 'netOut', label: 'Network Out (bytes/s)', render: p => p.netOut.toFixed(2) },
+            // Every pod here runs the one container its page lists.
+            { key: 'containers', label: 'Containers', sortable: false, render: () => 1 },
+          ]}
+          rows={shown}
+          rowKey={p => p.name}
+          onRowClick={p => setSelectedPod(p.name)}
+          empty={query.trim() ? `No data matches “${query.trim()}”.` : `No ${kind ? `${kind} ` : ''}pods in "${namespace}"`}
+        />
+      </div>
     </div>
   )
 }
 
 /* ============ Kubernetes: namespace-gated resources (PVC-style) ============ */
 
-function K8sNamespaceGateView({ resourceLabel }) {
-  const [namespace, setNamespace] = useState(null)
+// A namespace-scoped Kubernetes list opens on the choice of namespace: this
+// card until one is picked, then NamespaceChip over the list, naming it with
+// the way back to this choice. The PVC and Pod lists both work this way.
+function NamespacePicker({ onPick }) {
   const [search, setSearch] = useState('')
   const filtered = K8S_NAMESPACES.filter(n => n.toLowerCase().includes(search.toLowerCase()))
-
-  if (namespace) {
-    return (
-      <div>
-        <div className="k8s-selector-row">
-          <button className="infra-back" onClick={() => setNamespace(null)} aria-label="Back">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
-          </button>
-          <div className="k8s-selector"><span className="k8s-selector-lbl">Namespace</span><span className="k8s-selector-val">{namespace}</span></div>
-        </div>
-        <div className="infra-empty-table">
-          <SortableTable columns={emptyColumns([resourceLabel, 'Used', 'Capacity'])} rows={[]} rowKey={r => r.name} sortable={false} empty={`No ${resourceLabel.toLowerCase()} resources in "${namespace}"`} />
-        </div>
-      </div>
-    )
-  }
 
   return (
     <div className="infra-namespace-select">
@@ -990,7 +1041,7 @@ function K8sNamespaceGateView({ resourceLabel }) {
         <input placeholder="Search…" value={search} onChange={e => setSearch(e.target.value)} />
       </div>
       {filtered.map(n => (
-        <label key={n} className="infra-namespace-opt" onClick={() => setNamespace(n)}>
+        <label key={n} className="infra-namespace-opt" onClick={() => onPick(n)}>
           <input type="radio" readOnly checked={false} />
           {n}
         </label>
@@ -999,33 +1050,61 @@ function K8sNamespaceGateView({ resourceLabel }) {
   )
 }
 
+function NamespaceChip({ namespace, onBack }) {
+  return (
+    <div className="k8s-selector-row">
+      <button type="button" className="infra-back" onClick={onBack} aria-label="Choose another namespace" title="Choose another namespace">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6" /></svg>
+      </button>
+      <div className="k8s-selector"><span className="k8s-selector-lbl">Namespace</span><span className="k8s-selector-val">{namespace}</span></div>
+    </div>
+  )
+}
+
+function K8sNamespaceGateView({ resourceLabel }) {
+  const [namespace, setNamespace] = useState(null)
+
+  if (!namespace) return <NamespacePicker onPick={setNamespace} />
+  return (
+    <div>
+      <NamespaceChip namespace={namespace} onBack={() => setNamespace(null)} />
+      <div className="infra-empty-table">
+        <SortableTable columns={emptyColumns([resourceLabel, 'Used', 'Capacity'])} rows={[]} rowKey={r => r.name} sortable={false} empty={`No ${resourceLabel.toLowerCase()} resources in "${namespace}"`} />
+      </div>
+    </div>
+  )
+}
+
 /* ============ Generic empty state (AWS / GCP sub-services, disconnected KBs resources) ============ */
 
 /**
- * The flat line a source with no integration draws. It is still the window's
- * own axis - "no data" over the last seven days has to say seven days - but it
- * carries no Tooltip, so it is the one chart on the page that cannot be
- * brushed and does not offer to be.
+ * The flat line a source with no integration draws, in the same card as every
+ * other chart on the page. It is still the window's own axis - "no data" over
+ * the last seven days has to say seven days - but it carries no Tooltip, so it
+ * is the one chart on the page that cannot be brushed, and it leaves out the
+ * drag's handlers and crosshair rather than offer a gesture that cannot finish.
+ * It carries no ⋮ menu either: there is nothing in it to alert on, compare or
+ * explore.
  */
 function NoDataChart({ title }) {
-  const { win, wrapRef, axis } = useChartTime({ focusable: false })
+  const { win } = useContext(InfraTime)
   const data = useMemo(
     () => withX(win.buckets.map(b => ({ t: b.t, label: b.label, exactTime: b.exactTime, value: 0 })), win),
     [win],
   )
   return (
-    <div className="infra-chart-card">
-      <div className="clbl">{title}</div>
-      <div ref={wrapRef} style={{ height: 130 }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data} margin={{ top: 6, right: 6, left: 0, bottom: 0 }}>
+    <div className="runtime-chart-card rt-third">
+      <div className="clbl"><span className="clbl-text">{title}</span></div>
+      <TimeChart className="chart-host" win={win}>
+        {axis => (
+          <LineChart data={data} margin={{ top: 6, right: 4, left: 0, bottom: 0 }}>
             <CartesianGrid {...GRID_PROPS} />
             <XAxis {...axis.props} />
             <YAxis {...valueAxisProps({ domain: [0, 1], maxValue: 1 })} />
             <Line {...LINE_PROPS} dataKey="value" stroke="var(--text-muted)" strokeWidth={1} dot={false} />
           </LineChart>
-        </ResponsiveContainer>
-      </div>
+        )}
+      </TimeChart>
     </div>
   )
 }
@@ -1033,7 +1112,7 @@ function NoDataChart({ title }) {
 function InfraEmptyView({ columns }) {
   return (
     <>
-      <div className="infra-empty-charts">
+      <div className="infra-card-grid">
         {['Requests per Minute', 'Errors', 'Latency'].map(t => <NoDataChart key={t} title={t} />)}
       </div>
       <div className="infra-empty-table">
@@ -1051,13 +1130,16 @@ function MySQLView() {
   const s = mysqlSummary
   return (
     <>
-      <div className="infra-row-charts">
-        <HostChart title="Operations per Minute" series={series.opsPerMin} color="#34D399" unit="" formatVal={v => Math.round(v)} value={s.opsPerMin} />
-        <HostChart title="Connection Errors per Minute" series={series.connErrors} color="#EF4444" unit="" formatVal={v => Math.round(v)} value={s.connErrPerMin} />
-        <HostChart title="Slow Queries per Minute" series={series.slowQueries} color="#F59E0B" unit="" formatVal={v => Math.round(v)} value={s.slowQueriesPerMin} />
+      <div className="infra-card-grid">
+        <InfraCard title="Operations per Minute" value={s.opsPerMin} span="third" allowDecimals={false} fmt={fmtCount} series={one(s.host, series.opsPerMin)} />
+        <InfraCard title="Connection Errors per Minute" value={s.connErrPerMin} span="third" allowDecimals={false} fmt={fmtCount} series={one(s.host, series.connErrors)} />
+        <InfraCard title="Slow Queries per Minute" value={s.slowQueriesPerMin} span="third" allowDecimals={false} fmt={fmtCount} series={one(s.host, series.slowQueries)} />
       </div>
       <div className="panel">
-        <div className="panel-head">Summary</div>
+        <div className="panel-head">
+          <div className="panel-head-left">Summary</div>
+          <CardMenu kind="table" title="Summary" columns={metricLabels(MYSQL_COLUMNS)} />
+        </div>
         <SortableTable columns={MYSQL_COLUMNS} rows={[s]} rowKey={r => r.host} sortable={false} />
       </div>
     </>
@@ -1070,13 +1152,16 @@ function RedisView() {
   const s = redisSummary
   return (
     <>
-      <div className="infra-row-charts">
-        <HostChart title="Memory Used (bytes)" series={series.memUsed} color="#EF4444" unit="" formatVal={fmtBytes} value={fmtBytes(s.memUsedBytes)} />
-        <HostChart title="Commands per Minute" series={series.cmdPerMin} color="#3B82F6" unit="" formatVal={v => Math.round(v)} value={s.cmdPerMin} />
-        <HostChart title="Evictions per Minute" series={series.evictionsPerMin} color="#F59E0B" unit="" formatVal={v => Math.round(v)} value={lastReading(series.evictionsPerMin)} />
+      <div className="infra-card-grid">
+        <InfraCard title="Memory Used (bytes)" value={fmtBytes(s.memUsedBytes)} span="third" fmt={fmtBytes} series={one(s.host, series.memUsed)} />
+        <InfraCard title="Commands per Minute" value={s.cmdPerMin} span="third" allowDecimals={false} fmt={fmtCount} series={one(s.host, series.cmdPerMin)} />
+        <InfraCard title="Evictions per Minute" value={lastReading(series.evictionsPerMin)} span="third" allowDecimals={false} fmt={fmtCount} series={one(s.host, series.evictionsPerMin)} />
       </div>
       <div className="panel">
-        <div className="panel-head">Summary <span className="hint">{s.status === 'critical' ? 'Connection pool under pressure - see payment-service incident' : ''}</span></div>
+        <div className="panel-head">
+          <div className="panel-head-left">Summary</div>
+          <CardMenu kind="table" title="Summary" columns={metricLabels(REDIS_COLUMNS)} />
+        </div>
         <SortableTable columns={REDIS_COLUMNS} rows={[s]} rowKey={r => r.host} sortable={false} />
       </div>
     </>
@@ -1095,69 +1180,7 @@ const K8S_EMPTY_COLUMNS = {
   'k8s-statefulset': ['StatefulSet', 'Namespace', 'Desired', 'Ready'],
 }
 
-function CrumbSelect({ value, options, onSelect, searchPlaceholder = 'Search…' }) {
-  const [open, setOpen] = useState(false)
-  const [search, setSearch] = useState('')
-  const ref = useRef(null)
-  const btnRef = useRef(null)
-
-  const filtered = search
-    ? options.filter(o => o.toLowerCase().includes(search.toLowerCase()))
-    : options
-
-  const close = useCallback(() => { setOpen(false); setSearch('') }, [])
-
-  useEffect(() => {
-    if (!open) return
-    const handler = (e) => {
-      if (!ref.current?.contains(e.target) && !btnRef.current?.contains(e.target)) close()
-    }
-    document.addEventListener('click', handler)
-    return () => document.removeEventListener('click', handler)
-  }, [open, close])
-
-  const rect = btnRef.current?.getBoundingClientRect()
-  const panelW = Math.max(rect?.width || 200, 200)
-
-  return (
-    <>
-      <span
-        ref={btnRef}
-        className={`crumb-select${open ? ' open' : ''}`}
-        onClick={(e) => { e.stopPropagation(); setOpen(o => !o) }}
-      >
-        <span className="current mono">{value}</span>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6" /></svg>
-      </span>
-      {open && rect && (
-        <div
-          ref={ref}
-          className="dd-panel"
-          style={{ position: 'fixed', top: rect.bottom + 4, left: rect.left, minWidth: panelW, zIndex: 500 }}
-          onClick={e => e.stopPropagation()}
-        >
-          <div className="dd-search">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></svg>
-            <input placeholder={searchPlaceholder} value={search} onChange={e => setSearch(e.target.value)} autoFocus />
-          </div>
-          <div className="dd-list">
-            {filtered.map(o => (
-              <div key={o} className={`dd-item${o === value ? ' active' : ''}`} onClick={() => { onSelect(o); close() }}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="dd-item-check"><path d="M20 6L9 17l-5-5" /></svg>
-                <span className="mono">{o}</span>
-              </div>
-            ))}
-            {filtered.length === 0 && <div className="dd-item" style={{ opacity: .5, cursor: 'default' }}>No matches</div>}
-          </div>
-        </div>
-      )}
-    </>
-  )
-}
-
-export default function InfraView({ goHome, source, resource, selectedHost, setSelectedHost, timeRange, setTimeRange, settingsOpen, setSettingsOpen }) {
-  const PALETTE = ['#3B82F6', '#A78BFA', '#F472B6', '#34D399', '#F59E0B', '#60A5FA', '#EC4899']
-
+export default function InfraView({ goHome, source, resource, selectedHost, setSelectedHost, timeRange, setTimeRange, settingsOpen, setSettingsOpen, setToast, onOpenLink }) {
   const win = useMemo(() => resolveWindow(timeRange), [timeRange])
 
   // Every row on this page is "what the selected window held", so the lists are
@@ -1202,37 +1225,37 @@ export default function InfraView({ goHome, source, resource, selectedHost, setS
   )
   const time = useMemo(() => ({ win, setTimeRange, syncId }), [win, setTimeRange, syncId])
 
+  // The strip slides away and back as the body scrolls, as the service page's
+  // Endpoint strip does. Only a host's, a node's or a pod's page and the Pod
+  // list have the strip, so only theirs is followed: every reveal re-renders
+  // this page, and the fleet views elsewhere draw dozens of series.
+  const { reveal: stripReveal, onScroll: onStripScroll } = useScrollReveal(syncId)
+  const hasStrip = Boolean(host || k8sNode || k8sPod) || source === 'k8s-pod'
+
+  // The chart cards carry the service page's ⋮ menu, and offer what it offers.
+  // None of the screens behind it - the alert builder, the comparison window,
+  // Explore over host metrics - is wired to this page yet, so the menu says so
+  // rather than doing nothing, as the service page's does for its own gaps.
+  const onCardAction = useCallback((action, title) => {
+    // A host's CPU chart can be alerted on: Explore's metrics store carries
+    // the same CPU per host (docs/alerts/DESIGN.md D13). Other charts wait for
+    // their metrics to reach the store.
+    if (/^Create Alert\b/.test(String(action ?? '')) && host && title === 'CPU Used %') {
+      onOpenLink?.({ view: 'alertEditor', ...alertPayloadForHostCpu(host.host) })
+      return
+    }
+    setToast?.(`${action} · ${title} - that screen is not part of this prototype yet.`)
+  }, [setToast, onOpenLink, host])
+
   let body
   if (host) {
-    body = <HostDetail host={host} />
+    body = <HostDetail host={host} hosts={hosts} onSelectHost={setSelectedHost} reveal={stripReveal} />
   } else if (source === 'host') {
     body = (
       <>
-        <div className="infra-row-charts">
-          <div className="infra-chart-card">
-            <div className="clbl">CPU Used %</div>
-            <MultiHostChart metric="cpuSeries" unit="%" formatVal={v => Math.round(v)} palette={PALETTE} hosts={hosts} />
-          </div>
-          <div className="infra-chart-card">
-            <div className="clbl">Memory Used %</div>
-            <MultiHostChart metric="memSeries" unit="%" formatVal={v => Math.round(v)} palette={PALETTE} hosts={hosts} />
-          </div>
-          <div className="infra-chart-card">
-            <div className="clbl">Disk Used %</div>
-            <MultiHostChart metric="diskSeries" unit="%" formatVal={v => Math.round(v)} palette={PALETTE} hosts={hosts} />
-          </div>
-        </div>
+        <FleetCards rows={hosts} nameKey="host" noun="hosts" />
 
-        <div className="panel">
-          <div className="panel-head">Summary <span className="hint">{hosts.length} hosts · sortable · click a row to drill in</span></div>
-          <SortableTable
-            columns={HOST_COLUMNS}
-            rows={hosts.map(withNetRates)}
-            rowKey={h => h.host}
-            defaultSort="cpu"
-            onRowClick={h => setSelectedHost(h.host)}
-          />
-        </div>
+        <HostTable hosts={hosts} onSelect={setSelectedHost} />
       </>
     )
   } else if (source === 'mysql') {
@@ -1240,11 +1263,11 @@ export default function InfraView({ goHome, source, resource, selectedHost, setS
   } else if (source === 'redis') {
     body = <RedisView />
   } else if (source === 'k8s-cluster') {
-    body = <K8sClusterView namespace={k8sNamespace} setNamespace={setK8sNamespace} />
+    body = <K8sClusterView namespace={k8sNamespace} setNamespace={setK8sNamespace} onOpenLink={onOpenLink} />
   } else if (source === 'k8s-node') {
-    body = <K8sNodeView nodes={nodes} pods={pods} selectedNode={k8sNode} setSelectedNode={setK8sNodeName} selectedPod={k8sPod} setSelectedPod={setK8sPodName} />
+    body = <K8sNodeView nodes={nodes} pods={pods} selectedNode={k8sNode} setSelectedNode={setK8sNodeName} selectedPod={k8sPod} setSelectedPod={setK8sPodName} reveal={stripReveal} />
   } else if (source === 'k8s-pod') {
-    body = <K8sPodListView nodes={nodes} pods={pods} selectedPod={k8sPod} setSelectedPod={setK8sPodName} />
+    body = <K8sPodListView pods={pods} selectedPod={k8sPod} setSelectedPod={setK8sPodName} reveal={stripReveal} />
   } else if (source === 'k8s-deployment') {
     body = <K8sDeploymentView />
   } else if (source === 'k8s-pvc') {
@@ -1267,98 +1290,97 @@ export default function InfraView({ goHome, source, resource, selectedHost, setS
   }
 
   return (
-    <InfraTime.Provider value={time}>
-      <PageBar
-        timeRange={timeRange}
-        setTimeRange={setTimeRange}
-        showSettings
-        settingsOpen={settingsOpen}
-        setSettingsOpen={setSettingsOpen}
-      >
-        <a onClick={goHome}>CubeAPM</a>
-        <span className="sep">/</span>
-        {host ? (
-          <>
-            <a onClick={() => setSelectedHost(null)}>Infrastructure</a>
-            <span className="sep">/</span>
-            <a onClick={() => setSelectedHost(null)}>{sourceLabel}</a>
-            <span className="sep">/</span>
-            <CrumbSelect value={host.host} options={hosts.map(h => h.host)} onSelect={setSelectedHost} searchPlaceholder="Search hosts…" />
-          </>
-        ) : source === 'k8s-node' ? (
-          <>
-            <a onClick={goHome}>Infrastructure</a>
-            <span className="sep">/</span>
-            <span className="current">{crumbParent}</span>
-            <span className="sep">/</span>
-            {k8sNode ? (
-              <a onClick={() => { setK8sNodeName(null); setK8sPodName(null) }}>{sourceLabel}</a>
-            ) : (
+    <CardActionContext.Provider value={onCardAction}>
+      <InfraTime.Provider value={time}>
+        <PageBar
+          timeRange={timeRange}
+          setTimeRange={setTimeRange}
+          showSettings
+          settingsOpen={settingsOpen}
+          setSettingsOpen={setSettingsOpen}
+        >
+          <a onClick={goHome}>CubeAPM</a>
+          <span className="sep">/</span>
+          {/* Infrastructure has no landing page of its own, so its crumb names
+              the section without linking anywhere. The same goes for the group
+              a source sits in (Kubernetes). */}
+          {host ? (
+            <>
+              <span className="crumb-static">Infrastructure</span>
+              <span className="sep">/</span>
+              <a onClick={() => setSelectedHost(null)}>{sourceLabel}</a>
+              <span className="sep">/</span>
+              {/* The host is only named here: the strip under the bar picks another. */}
+              <span className="current mono">{host.host}</span>
+            </>
+          ) : source === 'k8s-node' ? (
+            <>
+              <span className="crumb-static">Infrastructure</span>
+              <span className="sep">/</span>
+              <span className="crumb-static">{crumbParent}</span>
+              <span className="sep">/</span>
+              {k8sNode ? (
+                <a onClick={() => { setK8sNodeName(null); setK8sPodName(null) }}>{sourceLabel}</a>
+              ) : (
+                <span className="current">{sourceLabel}</span>
+              )}
+              {/* The node is only named here: the strip on its page picks
+                  another. Under one of its pods it is the way back to it, a
+                  link like the crumbs before it. */}
+              {k8sNode && (
+                <>
+                  <span className="sep">/</span>
+                  {k8sPod ? (
+                    <a onClick={() => setK8sPodName(null)}>{k8sNode.name}</a>
+                  ) : (
+                    <span className="current mono">{k8sNode.name}</span>
+                  )}
+                </>
+              )}
+              {/* Which pod is the strip's to choose, beside its namespace. */}
+              {k8sPod && (
+                <>
+                  <span className="sep">/</span>
+                  <span className="current">Pod details</span>
+                </>
+              )}
+            </>
+          ) : source === 'k8s-pod' ? (
+            <>
+              <span className="crumb-static">Infrastructure</span>
+              <span className="sep">/</span>
+              <span className="crumb-static">{crumbParent}</span>
+              <span className="sep">/</span>
+              {k8sPod ? (
+                <a onClick={() => setK8sPodName(null)}>{sourceLabel}</a>
+              ) : (
+                <span className="current">{sourceLabel}</span>
+              )}
+              {k8sPod && (
+                <>
+                  <span className="sep">/</span>
+                  <span className="current">Pod details</span>
+                </>
+              )}
+            </>
+          ) : (
+            <>
+              <span className="crumb-static">Infrastructure</span>
+              {crumbParent && (
+                <>
+                  <span className="sep">/</span>
+                  <span className="crumb-static">{crumbParent}</span>
+                </>
+              )}
+              <span className="sep">/</span>
               <span className="current">{sourceLabel}</span>
-            )}
-            {k8sNode && (
-              <>
-                <span className="sep">/</span>
-                <CrumbSelect
-                  value={k8sNode.name}
-                  options={nodes.map(n => n.name)}
-                  onSelect={(name) => { setK8sNodeName(name); setK8sPodName(null) }}
-                  searchPlaceholder="Search nodes…"
-                />
-              </>
-            )}
-            {k8sPod && (
-              <>
-                <span className="sep">/</span>
-                <CrumbSelect
-                  value={k8sPod.name}
-                  options={pods.filter(p => p.node === k8sNode?.name).map(p => p.name)}
-                  onSelect={setK8sPodName}
-                  searchPlaceholder="Search pods…"
-                />
-              </>
-            )}
-          </>
-        ) : source === 'k8s-pod' ? (
-          <>
-            <a onClick={goHome}>Infrastructure</a>
-            <span className="sep">/</span>
-            <span className="current">{crumbParent}</span>
-            <span className="sep">/</span>
-            {k8sPod ? (
-              <a onClick={() => setK8sPodName(null)}>{sourceLabel}</a>
-            ) : (
-              <span className="current">{sourceLabel}</span>
-            )}
-            {k8sPod && (
-              <>
-                <span className="sep">/</span>
-                <CrumbSelect
-                  value={k8sPod.name}
-                  options={pods.map(p => p.name)}
-                  onSelect={setK8sPodName}
-                  searchPlaceholder="Search pods…"
-                />
-              </>
-            )}
-          </>
-        ) : (
-          <>
-            <a onClick={goHome}>Infrastructure</a>
-            {crumbParent && (
-              <>
-                <span className="sep">/</span>
-                <span className="current">{crumbParent}</span>
-              </>
-            )}
-            <span className="sep">/</span>
-            <span className="current">{sourceLabel}</span>
-          </>
-        )}
-      </PageBar>
-      <div className="svc-main">
-        {body}
-      </div>
-    </InfraTime.Provider>
+            </>
+          )}
+        </PageBar>
+        <div className="svc-main infra-main" onScroll={hasStrip ? onStripScroll : undefined}>
+          {body}
+        </div>
+      </InfraTime.Provider>
+    </CardActionContext.Provider>
   )
 }

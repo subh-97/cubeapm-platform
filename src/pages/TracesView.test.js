@@ -16,7 +16,8 @@ import { applyChipsToLog, chipsToString } from '@/components/QueryBuilder'
 import { tryParseConditions } from '@/utils/rawQuery'
 import { getSpanFieldValue } from '@/utils/traceFields'
 import { newGroup } from '@/utils/queryTree'
-import { filtersToChips, errorSamplesFor, mergeErrorSpans } from '@/utils/tracesHandoff'
+import { filtersToChips, errorSamplesFor } from '@/utils/tracesHandoff'
+import { TRACES_SOURCE } from '@/utils/explorerSources'
 
 // Pinned the way errors.test.js pins it, so a week ends exactly at its own now
 // and the groups are the same on every run.
@@ -33,7 +34,7 @@ const WINDOWS = {
 // Exactly what TracesView reads for an applied query. The seeded rows come in
 // from outside because every read of them mints new rows, and the page reads
 // them once a window.
-const streamFor = (seeded, win, chips) => mergeErrorSpans(seeded, errorSamplesFor(win, chips))
+const streamFor = (seeded, win, chips) => TRACES_SOURCE.mergeExtraRows(seeded, TRACES_SOURCE.extraRowsFor(win, chips))
 const matches = (stream, chips) => stream.filter(r => applyChipsToLog(r, chips, getSpanFieldValue))
 
 // The service page's Client side folds callers away: one row per call.

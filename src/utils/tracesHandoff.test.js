@@ -15,7 +15,7 @@ import { ERROR_SIDES, errorGroupsForWindow, errorSpanRowsForWindow, tracesFilter
 import { applyChipsToLog, chipsToString } from '@/components/QueryBuilder'
 import { tryParseConditions } from '@/utils/rawQuery'
 import { getSpanFieldValue } from '@/utils/traceFields'
-import { filtersToChips, errorSamplesFor, mergeErrorSpans } from './tracesHandoff.js'
+import { filtersToChips, mergeErrorSpans, traceSamplesFor } from './tracesHandoff.js'
 
 // Pinned the way errors.test.js pins it, so a week ends exactly at its own now
 // and the groups are the same on every run.
@@ -27,10 +27,11 @@ const WINDOWS = {
   '7d': resolveWindow({ kind: 'preset', value: '7d' }, nowMs),
 }
 
-// What TracesView reads for an applied query: the seeded spans, plus the error
-// samples whose exception the query names. One sample a group is enough for
-// every link to land.
-const streamFor = (seeded, win, chips) => mergeErrorSpans(seeded, errorSamplesFor(win, chips))
+// What TracesView reads for an applied query: the seeded spans, plus what the
+// Traces source pulls in for it (traceSamplesFor) — the error samples whose
+// exception the query names, and the service page's requests of an endpoint it
+// names. One sample a group is enough for every Errors link to land.
+const streamFor = (seeded, win, chips) => mergeErrorSpans(seeded, traceSamplesFor(win, chips))
 
 // The service page's Client side folds callers away: one row per call.
 const PER_CALL = ['side', 'service', 'spanName', 'exception']
@@ -132,4 +133,26 @@ test('a blank filter is dropped, an op is kept, and the first leaf has no connec
   assert.deepEqual(filtersToChips([{ field: 'x', value: '' }, { field: 'y', op: 'neq', value: 'v' }]),
     [{ field: 'y', op: 'neq', value: 'v' }])
   assert.deepEqual(filtersToChips(null), [])
+})
+
+// A service-page endpoint's requests are pulled in for the bounds a query puts
+// on every match, never for one that holds on only one side of an OR — that
+// would narrow (or empty) what the rest of the query still admits.
+test('an endpoint\'s requests: a duration under an OR narrows nothing, and every named service is asked', () => {
+  const parse = text => tryParseConditions(text).chips
+  const EP = 'span_name:="POST /v1/payments/:id/capture"'
+  const landed = text => {
+    const chips = parse(text)
+    return traceSamplesFor(REFERENCE_WINDOW, chips).filter(r => applyChipsToLog(r, chips, getSpanFieldValue))
+  }
+  const either = landed(`${EP} AND (duration:<100ms OR duration:>=2s)`)
+  assert.ok(either.length > 0, 'an OR of two bands still pulls requests in')
+  for (const r of either) assert.ok(r.durationNs < 100e6 || r.durationNs >= 2e9)
+  const fast = landed(`${EP} AND duration:<100ms`)
+  assert.ok(fast.length > 0)
+  for (const r of fast) assert.ok(r.durationNs < 100e6, 'a bound on every match does narrow')
+  // `duration:>0` admits every request, not none.
+  assert.equal(landed(`${EP} AND duration:>0`).length, landed(EP).length)
+  const two = landed(`(service:="payment-service" OR service:="order-service") AND ${EP}`)
+  assert.deepEqual([...new Set(two.map(r => r.tags.service ?? r.service))].sort(), ['order-service', 'payment-service'])
 })

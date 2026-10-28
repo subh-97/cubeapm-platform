@@ -552,6 +552,11 @@ function readList(sc) {
 // is quoted, which LogsQL reads as a phrase — the same tokens, in order.
 const ONE_WORD = /^[\p{L}\p{N}_]+$/u
 const wordValue = v => (ONE_WORD.test(v) ? v : quoteString(v))
+// A comparison's value stays bare when it is one run of letters, digits, `.`,
+// `+` and `-` — a number, a duration or a size (`8.8ms`, `-5`, `1e3`, `1h30m`,
+// `10KiB`), the way the reference writes one, or a plain word. Anything else is
+// quoted, which LogsQL reads as the same literal.
+const CMP_BARE = /^[\p{L}\p{N}_.+-]+$/u
 
 const LIST_OPERATORS = [['not_in', true], ['not in', true], ['in', false]]
 const STREAM_LIST_OPERATORS = [['not_in', '!~'], ['not in', '!~'], ['in', '=~']]
@@ -605,8 +610,16 @@ function fieldTerm(sc, name) {
     return { text: `${f}:in(${readList(sc).map(quoteString).join(',')})` }
   }
   if (c === '>' || c === '<') {
-    const body = readBare(sc)
-    return { text: `${f}:${body}` }
+    // `f:>=8.8ms`, `f:<"a b"`: the symbol, then a value read like any other —
+    // quoted or bare. Read as one bare run, a quoted value with a space in it
+    // was cut at the space and the rest left to fail as a term of its own.
+    sc.i++
+    const sym = sc.peek() === '=' ? `${c}=` : c
+    if (sym.length > 1) sc.i++
+    const quoted = isQuote(sc.peek())
+    const v = readValue(sc)
+    if (!quoted && !v) giveUp()
+    return { text: `${f}:${sym}${CMP_BARE.test(v) ? v : quoteString(v)}` }
   }
   if (isQuote(c)) {
     const v = readQuoted(sc)

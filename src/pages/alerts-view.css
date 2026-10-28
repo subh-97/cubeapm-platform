@@ -1,0 +1,24 @@
+/* The Alerts hub's tab panel (AlertsView): a neutral flex column under the
+   strip, inside .card-scroll. It never scrolls; each tab's body does, so the
+   sticky facet rail and group headers in it stick to the element that moves. */
+.alerts-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+
+/* "Updated just now", in the page bar ahead of Auto and ↻: how old every
+   tab's data is, beside the controls that refresh it. */
+.alr-updated {
+  margin-right: 3px; font-size: 11px; color: var(--text-muted);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+
+/* A tab a later phase builds: its reserved notice, in a scroller of its own. */
+.alerts-reserved { display: flex; align-items: flex-start; justify-content: center; }
+
+/* Five tabs outgrow the card on a narrow window, and the strip clips the last
+   one (7c). They tighten first, then drop their icons; the words and counts
+   stay, so nothing is lost but decoration. */
+@media (max-width: 1100px) {
+  .alr-tab-strip .view-tab { padding-left: 12px; padding-right: 12px; }
+}
+@media (max-width: 860px) {
+  .alr-tab-strip .view-tab > svg { display: none; }
+}

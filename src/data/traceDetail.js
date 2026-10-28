@@ -18,6 +18,7 @@ import { spanRows } from './tracesExplorer'
 import { logRows } from './observability'
 import { errorTraceRows } from './errors'
 import { browserTraceRows } from './browser'
+import { requestTraceRows } from './requestLatency'
 import { valueOfConcept } from '@/utils/logFields'
 
 const seedOf = (traceId) => {
@@ -163,6 +164,12 @@ export function buildTrace(traceId) {
   // never decode each other's ids, so the order of these two lookups is moot.
   if (raw.length === 0) {
     raw = (browserTraceRows(traceId) ?? []).filter(s => s.tags['event.domain'] === 'span')
+  }
+
+  // And a request the service page's Slow Requests panel listed: its id holds
+  // the request whole, so the trace is that request, exactly as slow as its row.
+  if (raw.length === 0) {
+    raw = (requestTraceRows(traceId) ?? []).filter(s => s.tags['event.domain'] === 'span')
   }
 
   if (raw.length === 0) {

@@ -4,6 +4,7 @@ import {
   BASE_TIME, REFERENCE_WINDOW, calibratePeak, incidentWeight, pinToReference,
   sampleAt, sampleCount, spreadTimes, windowCount, windowMean, windowSeries,
 } from './timeWindow'
+import { ceilingPeak } from './percentCeiling'
 
 // The anchor now lives with the time model; re-exported because every module
 // that reads the mock stream has always imported it from here.
@@ -348,8 +349,9 @@ export const INFRA_SOURCE_INDEX = INFRA_SOURCES.reduce((acc, s) => {
  * The incident is the shared one. `generateHostSeries` expressed it as
  * `incident: 1.4`, a multiplier at the worst of the outage over a four-minute
  * ramp — which is precisely `sampleAt`'s `peak`, so those numbers carry across
- * unchanged and the outage still lands on the hosts HOST_ROWS flags critical,
- * with the same force.
+ * and the outage still lands on the hosts HOST_ROWS flags critical. On a
+ * percentage they are the force the outage ASKS for: nothing reads over 100
+ * (`percentProfile`), so a host it would carry past 100 runs to 100 instead.
  */
 const INFRA_NOISE = 0.12
 
@@ -359,6 +361,49 @@ function infraProfile(published, { peak = 1, noise = INFRA_NOISE, seed, diurnal 
   // those fall through with a flat baseline of 0 and no special case.
   return pin ? pinToReference(base, windowMean, published) : base
 }
+
+/**
+ * A utilisation percentage: `infraProfile`, with the peak lowered to the
+ * highest one that keeps every reading at or under 100 (`ceilingPeak`).
+ *
+ * With the incident's 1.4 peak, ip-10-0-142-133, which publishes 92.4%, ran at
+ * 81% before the outage and 112–121% through it. That showed in its charts, in
+ * the host table on any range short enough to be mostly outage, and in the
+ * alert that reads it. Now a host the outage would carry past 100 runs to 100
+ * and holds there, pegged, which is what a saturated CPU does. The hour still
+ * averages to the published figure, because the peak is solved for rather than
+ * clamped (data/percentCeiling.js says why a clamp would lose that). A reading
+ * the ceiling never reaches is `infraProfile` exactly.
+ */
+function percentProfile(published, { peak = 1, noise = INFRA_NOISE, seed } = {}) {
+  return infraProfile(published, { peak: Math.min(peak, ceilingPeak(published, { noise, seed })), noise, seed })
+}
+
+/**
+ * Jitter on the CPU of a machine the incident runs hot: one percent of the
+ * value, not INFRA_NOISE's twelve.
+ *
+ * The ceiling ties a hot host's quiet level to its published figure. The
+ * incident covers about a third of the reference hour and can read no more
+ * than 100 for it, so the other two thirds carry the rest of the mean. At
+ * 92.4%, ip-10-0-142-133 was already running near 89% before anything broke,
+ * whatever the jitter. Twelve percent of jitter breaks two things on top of
+ * that:
+ *
+ *   • The outage disappears. For the jitter's top to stay under 100 the
+ *     plateau has to sit near 94, which lifts the line under four points
+ *     inside an eleven-point band.
+ *   • The CPU alert fires on noise. Rule 515 in data/alerts.js warns over 90
+ *     and goes critical over 95. A quiet line swinging up to 96 would warn,
+ *     and page, all week, and a plateau swinging down to 89 would drop out
+ *     of critical mid-outage.
+ *
+ * At one percent the quiet line tops out between 89.3 and 89.6. The range
+ * comes from the second the page loads at, which shifts the reference hour
+ * against the incident. The plateau holds between 99 and 100. The hosts with
+ * more room take the same jitter, so the incident's hosts read alike.
+ */
+const HOT_CPU_NOISE = 0.01
 
 /**
  * The same profile on a different unit. Every term in `sampleAt` is
@@ -461,9 +506,9 @@ const HOST_PROFILES = HOST_ROWS.map((h, i) => {
   // critical, which is how `generateHostSeries` chose them too.
   const hit = h.status === 'critical'
   return {
-    cpu: infraProfile(h.cpu, { peak: hit ? 1.4 : 1, seed: 401 + i }),
-    mem: infraProfile(h.mem, { peak: hit ? 1.15 : 1, seed: 501 + i }),
-    disk: infraProfile(h.disk, { seed: 601 + i }),
+    cpu: percentProfile(h.cpu, { peak: hit ? 1.4 : 1, noise: hit ? HOT_CPU_NOISE : INFRA_NOISE, seed: 401 + i }),
+    mem: percentProfile(h.mem, { peak: hit ? 1.15 : 1, seed: 501 + i }),
+    disk: percentProfile(h.disk, { seed: 601 + i }),
     netIn: infraProfile(h.netIn, { peak: hit ? 1.3 : 1, seed: 701 + i }),
     netOut: infraProfile(h.netOut, { peak: hit ? 1.3 : 1, seed: 801 + i }),
     // No figure is published beside the disk I/O chart, so its old base stays
@@ -586,11 +631,12 @@ const K8S_NODE_ROWS = [
 ]
 
 // Both nodes are on the incident path — they are where the payment pods sit —
-// so neither is conditioned on status, exactly as before.
+// so neither is conditioned on status, exactly as before. They are two of the
+// hot hosts above, so their CPU takes the same ceiling and the same jitter.
 const NODE_PROFILES = K8S_NODE_ROWS.map((n, i) => ({
-  cpu: infraProfile(n.cpu, { peak: 1.15, seed: 2001 + i }),
-  mem: infraProfile(n.mem, { peak: 1.1, seed: 2101 + i }),
-  disk: infraProfile(n.disk, { seed: 2201 + i }),
+  cpu: percentProfile(n.cpu, { peak: 1.15, noise: HOT_CPU_NOISE, seed: 2001 + i }),
+  mem: percentProfile(n.mem, { peak: 1.1, seed: 2101 + i }),
+  disk: percentProfile(n.disk, { seed: 2201 + i }),
   netIn: infraProfile(n.netIn, { peak: 1.2, seed: 2301 + i }),
   netOut: infraProfile(n.netOut, { peak: 1.2, seed: 2401 + i }),
 }))
@@ -616,14 +662,17 @@ export function k8sNodesForWindow(win) {
 
 export const k8sNodes = k8sNodesForWindow(REFERENCE_WINDOW)
 
-// `labels` are the pod column's tags, searched as `pod.app:redis`.
+// `labels` are the pod column's tags, searched as `pod.app:redis`. `owners`
+// are the workloads above a pod, by the kind the Pod page's Filter names them:
+// a Deployment's pod is its ReplicaSet's too. storage-provisioner is a bare
+// pod with no controller, so no kind lists it.
 const K8S_POD_ROWS = [
-  { name: 'payment-service-7d8b9c-4vk2q', labels: { app: 'payment', tier: 'backend', team: 'payments' }, namespace: 'default', node: 'ip-10-0-142-133', cpuUsed: 0.09, cpuRequest: 0.25, cpuLimit: 0.25, memUsed: 418_800_000, memRequest: 536_900_000, memLimit: 536_900_000, netIn: 12.4, netOut: 8.9 },
-  { name: 'redis-0', labels: { app: 'redis', tier: 'cache', team: 'platform' }, namespace: 'default', node: 'ip-10-0-142-133', cpuUsed: 0.04, cpuRequest: 0.1, cpuLimit: 0.1, memUsed: 210_500_000, memRequest: 256_000_000, memLimit: 256_000_000, netIn: 40.2, netOut: 38.7 },
-  { name: 'coredns-66bc5c9577-zkrnm', labels: { app: 'coredns', tier: 'system' }, namespace: 'kube-system', node: 'ip-10-0-142-133', cpuUsed: 0.0012, cpuRequest: 0.1, cpuLimit: 0.1, memUsed: 19_400_000, memRequest: 70_000_000, memLimit: 170_000_000, netIn: 1.1, netOut: 0.9 },
-  { name: 'kube-proxy-784j7', labels: { app: 'kube-proxy', tier: 'system' }, namespace: 'kube-system', node: 'ip-10-0-143-40', cpuUsed: 0.0002, cpuRequest: 0, cpuLimit: 0, memUsed: 20_500_000, memRequest: 0, memLimit: 0, netIn: 0.4, netOut: 0.3 },
-  { name: 'order-service-6c8f4b-8ct9x', labels: { app: 'order', tier: 'backend', team: 'checkout' }, namespace: 'default', node: 'ip-10-0-143-40', cpuUsed: 0.05, cpuRequest: 0.2, cpuLimit: 0.2, memUsed: 180_200_000, memRequest: 256_000_000, memLimit: 256_000_000, netIn: 9.6, netOut: 7.1 },
-  { name: 'storage-provisioner', labels: { app: 'storage', tier: 'system' }, namespace: 'kube-system', node: 'ip-10-0-143-40', cpuUsed: 0.0016, cpuRequest: 0, cpuLimit: 0, memUsed: 13_100_000, memRequest: 0, memLimit: 0, netIn: 0.2, netOut: 0.2 },
+  { name: 'payment-service-7d8b9c-4vk2q', labels: { app: 'payment', tier: 'backend', team: 'payments' }, owners: { Deployment: 'payment-service', Replicaset: 'payment-service-7d8b9c' }, namespace: 'default', node: 'ip-10-0-142-133', cpuUsed: 0.09, cpuRequest: 0.25, cpuLimit: 0.25, memUsed: 418_800_000, memRequest: 536_900_000, memLimit: 536_900_000, netIn: 12.4, netOut: 8.9 },
+  { name: 'redis-0', labels: { app: 'redis', tier: 'cache', team: 'platform' }, owners: { Statefulset: 'redis' }, namespace: 'default', node: 'ip-10-0-142-133', cpuUsed: 0.04, cpuRequest: 0.1, cpuLimit: 0.1, memUsed: 210_500_000, memRequest: 256_000_000, memLimit: 256_000_000, netIn: 40.2, netOut: 38.7 },
+  { name: 'coredns-66bc5c9577-zkrnm', labels: { app: 'coredns', tier: 'system' }, owners: { Deployment: 'coredns', Replicaset: 'coredns-66bc5c9577' }, namespace: 'kube-system', node: 'ip-10-0-142-133', cpuUsed: 0.0012, cpuRequest: 0.1, cpuLimit: 0.1, memUsed: 19_400_000, memRequest: 70_000_000, memLimit: 170_000_000, netIn: 1.1, netOut: 0.9 },
+  { name: 'kube-proxy-784j7', labels: { app: 'kube-proxy', tier: 'system' }, owners: { Daemonset: 'kube-proxy' }, namespace: 'kube-system', node: 'ip-10-0-143-40', cpuUsed: 0.0002, cpuRequest: 0, cpuLimit: 0, memUsed: 20_500_000, memRequest: 0, memLimit: 0, netIn: 0.4, netOut: 0.3 },
+  { name: 'order-service-6c8f4b-8ct9x', labels: { app: 'order', tier: 'backend', team: 'checkout' }, owners: { Deployment: 'order-service', Replicaset: 'order-service-6c8f4b' }, namespace: 'default', node: 'ip-10-0-143-40', cpuUsed: 0.05, cpuRequest: 0.2, cpuLimit: 0.2, memUsed: 180_200_000, memRequest: 256_000_000, memLimit: 256_000_000, netIn: 9.6, netOut: 7.1 },
+  { name: 'storage-provisioner', labels: { app: 'storage', tier: 'system' }, owners: {}, namespace: 'kube-system', node: 'ip-10-0-143-40', cpuUsed: 0.0016, cpuRequest: 0, cpuLimit: 0, memUsed: 13_100_000, memRequest: 0, memLimit: 0, netIn: 0.2, netOut: 0.2 },
 ]
 
 // No pod carries the incident: the outage is in the Redis connection POOL, not
@@ -643,18 +692,27 @@ const POD_PROFILES = K8S_POD_ROWS.map((p, i) => ({
 export function k8sPodsForWindow(win) {
   return K8S_POD_ROWS.map((p, i) => {
     const pr = POD_PROFILES[i]
+    const memUsed = Math.round(windowMean(win, pr.memUsed))
+    const memSeries = windowSeries(win, pr.memUsed, { round: 0 })
     return {
       ...p,
       containerName: p.name.split('-')[0],
       cpuUsed: round4(windowMean(win, pr.cpuUsed)),
-      memUsed: Math.round(windowMean(win, pr.memUsed)),
+      memUsed,
+      // What is left under the pod's memory limit. A pod with no limit has
+      // nothing to be left under, so both read null rather than a figure.
+      memRemaining: p.memLimit ? p.memLimit - memUsed : null,
+      memRemainingSeries: p.memLimit
+        ? memSeries.map(pt => ({ ...pt, value: pt.value == null ? null : p.memLimit - pt.value }))
+        : null,
+      disk: round2(windowMean(win, pr.disk)),
       netIn: round2(windowMean(win, pr.netIn)),
       netOut: round2(windowMean(win, pr.netOut)),
       // Pod CPU is in cores, and a system pod sits at 0.0002 of one. The old
       // generator rounded every series to two decimals, which drew those pods
       // as a flat zero line under an axis formatted to three.
       cpuSeries: windowSeries(win, pr.cpuUsed, { round: 5 }),
-      memSeries: windowSeries(win, pr.memUsed, { round: 0 }),
+      memSeries,
       diskSeries: windowSeries(win, pr.disk),
       restartsSeries: windowSeries(win, flat(0), { round: 0 }),
       netInSeries: windowSeries(win, pr.netIn),
@@ -762,3 +820,27 @@ export function redisSeriesForWindow(win) {
 }
 
 export const redisSeries = redisSeriesForWindow(REFERENCE_WINDOW)
+
+/*
+ * The profiles above, for a module that reads single INSTANTS rather than
+ * windows: data/alerts.js evaluates a rule tick by tick, the way an alerting
+ * engine does, and an alert on a host, on Redis or on the log stream has to
+ * fire where that host's chart, the Redis card and the log histogram break.
+ * Same profiles, so they cannot disagree. Read-only views; nothing here
+ * changes what any page draws.
+ */
+
+/** One host's profile for `key` (cpu, mem, disk, netIn, netOut, diskIo), or null. */
+export function hostProfile(host, key) {
+  const i = HOST_ROWS.findIndex(h => h.host === host)
+  return i < 0 ? null : HOST_PROFILES[i][key] ?? null
+}
+
+/** Every host, in the table's order. */
+export const HOST_NAMES = HOST_ROWS.map(h => h.host)
+
+/** Redis' profile for `key` (memUsed, cmdPerMin, evictionsPerMin), or null. */
+export const redisProfile = key => REDIS_PROFILES[key] ?? null
+
+/** The log stream's per-minute rate for one level (info, warn, error), or null. */
+export const logRateProfile = level => LOG_RATE[level] ?? null

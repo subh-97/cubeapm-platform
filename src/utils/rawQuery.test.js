@@ -209,9 +209,13 @@ const AWKWARD_VALUES = [
   'naïve café 日本語 🚀',                                 // unicode
   '* x',                                                // operator characters up front
   '=x',
+  '>5',                                                 // read bare, a word on these would be a comparison
+  '<html>',
+  '>=x',
+  '<',
 ]
 
-const VALUE_OPS = ['eq', 'neq', 'contains', 'prefix', 'phrase', 'regex', 'nregex']
+const VALUE_OPS = ['eq', 'neq', 'contains', 'prefix', 'phrase', 'regex', 'nregex', 'gt', 'gte', 'lt', 'lte']
 
 function readsBack(chips) {
   const text = chipsToString(chips)
@@ -365,6 +369,64 @@ test('error: missing operator', () => {
   const r = tryParseConditions('service')
   assert.equal(r.ok, false)
   assert.match(r.error, /Expected an operator/i)
+})
+
+// ---------- Comparisons ----------
+
+test('comparisons: the four range operators parse, value kept as written', () => {
+  assert.deepEqual(tryParseConditions('duration:>=8.799ms duration:<27.83ms').chips, [
+    { field: 'duration', op: 'gte', value: '8.799ms' },
+    { field: 'duration', op: 'lt', value: '27.83ms', connector: 'AND' },
+  ])
+  assert.deepEqual(tryParseConditions('http.status:>499').chips, [{ field: 'http.status', op: 'gt', value: '499' }])
+  assert.deepEqual(tryParseConditions('duration_ms:<=5').chips, [{ field: 'duration_ms', op: 'lte', value: '5' }])
+  // Quoted like any other value.
+  assert.deepEqual(tryParseConditions('f:>"a b"').chips, [{ field: 'f', op: 'gt', value: 'a b' }])
+})
+
+test('comparisons: longest symbol first, and inside groups', () => {
+  // `>=` is never `>` on a value starting `=`.
+  assert.deepEqual(tryParseConditions('f:>=5').chips, [{ field: 'f', op: 'gte', value: '5' }])
+  assert.deepEqual(tryParseConditions('f:<=5').chips, [{ field: 'f', op: 'lte', value: '5' }])
+  // What follows the symbol is the value, even another `<`.
+  assert.deepEqual(tryParseConditions('f:<<x').chips, [{ field: 'f', op: 'lt', value: '<x' }])
+  const r = tryParseConditions('f:>=5 OR (g:<2 AND h:<=3)')
+  assert.equal(r.ok, true)
+  assert.deepEqual(r.chips[1].children.map(c => c.op), ['lt', 'lte'])
+})
+
+test('comparisons: any field, since the parser knows no field types', () => {
+  // `service:>m` used to be a word chip on `>m`, which matched nothing.
+  assert.deepEqual(tryParseConditions('service:>m').chips, [{ field: 'service', op: 'gt', value: 'm' }])
+})
+
+test('comparisons: a missing value names the operator', () => {
+  for (const sym of ['>', '>=', '<', '<=']) {
+    const r = tryParseConditions(`duration:${sym}`)
+    assert.equal(r.ok, false)
+    assert.match(r.error, new RegExp(`Missing value after "duration:${sym}"`))
+  }
+  // A space ends the term, as after any operator.
+  assert.equal(tryParseConditions('duration:>= 8.8ms').ok, false)
+})
+
+test('comparisons: written and read back', () => {
+  for (const op of ['gt', 'gte', 'lt', 'lte']) {
+    for (const v of ['8.799ms', '500', '-1', '1h30m', '=5', 'a b', '"x', '']) {
+      readsBack([leaf('duration', op, v)])
+    }
+  }
+  assert.equal(chipsToString([leaf('duration', 'gte', '8.799ms'), leaf('duration', 'lt', '27.83ms', 'AND')]),
+    'duration:>=8.799ms AND duration:<27.83ms')
+  // Never `f:>==5`.
+  assert.equal(chipsToString([leaf('f', 'gt', '=5')]), 'f:>"=5"')
+})
+
+test('suggest: comparisons are offered after a field, and keep their symbol for values', () => {
+  const ops = suggestRaw('duration', 8).items.map(i => i.value)
+  for (const sym of [':>', ':>=', ':<', ':<=']) assert.ok(ops.includes(sym), sym)
+  const r = suggestRaw('service:>=', 10)
+  assert.ok(r.items.every(i => i.replaceWith?.startsWith('service:>=')))
 })
 
 test('error: missing value after colon', () => {

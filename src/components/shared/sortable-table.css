@@ -8,3 +8,9 @@
    the keyboard. */
 .sortable-th-btn { all: unset; cursor: inherit; }
 .sortable-th-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 2px; }
+
+/* The row a page has picked (selectedKey): the brand wash every picked row in
+   the app wears (.split-ep-row.selected, .slowreq-row.selected), kept under
+   the pointer too, so hovering it does not read as un-picking it. */
+.table-scroll tbody tr.selected,
+.table-scroll tbody tr.selected:hover { background: var(--brand-muted); }

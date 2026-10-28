@@ -10,6 +10,8 @@ import { aggregate } from '@/utils/aggregator'
 import AggregateResults from '@/components/AggregateResults'
 import { serializePipes, composeQuery, parsePipes, withImpliedCount, newStatsPipe, newSortPipe, newLimitPipe, newMathPipe, namesInScopeBefore } from '@/utils/pipes'
 import { tryParseConditions, splitQuery, replacePipeSection, validatePipeText } from '@/utils/rawQuery'
+import QueryModeToggle from '@/components/QueryModeToggle'
+import RawQueryInput from '@/components/RawQueryInput'
 import PipePill, { PipePillChip } from '@/components/PipePill'
 import AggregationPopover from '@/components/AggregationPopover'
 import GroupByPopover from '@/components/GroupByPopover'
@@ -27,7 +29,7 @@ import { LogRecordDrawer } from '@/components/LogRecordDrawer'
 import FacetGroup from '@/components/explorer/FacetGroup'
 import FieldsDropdown from '@/components/explorer/FieldsDropdown'
 import QueryHistoryDrawer from '@/components/explorer/QueryHistoryDrawer'
-import AlertDrawer from '@/components/explorer/AlertDrawer'
+import { alertPayloadForQuery } from '@/utils/alerts/editorPayloads'
 import { GRID_PROPS, valueAxisProps, fmtCount } from '@/components/charts/chartDefaults'
 import { buildTimeAxis } from '@/components/charts/timeAxis'
 import { useTimeFocus, useMeasuredWidth } from '@/components/charts/useTimeFocus'
@@ -35,6 +37,9 @@ import ChartTooltip from '@/components/charts/ChartTooltip'
 
 const AGG_ALL_FIELDS = FIELD_CATALOG.map(f => f.field)
 const AGG_NUMERIC_FIELDS = new Set(FIELD_CATALOG.filter(f => f.type === 'keyword').map(f => f.field))
+
+// Message chips whose value is not text in the line, so is not highlighted.
+const NOT_SEARCHED_OPS = new Set(['regex', 'nregex', 'gt', 'gte', 'lt', 'lte'])
 
 // Compact chip display for a saved stats function inside the Aggregation pill.
 function summarizeFn(f) {
@@ -266,10 +271,11 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
   }, [])
   const [live, setLive] = useState('off')
   const [pipes, setPipes] = useState([])         // populated by the pill toolbar
-  // 'builder' = chip UI, 'raw' = hand-written CubeAPM syntax. The pill toolbar
-  // stays live in both; in raw mode its edits rewrite the pipe section of the
-  // raw text rather than feeding a separate preview.
-  const [queryMode] = useState('builder')
+  // 'builder' = chip UI (the default), 'raw' = hand-written Lucene-style
+  // CubeAPM syntax. The pill toolbar stays live in both; in raw mode its edits
+  // rewrite the pipe section of the raw text rather than feeding a separate
+  // preview, and a hand-written pipe section feeds the pills back.
+  const [queryMode, setQueryMode] = useState('builder')
   const [rawText, setRawText] = useState('')
   // True while the builder has an uncommitted, half-built filter chip. Drives the
   // Run button into a disabled (toned-down) state — you can't run a query that
@@ -283,7 +289,7 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
     const { conditions, pipes: pipeStages } = splitQuery(rawText)
     const parsed = tryParseConditions(conditions)
     if (!parsed.ok) return parsed
-    const pipeErr = validatePipeText(pipeStages)
+    const pipeErr = validatePipeText(pipeStages) ?? parsePipes(pipeStages).error ?? null
     return pipeErr ? { ok: false, chips: [], error: pipeErr } : parsed
   }, [queryMode, rawText])
 
@@ -296,6 +302,33 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
   const effectiveChips = queryMode === 'raw'
     ? (rawParse.ok ? rawParse.chips : lastGoodChips.current)
     : chips
+
+  // Puts chips into whichever bar is showing. Facet clicks, history, saved
+  // queries and hand-offs from other pages all speak chips; in raw mode the
+  // text is what filters, so the conditions head is re-spelled from them and
+  // the hand-written pipe tail is kept.
+  const setBarChips = useCallback((next) => {
+    const resolved = typeof next === 'function' ? next(effectiveChips) : next
+    setChips(resolved)
+    if (queryMode === 'raw') {
+      setRawText(prev => replacePipeSection(chipsToString(resolved), splitQuery(prev).pipeText))
+    }
+  }, [queryMode, effectiveChips])
+
+  // A hand-edited pipe section drives the pill toolbar, so the pills, the run
+  // and a later switch back to the builder all see what was typed. Only a
+  // section that parses is taken — mid-edit, the last good pipes stand, the
+  // same way lastGoodChips holds the conditions.
+  const changeRawText = useCallback((text) => {
+    setRawText(text)
+    const stages = splitQuery(text).pipes
+    if (validatePipeText(stages)) return
+    const res = parsePipes(stages)
+    if (!res.ok) return
+    setPipes(prev => (
+      serializePipes(withImpliedCount(prev)) === serializePipes(withImpliedCount(res.pipes)) ? prev : res.pipes
+    ))
+  }, [])
 
   // `effectiveChips` is what the QUERY BAR currently spells; `appliedChips` is
   // what the RESULTS reflect. They are separate because re-filtering on every
@@ -507,7 +540,6 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
   const [activeFields, setActiveFields] = useState(DEFAULT_FIELDS)
   const [filtersWidth, setFiltersWidth] = useState(FILTERS_MIN_W)
   const [graphVisible, setGraphVisible] = useState(true)
-  const [alertOpen, setAlertOpen] = useState(false)
   const [patternsOpen, setPatternsOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [myQueriesOpen, setMyQueriesOpen] = useState(false)
@@ -539,7 +571,7 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
   const applyHistoryQuery = useCallback((q) => {
     const parsed = tryParseConditions(splitQuery(q).conditions)
     if (parsed.ok) {
-      setChips(parsed.chips)
+      setBarChips(parsed.chips)
       setPipes([])
       setQuery('')
     } else {
@@ -547,7 +579,7 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
       setQuery(q)
     }
     setHistoryOpen(false)
-  }, [])
+  }, [setBarChips])
 
   // rawQuery.js imports from QueryBuilder, so the builder can't import the
   // parser back without a cycle — the parse is injected from here instead.
@@ -634,8 +666,8 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
   }, [])
 
   const addChipToQuery = useCallback((chip) => {
-    setChips(prev => prev.length === 0 ? [chip] : [...prev, { connector: 'AND', ...chip }])
-  }, [setChips])
+    setBarChips(prev => prev.length === 0 ? [chip] : [...prev, { connector: 'AND', ...chip }])
+  }, [setBarChips])
 
   // A filter handed in from another page - the trace view's "check logs".
   //
@@ -649,12 +681,20 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
   // of the trace's logs.
   useEffect(() => {
     if (!incomingChip) return
+    // A whole query (the Infrastructure Events panel's "Search in Logs").
+    if (incomingChip.chips) {
+      setBarChips(incomingChip.chips)
+      setPipes(incomingChip.pipes ?? [])
+      setRunRequested(true)
+      onIncomingChipApplied?.()
+      return
+    }
     const spellings = ALIASES[incomingChip.concept] ?? [incomingChip.field]
     const leaves = spellings.map((field, i) => ({
       field, op: 'eq', value: incomingChip.value,
       ...(i > 0 ? { connector: 'OR' } : {}),
     }))
-    setChips(leaves.length > 1 ? [newGroup(leaves)] : leaves)
+    setBarChips(leaves.length > 1 ? [newGroup(leaves)] : leaves)
     setRunRequested(true)
     onIncomingChipApplied?.()
   }, [incomingChip])   // eslint-disable-line react-hooks/exhaustive-deps
@@ -833,10 +873,11 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
 
   // Literal strings the user is searching the message body for — the free-text
   // chips plus the facet search box. Regex chips are left out: their value is a
-  // pattern, not the text that will appear in the line.
+  // pattern, not the text that will appear in the line. So are comparisons
+  // (`_msg:>m`): a line passes a bound without ever containing it.
   const searchTerms = useMemo(() => {
     const terms = flattenLeaves(appliedChips)
-      .filter(c => c.field === '_msg' && c.op !== 'regex' && c.op !== 'nregex')
+      .filter(c => c.field === '_msg' && !NOT_SEARCHED_OPS.has(c.op))
       .flatMap(c => (Array.isArray(c.value) ? c.value : [c.value]))
       .map(v => String(v ?? '').trim())
       .filter(Boolean)
@@ -845,12 +886,46 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
   }, [appliedChips, query])
 
   // Pill edits in raw mode rewrite only the pipe section, leaving the
-  // hand-written conditions head untouched. Writing the same string back is a
-  // no-op for React, so this can't feed back into itself.
+  // hand-written conditions head untouched. A pipe section that already says
+  // the same thing is left exactly as typed — pipes that came from the text
+  // itself must not re-spell it under the caret.
   useEffect(() => {
     if (queryMode !== 'raw') return
-    setRawText(prev => replacePipeSection(prev, serializePipes(pipes)))
+    setRawText(prev => {
+      const typed = parsePipes(splitQuery(prev).pipes)
+      if (typed.ok && serializePipes(typed.pipes) === serializePipes(pipes)) return prev
+      return replacePipeSection(prev, serializePipes(pipes))
+    })
   }, [pipes, queryMode])
+
+  // Each direction of the toggle is refused, with the reason as its tooltip,
+  // when crossing would lose something: a half-built chip has no raw spelling,
+  // and raw text that doesn't parse has no chip form.
+  const modeSwitchBlockedReason = queryMode === 'raw'
+    ? (rawParse.ok ? null : `Can't switch to Query Builder — ${rawParse.error}`)
+    : (builderBlocked ? `Can't switch to Lucene — ${builderBlocked}` : null)
+
+  // Switching modes carries the query across rather than resetting it. The
+  // pipes need no carrying: both modes share the one pipes state.
+  const switchMode = useCallback((next) => {
+    if (next === queryMode) return
+    if (next === 'raw') {
+      setRawText(composeQuery(chipsToString(chips), pipes))
+    } else {
+      if (!rawParse.ok) return
+      setChips(rawParse.chips)
+    }
+    setQueryMode(next)
+  }, [queryMode, chips, pipes, rawParse])
+
+  const modeToggle = (
+    <QueryModeToggle
+      mode={queryMode}
+      onChange={switchMode}
+      disabled={!!modeSwitchBlockedReason}
+      disabledReason={modeSwitchBlockedReason}
+    />
+  )
 
   // Reads appliedPipes, not pipes: everything downstream of here is results, and
   // results only move on Run.
@@ -902,6 +977,12 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
     onOpenLink?.({ view: 'explore', datasource: 'vlogs', query: toExploreLogsQuery(composedQuery) })
   }, [onOpenLink, composedQuery])
 
+  // Create Alert opens the rule editor on the same LogsQL Explore gets: the
+  // bar as it stands, counted (docs/alerts/DESIGN.md D13).
+  const openAlertEditor = useCallback(() => {
+    onOpenLink?.({ view: 'alertEditor', ...alertPayloadForQuery({ datasource: 'vlogs', query: toExploreLogsQuery(composedQuery) }) })
+  }, [onOpenLink, composedQuery])
+
   // The save controls read the query that has been RUN, not the one in the bar.
   // Everything else on this surface splits the same way — the preview is live,
   // the results lag behind Run — and saving belongs on the results side of that
@@ -921,13 +1002,13 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
   const applySaved = useCallback((q) => {
     const nextChips = q.chips ?? []
     const nextPipes = q.pipes ?? []
-    setChips(nextChips)
+    setBarChips(nextChips)
     setAppliedChips(nextChips)
     setPipes(nextPipes)
     setAppliedPipes(nextPipes)
     setQuery('')
     setMyQueriesOpen(false)
-  }, [])
+  }, [setBarChips])
 
   const {
     saved: savedQueries, saveable: canSaveQuery, composedButUnrun,
@@ -1093,18 +1174,29 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
       <div className="logs-main">
       <div className="logs-main-body">
         <div className="logs-query-bar">
-          <QueryBuilder
-            chips={chips}
-            setChips={setChips}
-            recents={recents}
-            addRecent={addRecent}
-            savedQueries={savedQueries}
-            onRun={runQuery}
-            onBlockedChange={setBuilderBlocked}
-            onCopyQuery={copyableQuery ? copyQuery : null}
-            parsePastedQuery={parsePastedQuery}
-            onApplyPipes={applyPastedPipes}
-          />
+          {queryMode === 'raw' ? (
+            <RawQueryInput
+              value={rawText}
+              onChange={changeRawText}
+              onSubmit={() => { if (!runBlocked && !isRunning) { addRecent(effectiveChips); runQuery() } }}
+              error={rawParse.ok ? null : rawParse.error}
+              leading={modeToggle}
+            />
+          ) : (
+            <QueryBuilder
+              chips={chips}
+              setChips={setChips}
+              recents={recents}
+              addRecent={addRecent}
+              savedQueries={savedQueries}
+              onRun={runQuery}
+              onBlockedChange={setBuilderBlocked}
+              onCopyQuery={copyableQuery ? copyQuery : null}
+              parsePastedQuery={parsePastedQuery}
+              onApplyPipes={applyPastedPipes}
+              leading={modeToggle}
+            />
+          )}
           <button className="hbtn small icon-only" title="Query history" aria-label="Query history" onClick={() => setHistoryOpen(true)}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>
           </button>
@@ -1113,7 +1205,7 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
             title={runBlocked || (isRunning ? 'Running…' : queryDirty ? 'Run query — the bar has changes the results do not show yet' : 'Run query')}
             aria-label={isRunning ? 'Running query' : 'Run query'}
             disabled={!!runBlocked || isRunning}
-            onClick={() => { addRecent(chips); runQuery() }}
+            onClick={() => { addRecent(effectiveChips); runQuery() }}
           >
             {isRunning ? (
               <svg className="run-spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9"/></svg>
@@ -1139,7 +1231,7 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                   Download CSV
                 </button>
-                <button role="menuitem" className="logs-more-item" onClick={() => { setAlertOpen(true); setMoreOpen(false) }}>
+                <button role="menuitem" className="logs-more-item" onClick={() => { openAlertEditor(); setMoreOpen(false) }}>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 10a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 20a2 2 0 004 0"/><line x1="12" y1="2" x2="12" y2="4"/></svg>
                   Create Alert
                 </button>
@@ -1385,7 +1477,7 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             CSV
           </button>
-          <button className="hbtn small" onClick={() => setAlertOpen(true)} title="Create alert from this query">
+          <button className="hbtn small" onClick={openAlertEditor} title="Create an alert rule from this query">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 10a6 6 0 1112 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 20a2 2 0 004 0"/><line x1="12" y1="2" x2="12" y2="4"/></svg>
             Alert
           </button>
@@ -1527,14 +1619,6 @@ export default function LogsView({ goHome, timeRange, setTimeRange, setToast, on
       )}
       </div>
     </div>
-    {alertOpen && (
-      <AlertDrawer
-        filters={filters}
-        query={query}
-        onClose={() => setAlertOpen(false)}
-        emptyLabel="All logs"
-      />
-    )}
     {patternsOpen && <PatternsDrawer onClose={() => setPatternsOpen(false)} />}
     {myQueriesOpen && (
       <MyQueriesDrawer

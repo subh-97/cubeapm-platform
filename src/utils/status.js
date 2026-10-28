@@ -22,10 +22,17 @@ export const STATUS_LABELS = {
   neutral: 'No Data',
 }
 
-const THRESHOLDS = {
-  latencyP90Ms: { warn: 150, critical: 300 },
-  errorRatePct: { warn: 1, critical: 3 },
-}
+/**
+ * The server scales every service badge reads. Exported so an alert rule made
+ * from a service card defaults to exactly the thresholds that colour the card
+ * (docs/alerts/DESIGN.md D13): the rule fires when the badge turns amber or red,
+ * not at some figure of its own. Frozen, because a shared table that one caller
+ * could nudge would move every badge on the platform with it.
+ */
+export const THRESHOLDS = Object.freeze({
+  latencyP90Ms: Object.freeze({ warn: 150, critical: 300 }),
+  errorRatePct: Object.freeze({ warn: 1, critical: 3 }),
+})
 
 export function statusForLatency(ms) {
   if (ms == null) return STATUS.neutral
@@ -112,6 +119,65 @@ export function statusForHttpStatus(code) {
   if (n === 0 || (n >= 500 && n <= 599)) return STATUS.critical
   if (n >= 400 && n <= 499) return STATUS.warning
   if (n >= 100 && n <= 399) return STATUS.healthy
+  return STATUS.neutral
+}
+
+/**
+ * What each alert state is called where it is shown. Keyed by `alertStateKey`,
+ * which folds a firing alert's severity into its state: production shows every
+ * firing alert as one red "firing" tag, and here the tag names the severity
+ * instead (docs/alerts/DESIGN.md D1).
+ */
+export const ALERT_STATE_LABELS = {
+  critical: 'Critical',
+  warning: 'Warning',
+  pending: 'Pending',
+  error: 'Rule error',
+  ok: 'OK',
+  nodata: 'No data',
+  paused: 'Paused',
+}
+
+// The evaluation states an alert rule can be in, besides firing. `ok` is
+// production's `inactive` (shown there as "normal"); `error` is a rule whose
+// health is not ok — its query cannot be evaluated.
+const ALERT_NONFIRING = new Set(['pending', 'error', 'ok', 'nodata', 'paused'])
+
+/**
+ * The label key for an alert state. A firing alert is critical only when it
+ * carries severity=critical (its rule's critical tier, or a tag); any other
+ * firing alert is a warning, so red keeps meaning "severe" rather than merely
+ * "firing" (signed off as Q2). A state this does not know is null, not a guess.
+ */
+export function alertStateKey(state, severity) {
+  if (state === 'firing') return severity === 'critical' ? 'critical' : 'warning'
+  return ALERT_NONFIRING.has(state) ? state : null
+}
+
+/**
+ * An alert state on the shared status scale. Pending is the informational blue —
+ * the condition holds but has not held long enough to fire, which is news but
+ * not yet severity. No data, a rule that cannot evaluate and a paused rule are
+ * all neutral: what tells them apart is the label, not a colour.
+ */
+export function statusForAlertState(state, severity) {
+  const key = alertStateKey(state, severity)
+  if (key === 'critical') return STATUS.critical
+  if (key === 'warning') return STATUS.warning
+  if (key === 'pending') return STATUS.info
+  if (key === 'ok') return STATUS.healthy
+  return STATUS.neutral
+}
+
+/**
+ * A notification's delivery on the shared status scale: sent is healthy, failed
+ * is critical. A muted or snoozed one was held on purpose, which says nothing
+ * about the destination's health, so it is neutral; so is anything this does
+ * not know. Production's log statuses, as data: SUCCESS, ERROR, MUTE, SNOOZE.
+ */
+export function statusForDelivery(status) {
+  if (status === 'SUCCESS') return STATUS.healthy
+  if (status === 'ERROR') return STATUS.critical
   return STATUS.neutral
 }
 

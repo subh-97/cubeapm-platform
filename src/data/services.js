@@ -3,6 +3,7 @@ import {
   REFERENCE_WINDOW, calibratePeak, peakIncidentWeight, pinToReference,
   valueAtWeight, windowMean, windowQuantile, windowSeries, noiseAt,
 } from './timeWindow'
+import { ceilingPeak } from './percentCeiling'
 import { RUNTIME_HOSTS, hostPresence, DRAW_MIN } from './runtimeHosts'
 
 const RANK = { healthy: 0, warning: 1, critical: 2 }
@@ -312,10 +313,15 @@ export function fleetSeriesForWindow(win) {
 
 export const fleetSeries = fleetSeriesForWindow(REFERENCE_WINDOW)
 
+// Two of these are named the way a real agent names them — the external call
+// by the route it posts to, the database by the instance it connects to —
+// because a legend column is where a name like that gets cut off. They are
+// here so the Latency Drilldown's legend shows a label wrapping to a second
+// line rather than ending in an ellipsis.
 export const latencyDrilldown = [
   { label: 'DB redis', ms: 210, color: '#EF4444' },
-  { label: 'HTTP External (twilio)', ms: 120, color: '#3B82F6' },
-  { label: 'DB mysql', ms: 35, color: '#A78BFA' },
+  { label: 'HTTP External (api.twilio.com/2010-04-01/Messages.json)', ms: 120, color: '#3B82F6' },
+  { label: 'DB mysql (payments-primary.us-east-1.rds.amazonaws.com)', ms: 35, color: '#A78BFA' },
   { label: 'App / internal', ms: 40, color: '#34D399' },
 ]
 
@@ -364,6 +370,14 @@ export const errorRequests = [
 // not have an outage of its own.
 const QUIET_RATIO = { rpm: 1, p90: 612 / 140, avg: 340 / 78, err: 4.8 / 0.05, cpu: 1.35, mem: 1.08 }
 
+// A share of a machine stops at the whole machine. Solved for the hour's mean
+// alone, the ratio above put a 92% host's CPU at 68% quiet and about 140% at
+// the plateau, and over the last five minutes the table cell itself read 142.
+// For these kinds the peak is capped where the jitter reaches 100
+// (data/percentCeiling.js). The pin then lifts the quiet value to whatever
+// still gets the hour to its figure.
+const PERCENT_KINDS = new Set(['cpu', 'mem'])
+
 let profileSeed = 900
 
 /**
@@ -389,6 +403,9 @@ function derivedProfile(published, kind, rate) {
     noise: 0.06,
     seed: profileSeed,
     diurnal: kind === 'rpm',
+  }
+  if (PERCENT_KINDS.has(kind)) {
+    base.peak = Math.min(base.peak, ceilingPeak(published, { noise: base.noise, seed: base.seed }))
   }
   return isQuantile
     ? pinToReference(base, (w, pr) => windowQuantile(w, pr, 0.9, rate), published)
@@ -523,7 +540,12 @@ export function infraSeriesForWindow(win, host, key) {
 // which is why over a week the stack collapses to the ~113 ms it consumes when
 // quiet (78 ms of it on the critical path) and Redis stops being the thing you
 // look at first.
-const DRILLDOWN_QUIET = { 'DB redis': 8, 'HTTP External (twilio)': 65, 'DB mysql': 22, 'App / internal': 18 }
+const DRILLDOWN_QUIET = {
+  'DB redis': 8,
+  'HTTP External (api.twilio.com/2010-04-01/Messages.json)': 65,
+  'DB mysql (payments-primary.us-east-1.rds.amazonaws.com)': 22,
+  'App / internal': 18,
+}
 
 const DRILLDOWN_PROFILES = latencyDrilldown.map((l, i) => {
   const quiet = DRILLDOWN_QUIET[l.label] ?? l.ms
@@ -592,6 +614,29 @@ export function redEndpointSeriesForWindow(win, key) {
  * differently depending on which page was opened first.
  */
 export function errorRateProfiles(table) {
+  return builtTable(table).map(({ row, profiles }) => ({
+    endpoint: row.endpoint,
+    rpm: profiles.rpm,
+    err: profiles.errPct,
+  }))
+}
+
+/**
+ * The calibrated request-rate and p90 profiles behind one of the derived
+ * tables, one entry per row: what the service page's Slow Requests panel
+ * models each endpoint's requests from (data/requestLatency.js), so its
+ * histogram's minutes are the same minutes the p90 chart above it draws.
+ * Built through the same tables, in the same order, as errorRateProfiles.
+ */
+export function latencyProfiles(table) {
+  return builtTable(table).map(({ row, profiles }) => ({
+    endpoint: row.endpoint,
+    rpm: profiles.rpm,
+    p90: profiles.p90,
+  }))
+}
+
+function builtTable(table) {
   // Inside the function: the DB and External rows are declared further down.
   const tables = {
     red: [redEndpoints, RED_SPEC],
@@ -601,11 +646,7 @@ export function errorRateProfiles(table) {
   if (!tables[table]) return []
   for (const [rows, spec] of Object.values(tables)) derivedTable(rows, spec)
   const [rows, spec] = tables[table]
-  return derivedTable(rows, spec).map(({ row, profiles }) => ({
-    endpoint: row.endpoint,
-    rpm: profiles.rpm,
-    err: profiles.errPct,
-  }))
+  return derivedTable(rows, spec)
 }
 
 /**
@@ -862,12 +903,15 @@ export const dbEndpointCallers = {
   ],
 }
 
+// Each query is the call that held up one of the Slow Requests above, at the
+// one-hour reading: same duration, and `traceId` is that request's, so the
+// query and the request open the same trace.
 export const slowQueries = [
-  { time: 'Jul 15, 22:38pm', query: 'SELECT * FROM `payments`.`transactions` WHERE `id` = ? AND `merchant_id` = ?', duration: 812 },
-  { time: 'Jul 15, 22:37pm', query: 'GET redis.session:usr_a92f8b0c34', duration: 743 },
-  { time: 'Jul 15, 22:36pm', query: 'UPDATE `payments`.`transactions` SET `status` = ?, `updated_at` = ? WHERE `id` = ?', duration: 690 },
-  { time: 'Jul 15, 22:34pm', query: 'SETEX redis.session:usr_1f04b9a EX 900', duration: 655 },
-  { time: 'Jul 15, 22:33pm', query: 'SELECT COUNT(*) FROM `payments`.`transactions` WHERE `status` = ?', duration: 601 },
+  { time: 'Jul 15, 22:38pm', query: 'SELECT * FROM `payments`.`transactions` WHERE `id` = ? AND `merchant_id` = ?', duration: 812, traceId: '9f2a1c7e' },
+  { time: 'Jul 15, 22:37pm', query: 'GET redis.session:usr_a92f8b0c34', duration: 743, traceId: '7bd410aa' },
+  { time: 'Jul 15, 22:36pm', query: 'UPDATE `payments`.`transactions` SET `status` = ?, `updated_at` = ? WHERE `id` = ?', duration: 690, traceId: 'c1e0553f' },
+  { time: 'Jul 15, 22:34pm', query: 'SETEX redis.session:usr_1f04b9a EX 900', duration: 655, traceId: '0a94eef2' },
+  { time: 'Jul 15, 22:33pm', query: 'SELECT COUNT(*) FROM `payments`.`transactions` WHERE `status` = ?', duration: 601, traceId: '44d7bb10' },
 ]
 
 export const tracesList = [

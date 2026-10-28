@@ -1,9 +1,10 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef, lazy, Suspense } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import HomeSkeleton from '@/pages/HomeSkeleton'
 import Walkthrough from '@/components/Walkthrough'
 import Toast from '@/components/Toast'
 import Sidebar from '@/components/layout/Sidebar'
+import MainRegion, { SkipLink } from '@/components/layout/MainRegion'
 import InfraIcon from '@/components/layout/InfraIcons'
 import HomePage from '@/pages/HomePage'
 import ServiceOverview from '@/pages/ServiceOverview'
@@ -23,11 +24,22 @@ import { BROWSER_APPS, BROWSER_SOURCE_MAP_SEED } from '@/data/browser'
 import { TIME_PRESETS, DEFAULT_PRESET, rangeLabel } from '@/utils/timeRange'
 import { filtersToChips } from '@/utils/tracesHandoff'
 import { useTheme } from '@/hooks/useTheme'
-import { parseRoute, canonicalUrl, routeUrl, serviceUrl, traceUrl, DEFAULT_SERVICE_TAB } from '@/utils/route'
+import { parseRoute, canonicalUrl, routeUrl, serviceUrl, traceUrl, alertEditorUrl, DEFAULT_SERVICE_TAB } from '@/utils/route'
+import { requestLeave } from '@/utils/leaveGuard'
+import { ServiceAlertsPanel } from '@/components/alerts/service/ServiceAlerts'
 import { traceViewFor } from '@/data/traceResolvers'
 import { MOBILE_TRACES_SOURCE } from '@/utils/explorerSources'
 import { BROWSER_PATH, parseBrowserSearch } from '@/utils/browserUrl'
 import { trapTab } from '@/utils/focusTrap'
+
+import AlertsPageSkeleton from '@/components/alerts/AlertsPageSkeleton'
+
+// The Alerts pages load on their own (docs/alerts/PLAN.md, P7): about 240 kB
+// that no other page needs stays out of the main bundle, and a page that
+// fails to compile breaks /alerts alone. AlertsPageSkeleton draws the wait.
+const AlertsView = lazy(() => import('@/pages/AlertsView'))
+const AlertRuleView = lazy(() => import('@/pages/AlertRuleView'))
+const AlertEditorView = lazy(() => import('@/pages/AlertEditorView'))
 
 function getInfraNavItems() {
   const items = []
@@ -50,6 +62,8 @@ let exploreNonce = 0
 // The same for Errors: a second "open in Errors" for the same scope, while the
 // page is already up, still has to land.
 let errorsNonce = 0
+// The rule editor reads a Create Alert payload once per nonce, as Explore does.
+let alertNonce = 0
 
 // The views of one service, listed in the card's left column. Which service
 // you are looking at is picked in the page itself, by ServicePicker.
@@ -89,6 +103,7 @@ export default function App() {
   const [tracesQuery, setTracesQuery] = useState(null)
   const [exploreIncoming, setExploreIncoming] = useState(null)
   const [errorsIncoming, setErrorsIncoming] = useState(null)
+  const [alertIncoming, setAlertIncoming] = useState(null)
   const [navCollapsed, setNavCollapsed] = useState(true)
   // One range for the whole app, in the form the data layer reads:
   // { kind: 'preset', value: '1h' } or { kind: 'absolute', from, to }. Pages
@@ -240,6 +255,12 @@ export default function App() {
       showView('traces')
       return
     }
+    if (link.view === 'logs') {
+      // A whole query — chips and pipes — opened on the Logs page and run there.
+      setLogsQuery({ chips: link.chips ?? [], pipes: link.pipes ?? [] })
+      showView('logs')
+      return
+    }
     if (link.view === 'errors') {
       // Applied once per nonce, as Explore's payload is: the page reads its
       // scope from this when it arrives, not from the URL it is about to get.
@@ -252,6 +273,14 @@ export default function App() {
       setServiceEndpoint(link.endpoint ?? '')
       setServiceErrorsSide(link.errorsSide === 'client' ? 'client' : 'server')
       go(serviceUrl(link.serviceId, link.subTab))
+      return
+    }
+    if (link.view === 'alertEditor') {
+      // A Create Alert from a card or a query bar: the payload rides in App
+      // state, never the URL, as production's router state does (D13).
+      setAlertIncoming({ ...link, nonce: ++alertNonce })
+      navigate(alertEditorUrl(null))
+      setSettingsOpen(false)
       return
     }
     if (link.view === 'explore') {
@@ -273,7 +302,7 @@ export default function App() {
       setInfraResource(link.resource ?? null)
       showView('infra')
     }
-  }, [openTrace, go, showView])
+  }, [openTrace, go, showView, navigate])
 
   // Mobile Traces opens its trace ids as mobile traces: the table's trace_id
   // cell directly, and the drawer's "Open this trace" by tagging the link,
@@ -302,6 +331,12 @@ export default function App() {
     setSettingsOpen(false)
     setSettingsTab(null)
   }, [showView])
+
+  // The ways out of any page that App owns: the sidebar, its Home, signing
+  // out. A page holding unsaved work (the rule editor) gets to ask first.
+  const guardedShowView = useCallback(v => requestLeave(() => showView(v)), [showView])
+  const guardedGoHome = useCallback(() => requestLeave(goHome), [goHome])
+  const guardedLogout = useCallback(() => requestLeave(() => setLoggedIn(false)), [])
 
   const openHelp = useCallback(() => {
     setToast('Help Center is not built yet. This was only a preview of the user journey.')
@@ -357,9 +392,13 @@ export default function App() {
   const isExplore = view === 'explore'
   const isErrors = view === 'errors'
   const isBrowser = view === 'browser'
+  const isAlerts = view === 'alerts'
+  const isAlertRule = view === 'alertRule'
+  const isAlertEditor = view === 'alertEditor'
 
   return (
     <div className={`app${navCollapsed ? ' nav-collapsed' : ''}`}>
+      <SkipLink />
       <Sidebar
         navCollapsed={navCollapsed}
         setNavCollapsed={setNavCollapsed}
@@ -368,14 +407,19 @@ export default function App() {
         // is the trace view under another list, so the sidebar is told which
         // one to keep lit.
         view={traceFrom?.view ?? (isTrace && traceDatasource === 'mobile' ? 'mtrace' : view)}
-        goHome={goHome}
-        setView={showView}
+        goHome={guardedGoHome}
+        setView={guardedShowView}
         onOpenHelp={openHelp}
-        onLogout={() => setLoggedIn(false)}
+        onLogout={guardedLogout}
         theme={theme}
         setTheme={setTheme}
       />
-      <div className="main">
+      <MainRegion
+        // A new page is a new path in the address's one spelling: correcting
+        // / to /home is not one, and neither is a query string changing (Logs,
+        // Traces and Errors rewrite theirs as you type).
+        page={targetUrl.split('?')[0]}
+      >
         <div className={`surface-card${isInfra ? ' svc-view' : ''}`}>
           {isInfra && (
             <div className="svc-sidebar">
@@ -502,6 +546,7 @@ export default function App() {
                 goHome={goHome} timeRange={timeRange} setTimeRange={setTimeRange} setToast={setToast}
                 incoming={exploreIncoming}
                 onIncomingApplied={() => setExploreIncoming(null)}
+                onOpenLink={openLink}
               />
             ) : isErrors ? (
               <ErrorsView
@@ -536,7 +581,36 @@ export default function App() {
                 setTimeRange={setTimeRange}
                 settingsOpen={settingsOpen}
                 setSettingsOpen={setSettingsOpen}
+                setToast={setToast}
+                onOpenLink={openLink}
               />
+            ) : isAlerts || isAlertRule || isAlertEditor ? (
+              // Quiet while the chunk loads: the page's shape in bones, not a spinner.
+              <Suspense fallback={<AlertsPageSkeleton kind={isAlerts ? 'list' : isAlertRule ? 'rule' : 'editor'} />}>
+                {isAlerts ? (
+                  <AlertsView
+                    goHome={goHome} timeRange={timeRange} setTimeRange={setTimeRange} setToast={setToast}
+                    onOpenLink={openLink}
+                  />
+                ) : isAlertRule ? (
+                  <AlertRuleView
+                    // Keyed on the rule: two rules' pages never share state.
+                    key={route.ruleId}
+                    ruleId={route.ruleId}
+                    goHome={goHome} timeRange={timeRange} setTimeRange={setTimeRange} setToast={setToast}
+                    onOpenLink={openLink}
+                  />
+                ) : (
+                  <AlertEditorView
+                    key={route.ruleId ?? 'new'}
+                    ruleId={route.ruleId}
+                    goHome={goHome} timeRange={timeRange} setTimeRange={setTimeRange} setToast={setToast}
+                    onOpenLink={openLink}
+                    incoming={alertIncoming}
+                    onIncomingApplied={() => setAlertIncoming(null)}
+                  />
+                )}
+              </Suspense>
             ) : loadingIn ? (
               <HomeSkeleton />
             ) : (
@@ -544,7 +618,7 @@ export default function App() {
             )}
           </div>
         </div>
-      </div>
+      </MainRegion>
       {settingsOpen && (
         <>
           <div className="settings-backdrop open" onClick={() => { setSettingsOpen(false); setSettingsTab(null) }} />
@@ -698,7 +772,7 @@ function SettingsDrawer({ view, serviceSubTab, serviceId, settingsTab, setSettin
         ) : view === 'browser' && browser ? (
           <BrowserSettings tab={activeTab} {...browser} />
         ) : (
-          <SettingsBody tab={activeTab} view={view} serviceSubTab={serviceSubTab} svc={svc} timeRange={timeRange} redEndpoints={redEndpoints} />
+          <SettingsBody tab={activeTab} view={view} serviceSubTab={serviceSubTab} svc={svc} timeRange={timeRange} redEndpoints={redEndpoints} onClose={onClose} />
         )}
       </div>
     </div>
@@ -744,7 +818,7 @@ function InfraNavSettings({ hiddenNavItems, setHiddenNavItems }) {
   )
 }
 
-function SettingsBody({ tab, view, serviceSubTab, svc, timeRange, redEndpoints }) {
+function SettingsBody({ tab, view, serviceSubTab, svc, timeRange, redEndpoints, onClose }) {
   if (view === 'home') {
     if (tab === 'General') return (
       <>
@@ -871,32 +945,9 @@ function SettingsBody({ tab, view, serviceSubTab, svc, timeRange, redEndpoints }
     )
   }
 
-  if (tab === 'Alerts') return (
-    <>
-      <p className="drawer-description">Configure alert rules scoped to <strong style={{ color: 'var(--text-primary)', fontFamily: "'JetBrains Mono',monospace" }}>{svc?.name}</strong>. Alert state is derived from threshold breaches configured in the Thresholds tab.</p>
-      <div className="drawer-section">
-        <div className="drawer-section-label">Alert channel</div>
-        <div className="drawer-row">
-          <select className="drawer-select"><option>Email</option><option>Webhook</option><option>PagerDuty</option><option>Slack</option></select>
-          <button className="drawer-save">Save</button>
-        </div>
-      </div>
-      <div className="drawer-section">
-        <div className="drawer-section-label">Suppression window</div>
-        <div className="drawer-row">
-          <select className="drawer-select"><option>None</option><option>5 minutes</option><option>15 minutes</option><option>1 hour</option></select>
-          <button className="drawer-save">Save</button>
-        </div>
-      </div>
-      <div className="drawer-section">
-        <div className="drawer-section-label">Auto-resolve after</div>
-        <div className="drawer-row">
-          <select className="drawer-select"><option>Never</option><option>10 minutes</option><option>30 minutes</option><option>1 hour</option></select>
-          <button className="drawer-save">Save</button>
-        </div>
-      </div>
-    </>
-  )
+  // The service's real rules (docs/alerts/DESIGN.md D13), where three mock
+  // settings no rule ever read used to be.
+  if (tab === 'Alerts') return <ServiceAlertsPanel serviceId={svc?.id} onLeave={onClose} />
 
   if (tab === 'Display') return (
     <>

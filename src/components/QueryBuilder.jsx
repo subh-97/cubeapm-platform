@@ -8,14 +8,16 @@ import {
 } from '@/utils/queryTree'
 import {
   splitField, resolveOperator, buildChip, isCommittable, interpret, isKnownField,
-  matchConnector, CONNECTORS, deriveFreeText,
+  matchConnector, CONNECTORS, deriveFreeText, isComparison, normalizeComparisonValue, comparisonError,
 } from '@/utils/typedQuery'
 import { keyOf, matchSaved } from '@/utils/savedQueries'
+import { compareValues } from '@/utils/logsqlNumber'
 
 // ---------- Field catalog ----------
 // Types map to CubeAPM's log query grammar (docs.cubeapm.com/logs/querying).
-// `keyword` is short numeric/alphanumeric text (status codes, small ints) that
-// still uses string-style operators — CubeAPM's log grammar has no `>`/`<`.
+// `keyword` is short numeric/alphanumeric text (status codes, small ints,
+// durations): the string-style operators, plus the LogsQL range comparisons
+// `>`, `>=`, `<`, `<=` (RANGE_OPS below), which read a number or a duration.
 
 export const FIELD_CATALOG = [
   { field: 'service',            type: 'string',  desc: 'Service name' },
@@ -66,6 +68,20 @@ export const FIELD_CATALOG = [
 
 const FIELD_BY_NAME = Object.fromEntries(FIELD_CATALOG.map(f => [f.field, f]))
 
+// The range comparisons, LogsQL's `field:>v` / `:>=` / `:<` / `:<=`. Offered in
+// the picker on `keyword` fields only, since those are the numeric-ish ones; but
+// the parser and the typed bar know no field types, so `service:>m` written by
+// hand is a `gt` chip all the same, and LogsQL would run it. opMetaFor falls
+// back to this list so such a chip still edits as a typed value. The value is a
+// number or a duration, read the way LogsQL reads it (utils/logsqlNumber.js),
+// and is kept as the text written: '8.8ms' stays '8.8ms', never 8800000.
+const RANGE_OPS = [
+  { op: 'gt',  label: 'greater than', hint: 'field:>v  — e.g. duration:>100ms, slower than 100 ms', sym: ':>',  cat: 'Range', freeText: true },
+  { op: 'gte', label: 'at least',     hint: 'field:>=v  — e.g. duration:>=8.8ms, 8.8 ms or slower', sym: ':>=', cat: 'Range', freeText: true },
+  { op: 'lt',  label: 'less than',    hint: 'field:<v  — e.g. http.status:<400, below 400',         sym: ':<',  cat: 'Range', freeText: true },
+  { op: 'lte', label: 'at most',      hint: 'field:<=v  — e.g. duration:<=1.2s, 1.2 s or faster',   sym: ':<=', cat: 'Range', freeText: true },
+]
+
 // Operator catalog — mirrors CubeAPM query grammar.
 // `sym` is what shows in the operator picker's icon slot.
 // `freeText` = user must type a value (no picklist).
@@ -91,6 +107,7 @@ const OPERATORS = {
     { op: 'neq',      label: 'is not',         hint: 'field!=value  — excludes this value',              sym: '!=',    cat: 'Equality' },
     { op: 'in',       label: 'in (list)',      hint: 'field in ("a","b")  — matches any of these',       sym: 'in',    cat: 'List',       multi: true },
     { op: 'not_in',   label: 'not in (list)',  hint: 'field not_in ("a","b")  — none of these',          sym: '!in',   cat: 'List',       multi: true },
+    ...RANGE_OPS,
     { op: 'prefix',   label: 'starts with',    hint: 'field:5*  — e.g. 5* covers all 5xx codes',         sym: ':_*',   cat: 'Text',       freeText: true },
     { op: 'exists',   label: 'exists',         hint: 'field:*  — field is present',                      sym: ':*',    cat: 'Presence',   noValue: true },
   ],
@@ -129,7 +146,10 @@ const COLON_CONTAINS_OPERATORS = Object.fromEntries(Object.entries(OPERATORS).ma
   }),
 ]))
 
-const CATEGORY_ORDER = ['Equality', 'List', 'Text', 'Pattern', 'Presence']
+// Every category an operator can carry must be listed: the picker sorts by
+// this order and draws only the categories named here, so an unknown one would
+// sort first and never be drawn.
+const CATEGORY_ORDER = ['Equality', 'Range', 'List', 'Text', 'Pattern', 'Presence']
 
 // The operator set a field gets is decided by its entry in the ACTIVE catalog,
 // which differs per dataset — `duration` is nanoseconds on a span and has no
@@ -144,8 +164,12 @@ function opSetFor(field, byName = FIELD_BY_NAME, operators = OPERATORS) {
   return operators.string
 }
 
+// A comparison chip finds its meta on any field: the field's own set offers
+// the range operators only on a keyword field, but a parsed or typed
+// `service:>m` is a `gt` chip too, and must still edit as a typed value.
 function opMetaFor(field, op, byName = FIELD_BY_NAME, operators = OPERATORS) {
   return opSetFor(field, byName, operators).find(o => o.op === op)
+    ?? RANGE_OPS.find(o => o.op === op)
 }
 
 // Renders the op+value portion of a chip using CubeAPM's canonical syntax.
@@ -179,6 +203,10 @@ export function chipSegments(op, value) {
     case 'phrase':   return { prefix: ':"',       value: v,       suffix: '"' }
     case 'regex':    return { prefix: ':~"',      value: v,       suffix: '"' }
     case 'nregex':   return { prefix: '!~"',      value: v,       suffix: '"' }
+    case 'gt':       return { prefix: ':>',       value: v,       suffix: '' }
+    case 'gte':      return { prefix: ':>=',      value: v,       suffix: '' }
+    case 'lt':       return { prefix: ':<',       value: v,       suffix: '' }
+    case 'lte':      return { prefix: ':<=',      value: v,       suffix: '' }
     default:         return { prefix: ':',        value: v,       suffix: '' }
   }
 }
@@ -219,9 +247,12 @@ function quoted(v) {
 // brackets as nesting, and quoted they cannot hide the ` | pipes` after them.
 const EXACT_NEEDS_QUOTES = /[\s(){}[\],|"':]/
 // What a bare value after `:` cannot carry: whitespace and structure end it, and
-// a leading `=`, `~`, `*` or quote turns the `:` into a different operator.
+// a leading `=`, `~`, `*`, `<`, `>` or quote turns the `:` into a different
+// operator. `<` and `>` joined the list with the range comparisons: a word or
+// starts-with on `>5` or `<html>` is written `f:">5"`, since bare, `f:>5` now
+// reads back as "greater than 5".
 const BARE_BREAKS = /[\s(){},|"']/
-const BARE_LEADS = /^[=~*]/
+const BARE_LEADS = /^[=~*<>]/
 
 function exactText(v) {
   const s = String(v ?? '')
@@ -230,6 +261,16 @@ function exactText(v) {
 
 function bareAfterColon(s) {
   return s !== '' && !BARE_BREAKS.test(s) && !BARE_LEADS.test(s)
+}
+
+// A comparison's value after its symbol. Bare unless it would end early or read
+// as more operator: `f:>==5` would be ambiguous to a reader and is never
+// written, so a value opening with `=` is quoted. A leading `<` or `>` needs no
+// quote here, since the operator is already spelled: `f:<<x` reads back as
+// "less than <x".
+const CMP_SYM = { gt: '>', gte: '>=', lt: '<', lte: '<=' }
+function comparisonText(op, s) {
+  return `:${CMP_SYM[op]}${s !== '' && !BARE_BREAKS.test(s) && !/^=/.test(s) ? s : quoted(s)}`
 }
 
 // When a contains is written `f:*"…"*` rather than `f:*…*`: when the value has
@@ -268,6 +309,7 @@ function opQueryText(op, value) {
     case 'phrase':   return `:${quoted(s)}`
     case 'regex':    return `:~${quoted(s)}`
     case 'nregex':   return `!~${quoted(s)}`
+    case 'gt': case 'gte': case 'lt': case 'lte': return comparisonText(op, s)
     default:         return bareAfterColon(s) ? `:${s}` : `:${quoted(s)}`
   }
 }
@@ -287,6 +329,10 @@ function opStartText(op) {
     case 'phrase':   return ':"'
     case 'regex':    return ':~"'
     case 'nregex':   return '!~"'
+    case 'gt':       return ':>'
+    case 'gte':      return ':>='
+    case 'lt':       return ':<'
+    case 'lte':      return ':<='
     default:         return ':'
   }
 }
@@ -574,6 +620,11 @@ function matchChip(log, c, getValue = getFieldValue, colonMatch = 'word') {
     case 'phrase':   return matchesPhrase(s, v)
     case 'regex':    { try { return new RegExp(v).test(s) } catch { return false } }
     case 'nregex':   { try { return !new RegExp(v).test(s) } catch { return false } }
+    // As LogsQL compares: numbers and durations numerically, a duration as
+    // integer nanoseconds against the raw value (a span's `duration` is ns), so
+    // `duration:>=8.799ms` keeps a span of exactly 8799000. Text otherwise.
+    // An absent value never gets here, so it never matches either side.
+    case 'gt': case 'gte': case 'lt': case 'lte': return compareValues(c.op, raw, v)
     default: return false
   }
 }
@@ -1120,9 +1171,22 @@ export default function QueryBuilder({
     }
   }
 
+  // A comparison takes a number or a duration. Anything else is refused with
+  // the reason, through the same message slot a rejected space uses — so it
+  // also blocks Run until the next keystroke — rather than landing as a chip
+  // that compares text. True when it refused.
+  const refuseComparison = () => {
+    const msg = composing?.op != null ? comparisonError(composing.field, composing.op, text) : null
+    if (msg) setSpaceError(msg)
+    return !!msg
+  }
+
   const commitTypedValue = () => {
     if (!composing?.op || !text.trim()) return
-    commitChip({ field: composing.field, op: composing.op, value: text.trim() })
+    if (refuseComparison()) return
+    // `8.8 ms` is stored closed up, `8.8ms`; every other value as trimmed.
+    const value = isComparison(composing.op) ? normalizeComparisonValue(text) : text.trim()
+    commitChip({ field: composing.field, op: composing.op, value })
   }
 
   const commitMultiValues = () => {
@@ -1246,7 +1310,9 @@ export default function QueryBuilder({
     if (composing?.op != null) {
       const chip = isCommittable(composing.op, text) ? buildChip(composing.op, text) : null
       if (!chip) return false
-      commitChip({ field: composing.field, ...chip })
+      // Refused is still handled: the space that asked for the commit must not
+      // then be typed into the value.
+      if (!refuseComparison()) commitChip({ field: composing.field, ...chip })
       return true
     }
     return false
@@ -1392,6 +1458,9 @@ export default function QueryBuilder({
       // the user built themselves, so that a half-finished term is carried into
       // the run rather than silently dropped (or left blocking it).
       e.preventDefault()
+      // A refused comparison stops here: falling through would run the query
+      // without the filter the user is still looking at.
+      if (!isMulti && text.trim() && refuseComparison()) return
       const committed =
         isMulti && pendingValues.length ? (commitMultiValues(), true)
         : needsTypedValue && text.trim() ? (commitTypedValue(), true)
@@ -1489,6 +1558,8 @@ export default function QueryBuilder({
       case 'contains': return `Substring to match anywhere in ${field}…`
       case 'prefix':   return `Prefix for ${field} (e.g. pay matches payment, payer)`
       case 'phrase':   return `Phrase in ${field} — multi-word exact (quotes auto)`
+      case 'gt': case 'gte': case 'lt': case 'lte':
+        return `A number, or a duration such as 8.8ms or 1.2s, for ${field}`
       default:         return `Type a value for ${field}…`
     }
   }
@@ -2133,11 +2204,13 @@ export default function QueryBuilder({
                         ? <>Type a regular expression to match against <span className="mono">{composing.field}</span>.</>
                         : composing.op === 'phrase'
                           ? <>Type the phrase to match inside <span className="mono">{composing.field}</span>. Quotes are added automatically.</>
-                          : <>Type the text to match against <span className="mono">{composing.field}</span>.</>}
+                          : isComparison(composing.op)
+                            ? <>Type a number, or a duration such as <span className="mono">8.8ms</span> or <span className="mono">1.2s</span>, to compare <span className="mono">{composing.field}</span> against. A plain number is compared as written: on <span className="mono">duration</span>, that is nanoseconds.</>
+                            : <>Type the text to match against <span className="mono">{composing.field}</span>.</>}
                   </p>
                   <button type="button" className="qb-hc-commit" disabled={!text.trim()} onClick={commitTypedValue}>
                     {text.trim()
-                      ? `Add filter ${composing.field}${opValueText(composing.op, text.trim())}`
+                      ? `Add filter ${composing.field}${opValueText(composing.op, isComparison(composing.op) ? normalizeComparisonValue(text) : text.trim())}`
                       : 'Add filter'}
                   </button>
                 </div>

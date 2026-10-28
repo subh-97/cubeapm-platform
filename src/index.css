@@ -98,6 +98,12 @@
   --brand-on-muted: var(--blue-200);
   /* Hairline border used by every card/panel/chart surface */
   --card-border: var(--slate-870);
+  /* Behind every chart's plot area (the grid's own background, GRID_PROPS):
+     the lightest grey the palette has, which is the canvas. In light that is
+     #F5F7FB; in dark the canvas is the step lighter than the card, so the plot
+     reads as a well in the card either way. Re-pointed per theme through
+     --canvas, so neither theme block repeats it. */
+  --chart-plot-bg: var(--canvas);
   --card-shadow: 0 4px 20px 0 var(--slate-925);
   /* Status foregrounds — text/icon color when sitting on a status tint */
   --critical-fg: var(--red-300);
@@ -277,6 +283,19 @@ a { color: inherit; }
 :focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 3px; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 
+/* ============ SKIP LINK ============ */
+/* The app's first Tab stop (layout/MainRegion.jsx): parked just above the top
+   edge until it has focus, then a raised chip over the logo, drawn the way a
+   dropdown is. The shadow comes with the focus, so none shows while parked. */
+.skip-link {
+  position: fixed; top: 12px; left: 12px; z-index: 1000;
+  padding: 7px 12px; border: 1px solid var(--border-panel); border-radius: var(--radius-sm);
+  background: var(--raised); color: var(--text-primary);
+  font-size: 13px; font-weight: 500; line-height: 1.2; text-decoration: none; white-space: nowrap;
+  transform: translateY(calc(-100% - 12px));
+}
+.skip-link:focus { transform: none; box-shadow: var(--shadow-dropdown); }
+
 /* ============ NAV ============ */
 .nav {
   width: var(--nav-w); flex-shrink: 0; background: var(--canvas);
@@ -359,6 +378,9 @@ a { color: inherit; }
   flex: 1; display: flex; flex-direction: column; min-width: 0;
   padding: 18px var(--gutter) 0 12px; gap: 18px; background: var(--canvas);
 }
+/* Where the skip link and a new page put focus: only the point the next Tab
+   carries on from, not a control, so it draws no ring. */
+.main:focus { outline: none; }
 .header { display: flex; align-items: center; gap: 10px; padding: 4px 6px 0; }
 .header-page-id {
   display: flex; align-items: center; gap: 9px; color: var(--text-secondary);
@@ -448,11 +470,9 @@ a { color: inherit; }
 .card-crumbs a { color: var(--text-secondary); text-decoration: none; cursor: pointer; }
 .card-crumbs a:hover { color: var(--text-primary); text-decoration: underline; }
 .card-crumbs .sep { color: var(--border-strong); font-size: 10px; }
+/* A section name with no page behind it: drawn like a link, but inert. */
+.card-crumbs .crumb-static { color: var(--text-secondary); cursor: default; }
 .card-crumbs .current { color: var(--text-primary); font-size: 14px; font-weight: 600; letter-spacing: -.2px; }
-.crumb-select { display: inline-flex; align-items: center; gap: 3px; cursor: pointer; padding: 2px 4px; margin: -2px -4px; border-radius: 5px; }
-.crumb-select:hover, .crumb-select.open { background: var(--panel); }
-.crumb-select svg { width: 13px; height: 13px; color: var(--text-muted); transition: transform .12s; }
-.crumb-select.open svg { transform: rotate(180deg); color: var(--text-secondary); }
 /* When no tab-strip follows, the crumbs themselves provide the header/content divider */
 .card-crumbs:not(:has(+ .card-tab-strip)):not(:has(+ .logs-layout-stitched)):not(:has(+ .tw-main)):not(:has(+ .svc-main)) { border-bottom: 1px solid var(--border-subtle); margin-bottom: 16px; }
 /* The trace view and Infrastructure keep the rule but not the gap under it:
@@ -748,13 +768,13 @@ td { padding: 11px 16px; border-top: 1px solid var(--border-subtle); text-align:
    exactly where the gap left it. content-box keeps any declared width or
    height meaning the content, so no column or chart changes size. The log and
    span tables do the same next to the .span-cell rules. */
-:is(.split-ep-head, .split-ep-row, .slowq-row, .err-head, .err-row,
+:is(.split-ep-head, .split-ep-row, .err-head, .err-row,
     .ds-theme-row, .errp-head, .errp-row) > * {
   box-sizing: content-box; align-self: stretch; align-content: center;
   margin-top: calc(var(--row-py) * -1); margin-bottom: calc(var(--row-py) * -1);
   padding-top: var(--row-py); padding-bottom: var(--row-py);
 }
-:is(.split-ep-head, .split-ep-row, .slowq-row, .err-head, .err-row,
+:is(.split-ep-head, .split-ep-row, .err-head, .err-row,
     .ds-theme-row, .errp-head, .errp-row) > * + * {
   margin-left: calc(var(--col-gap) / -2 - 1px); padding-left: calc(var(--col-gap) / 2);
   border-left: 1px solid var(--border-subtle);
@@ -957,9 +977,23 @@ tbody tr:hover { background: var(--panel-2); }
 .drill2-go-btn:hover .drill2-go { opacity: 1; color: var(--brand); }
 .drill2-go-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 0; }
 .drill2-empty { font-size: 11.5px; color: var(--text-muted); padding: 4px 0; }
-.drill2-row { display: flex; align-items: center; gap: 7px; }
+/* A legend row wraps rather than truncates: a name wider than the legend
+ * column runs on to a second line instead of being cut with an ellipsis, which
+ * in a column of host- or path-qualified upstreams cut away the very part that
+ * told them apart. The row is top-aligned, so the swatch, the value and the
+ * open-link button stay beside the label's FIRST line however many lines it
+ * takes. One line-height on the row lines those three up with that first line
+ * whatever size each is set in; the swatch, shorter than the line, is centred
+ * on it. `overflow-wrap: anywhere` also lets the label shrink below its longest
+ * word, so an unbroken path breaks instead of pushing the value out of view. */
+.drill2-row { display: flex; align-items: flex-start; gap: 7px; line-height: 16px; }
 .drill2-swatch { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; margin-top: 1px; }
-.drill2-label { flex: 1; font-size: 11.5px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.drill2-row > .drill2-swatch { margin-top: 4px; }
+/* The button's -2px margin pulls its 12px glyph off the top of the line;
+ * dropping it on the top side alone centres the glyph on that first line
+ * while the row's own negative margins keep the hit area the size it was. */
+.drill2-row > .drill2-go-btn { margin-top: 0; }
+.drill2-label { flex: 1; min-width: 0; font-size: 11.5px; color: var(--text-secondary); overflow-wrap: anywhere; }
 .drill2-val { font-size: 12px; font-weight: 600; color: var(--text-primary); white-space: nowrap; }
 .drill2-unit { font-size: 10px; font-weight: 400; color: var(--text-muted); margin-left: 1px; font-family: inherit; }
 .drill2-total { display: flex; align-items: center; gap: 8px; padding-top: 10px; border-top: 1px solid var(--border-subtle); margin-top: 2px; cursor: default; }
@@ -986,9 +1020,9 @@ tbody tr:hover { background: var(--panel-2); }
 .slowreq-row:hover { background: var(--panel); }
 .slowreq-row.selected { background: var(--brand-muted); }
 .slowreq-row:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
-.slowreq-row .ep { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-primary); }
-.slowreq-row .meta { color: var(--text-muted); font-size: 10.5px; margin-top: 2px; }
-.slowreq-row .dur { font-weight: 400; color: var(--text-primary); font-size: 13px; white-space: nowrap; }
+.slowreq-row .ep { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-primary); }
+.slowreq-row .meta { color: var(--text-muted); font-size: 11px; margin-top: 2px; }
+.slowreq-row .dur { font-weight: 400; color: var(--text-primary); font-size: 11px; white-space: nowrap; }
 .slowreq-preview { min-width: 0; padding: 12px 16px 14px; }
 .slowreq-preview-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .slowreq-preview-ep { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-primary);
@@ -1008,7 +1042,9 @@ tbody tr:hover { background: var(--panel-2); }
 .slowreq-empty { display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 10px; height: 100%; min-height: 180px; color: var(--text-muted); font-size: 12px; }
 .slowreq-empty svg { width: 28px; height: 28px; opacity: .35; }
-.sort-lbl { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+/* A control's label ("Sort by", "Show preview"): set in full here, not left to
+   inherit, so it reads the same in a panel head (600) as on a list's bar. */
+.sort-lbl { font-size: 11px; font-weight: 600; color: var(--text-muted); white-space: nowrap; }
 
 /* health strip */
 .health-row { display: flex; align-items: center; gap: 14px; padding: 11px 16px; border-top: 1px solid var(--border-subtle); }
@@ -1050,7 +1086,7 @@ tbody tr:hover { background: var(--panel-2); }
 .search-with-icon > svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
   width: 13px; height: 13px; color: var(--text-muted); pointer-events: none; }
 .search-with-icon > input { display: block; padding-left: 29px; }
-.split-ep-row { --row-py: 10px; --col-gap: 10px; display: grid; grid-template-columns: 1fr 88px 60px 66px 72px; gap: var(--col-gap); align-items: center; padding: var(--row-py) 14px; border-top: 1px solid var(--border-subtle); font-size: 11.5px; cursor: pointer; transition: background .1s; }
+.split-ep-row { --row-py: 10px; --col-gap: 10px; display: grid; grid-template-columns: 1fr 88px 60px 66px 72px; gap: var(--col-gap); align-items: center; padding: var(--row-py) 14px; border-top: 1px solid var(--border-subtle); font-size: 11px; cursor: pointer; transition: background .1s; }
 .split-ep-row:hover { background: var(--panel-2); }
 .split-ep-row.selected { background: var(--brand-muted); }
 .split-ep-head { --row-py: 8px; --col-gap: 10px; font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; padding: var(--row-py) 14px; display: grid; grid-template-columns: 1fr 88px 60px 66px 72px; gap: var(--col-gap); align-items: center; }
@@ -1092,15 +1128,6 @@ tbody tr:hover { background: var(--panel-2); }
 .title-dropdown-item:hover { background: var(--panel-2); }
 .title-dropdown-item.active { color: var(--brand); font-weight: 600; }
 
-/* Slow Queries table */
-.slowq-row { --row-py: 10px; --col-gap: 12px; display: grid; grid-template-columns: 130px 1fr 84px; gap: var(--col-gap); padding: var(--row-py) 16px; border-top: 1px solid var(--border-subtle); align-items: center; font-size: 12px; }
-.slowq-row .t { color: var(--text-muted); font-size: 10.5px; }
-.slowq-row .q { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.slowq-row .d { text-align: right; font-weight: 400; color: var(--text-primary); }
-/* The header borrows the endpoint lists' sortable head, but its columns have
-   to fall on the rows' grid or the column rules jog where the two meet. */
-.split-ep-head.slowq-head { --col-gap: 12px; grid-template-columns: 130px 1fr 84px; padding-left: 16px; padding-right: 16px; }
-
 /* ============ Errors tab ============ */
 /* Endpoint .6fr (40% narrower than its old 1fr) and Error .875fr (20% narrower
  * than its old 1.4fr share). The sparkline takes 1.31fr where it had 2.49fr:
@@ -1110,7 +1137,7 @@ tbody tr:hover { background: var(--panel-2); }
  * columns go below their longest unbroken path; those cells ellipsize instead,
  * except on the service page's tab, where they wrap (.svc-errors, below). The
  * Browser page's panel sets its own columns (browser-traces.css). */
-.err-row { --row-py: 12px; --col-gap: 14px; display: grid; grid-template-columns: minmax(0, .6fr) minmax(0, .875fr) 68px minmax(240px, 1.31fr); gap: var(--col-gap); align-items: center; padding: var(--row-py) 16px; border-top: 1px solid var(--border-subtle); font-size: 12px; }
+.err-row { --row-py: 12px; --col-gap: 14px; display: grid; grid-template-columns: minmax(0, .6fr) minmax(0, .875fr) 68px minmax(240px, 1.31fr); gap: var(--col-gap); align-items: center; padding: var(--row-py) 16px; border-top: 1px solid var(--border-subtle); font-size: 12.5px; }
 /* Clickable row opens the Traces page scoped to the error. The hover affordance
  * is a brand-tinted left bar so the sparkline column keeps a stable chart
  * background underneath. */
@@ -1119,7 +1146,7 @@ tbody tr:hover { background: var(--panel-2); }
 .err-row.is-clickable:hover::before,
 .err-row.is-clickable:focus-visible::before { background: var(--brand); }
 .err-row.is-clickable:focus-visible { outline: none; }
-.err-endpoint { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-primary);
+.err-endpoint { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: var(--text-primary);
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .err-exc { display: flex; flex-direction: column; justify-content: center; gap: 2px; min-width: 0; }
 /* A button that opens the group's details and stack trace on the Errors page.
@@ -1127,17 +1154,17 @@ tbody tr:hover { background: var(--panel-2); }
  * Traces page), so the exception has to read as its own, second target before
  * anyone points at it. It hugs its text (flex-start) so the empty end of the
  * column still belongs to the row. */
-.err-exc-cls { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--critical-fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+.err-exc-cls { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: var(--critical-fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   display: block; align-self: flex-start; max-width: 100%;
   background: none; border: 0; padding: 0; cursor: pointer; text-align: left;
   text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px;
   text-decoration-color: color-mix(in srgb, currentColor 45%, transparent); transition: text-decoration-color .12s; }
 .err-exc-cls:hover { text-decoration-color: currentColor; }
 .err-exc-cls:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 2px; }
-.err-exc-msg { font-size: 10.5px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.err-exc-msg { font-size: 12.5px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Left-aligned like every other column here, so the count starts at its
  * column rule instead of floating against the sparkline's. */
-.err-count { font-weight: 400; font-size: 15px; color: var(--text-primary); }
+.err-count { font-weight: 400; font-size: 12.5px; color: var(--text-primary); }
 .err-spark { height: 132px; }
 .err-head { --row-py: 8px; --col-gap: 14px; display: grid; grid-template-columns: minmax(0, .6fr) minmax(0, .875fr) 68px minmax(240px, 1.31fr); gap: var(--col-gap); padding: var(--row-py) 16px; font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
 .err-empty { padding: 60px 20px; text-align: center; color: var(--text-muted); font-size: 12px; }
@@ -1337,7 +1364,7 @@ tbody tr:hover { background: var(--panel-2); }
 .sk-block::after,
 .sk-onboard-h::after, .sk-onboard-line::after,
 .sk-chart-card .sk-lbl::after, .sk-chart-card .sk-val::after, .sk-chart-card .sk-graph::after,
-.sk-pill .sk-lbl::after, .sk-table-head .sk-lbl::after, .sk-row .sk-cell::after {
+.sk-table-head .sk-lbl::after, .sk-row .sk-cell::after {
   content: ''; position: absolute; inset: 0;
   background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.045) 45%, rgba(255,255,255,0.07) 50%, rgba(255,255,255,0.045) 55%, transparent 100%);
   animation: skShimmer 1.4s linear infinite;
@@ -1349,11 +1376,6 @@ tbody tr:hover { background: var(--panel-2); }
 .sk-onboard-h { height: 12px; width: 60%; background: rgba(255,255,255,0.06); border-radius: 4px; position: relative; overflow: hidden; }
 .sk-onboard-line { height: 10px; width: 90%; background: rgba(255,255,255,0.04); border-radius: 4px; position: relative; overflow: hidden; }
 .sk-onboard-line.short { width: 65%; }
-.sk-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
-.sk-pill { height: 88px; background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; justify-content: center; }
-.sk-pill .sk-num { height: 22px; width: 30%; background: var(--panel); border-radius: 4px; position: relative; overflow: hidden; }
-.sk-pill .sk-num::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.05), transparent); animation: skShimmer 1.4s linear infinite; }
-.sk-pill .sk-lbl { height: 9px; width: 55%; background: var(--panel); border-radius: 3px; position: relative; overflow: hidden; }
 .sk-charts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .sk-chart-card { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); padding: 13px 15px 8px; }
 .sk-chart-card .sk-lbl { height: 10px; width: 40%; background: var(--panel); border-radius: 3px; margin-bottom: 8px; position: relative; overflow: hidden; }
@@ -1487,17 +1509,29 @@ tbody tr:hover { background: var(--panel-2); }
 .logs-filters-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .facet-group { border-bottom: 1px solid var(--border-subtle); }
 .facet-group:last-child { border-bottom: none; }
-.facet-head { padding: 10px 14px; cursor: pointer; display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.facet-head { position: relative; padding: 10px 14px; cursor: pointer; display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
 .facet-head:hover { background: var(--panel-2); }
 /* Let the title/meta column take the full width so the meta row's right edge
    reaches the chevron — needed for the clear button's margin-left:auto. */
 .facet-head > div { flex: 1; min-width: 0; }
 .facet-title { font-size: 11.5px; font-weight: 600; color: var(--text-primary); font-family: 'JetBrains Mono', monospace; }
+/* The title's text is the button that folds the group, drawn as the plain text
+   it was. Its ::after stretches over the whole head, so a click anywhere on the
+   head still folds it; the meta row's own buttons are lifted above that. */
+.facet-title-btn { background: none; border: none; padding: 0; font: inherit; color: inherit; text-align: inherit; cursor: pointer; }
+.facet-title-btn::after { content: ""; position: absolute; inset: 0; }
+.facet-sel-toggle, .facet-clear-btn-meta { position: relative; }
+/* The ring goes round the head the button stands for, inset so the rail's
+   scroll box can't clip it. */
+.facet-title-btn:focus-visible { outline: none; }
+.facet-title-btn:focus-visible::after { outline: 2px solid var(--brand); outline-offset: -2px; }
 .facet-meta { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 10px; color: var(--text-muted); margin-top: 2px; }
 .facet-meta-left { display: flex; align-items: center; gap: 4px; }
 /* 'link' variant: the count is a static label, not a control, so it reads in
    primary text rather than the brand-blue that would suggest it's clickable. */
-.facet-chev { width: 12px; height: 12px; color: var(--text-muted); transition: transform .12s; }
+/* Rotated, the chevron paints above the title's stretched hit area, so clicks
+   on it have to fall through to the button below. */
+.facet-chev { width: 12px; height: 12px; color: var(--text-muted); transition: transform .12s; pointer-events: none; }
 .facet-chev.open { transform: rotate(180deg); }
 .facet-search { padding: 4px 12px 6px; }
 .facet-search input { width: 100%; background: var(--panel); border: 1px solid var(--border-subtle); color: var(--text-primary); font-family: inherit; font-size: 10.5px; border-radius: var(--radius-sm); padding: 4px 8px; outline: none; }
@@ -1589,7 +1623,7 @@ tbody tr:hover { background: var(--panel-2); }
 .rawq-row {
   display: flex; align-items: center; gap: 5px;
   background: transparent; border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm); padding: 3px 10px 3px 4px; min-height: 32px;
+  border-radius: var(--radius-sm); padding: 3px 14px 3px 8px; min-height: 32px;
   cursor: text; transition: border-color .12s;
 }
 .rawq-row:focus-within { border-color: var(--brand); }
@@ -1604,12 +1638,6 @@ tbody tr:hover { background: var(--panel-2); }
 .rawq-input::placeholder { color: var(--text-muted); }
 .rawq-hint { color: var(--text-muted); opacity: .55; flex-shrink: 0; margin-top: 3px; display: inline-flex; }
 .rawq-row:focus-within .rawq-hint { opacity: .85; }
-
-.rawq-error {
-  display: flex; align-items: center; gap: 5px;
-  margin-top: 5px; font-size: 10.5px; color: var(--critical-fg);
-}
-.rawq-error svg { flex-shrink: 0; }
 
 .rawq-menu {
   position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 600;
@@ -2297,24 +2325,24 @@ tbody tr:hover { background: var(--panel-2); }
 .lh-text { flex: 1; min-width: 240px; }
 .lh-stream { width: 200px; flex-shrink: 0; }
 .lh-extra { width: 160px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.log-row { --row-py: 8px; --col-gap: 16px; display: flex; gap: var(--col-gap); padding: var(--row-py) 14px var(--row-py) 0; border-bottom: 1px solid var(--border-subtle); font-size: 11.5px; align-items: stretch; cursor: pointer; transition: background .08s; min-width: fit-content; box-sizing: border-box; }
-.log-extra { width: 160px; flex-shrink: 0; font-size: 10.5px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; align-self: flex-start; }
+.log-row { --row-py: 8px; --col-gap: 16px; display: flex; gap: var(--col-gap); padding: var(--row-py) 14px var(--row-py) 0; border-bottom: 1px solid var(--border-subtle); font-size: 12.5px; align-items: stretch; cursor: pointer; transition: background .08s; min-width: fit-content; box-sizing: border-box; }
+.log-extra { width: 160px; flex-shrink: 0; font-size: 12.5px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; align-self: flex-start; }
 .log-row:hover { background: var(--panel-2); }
 .log-row.selected { background: var(--brand-muted); }
 .log-lvl-bar { display: block; width: 3px; flex-shrink: 0; align-self: stretch; border-radius: 0; margin: calc(var(--row-py) * -1) 0; }
 .log-lvl-error { background: var(--critical); }
 .log-lvl-warn { background: var(--warning); }
 .log-lvl-info { background: var(--info); opacity: .45; }
-.log-time { width: 128px; flex-shrink: 0; display: flex; flex-direction: column; gap: 1px; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; }
+.log-time { width: 128px; flex-shrink: 0; display: flex; flex-direction: column; gap: 1px; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; }
 .log-date { color: var(--text-muted); }
 .log-hhmm { color: var(--text-primary); font-weight: 500; }
 /* overflow-wrap: anywhere so a long unbroken token (a URL) wraps inside the
    two-line clamp. Otherwise it sets the column's minimum, and once the table
    is narrower than its columns that row's Text column grows past 240px and
    every column after it falls out of line with the header and the other rows. */
-.log-text { flex: 1; min-width: 240px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.5; align-self: flex-start; overflow-wrap: anywhere; }
+.log-text { flex: 1; min-width: 240px; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.5; align-self: flex-start; overflow-wrap: anywhere; }
 .log-stream { width: 200px; flex-shrink: 0; display: flex; flex-direction: column; gap: 3px; overflow: hidden; align-self: flex-start; }
-.log-tag { display: flex; align-items: center; gap: 4px; font-family: 'JetBrains Mono', monospace; font-size: 10px; overflow: hidden; }
+.log-tag { display: flex; align-items: center; gap: 4px; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; overflow: hidden; }
 .log-tag .k { color: var(--text-muted); }
 .log-tag .v { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -2340,6 +2368,9 @@ tbody tr:hover { background: var(--panel-2); }
 .span-row .span-cell[data-log-field="span_name"] { color: var(--text-primary); }
 .span-dur, .span-cell.right { text-align: right; }
 .span-dur { color: var(--text-primary); }
+/* Body cells take the full-width table size. .span-cell above also draws the
+   head's cells, which keep theirs. */
+.span-row :is(.span-cell, .span-dur, .span-status) { font-size: 12.5px; }
 
 /* Column rules on the log and span tables (see "Column rules" by the table
    styles). The sticky gutter draws the first one on its right edge, so the
@@ -3304,8 +3335,8 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 .agg-table thead th.agg-th-num.is-math { color: var(--brand-on-muted); }
 .agg-table tbody tr { border-top: 1px solid var(--border-subtle); }
 .agg-table tbody tr:hover { background: var(--panel-2); }
-.agg-table td { padding: 7px 12px; white-space: nowrap; font-size: 11.5px; color: var(--text-primary); text-align: right; }
-.agg-table td.agg-td-group { text-align: left; color: var(--text-secondary); font-size: 11px; }
+.agg-table td { padding: 7px 12px; white-space: nowrap; font-size: 12.5px; color: var(--text-primary); text-align: right; }
+.agg-table td.agg-td-group { text-align: left; color: var(--text-secondary); font-size: 12.5px; }
 .agg-table-foot {
   padding: 8px 12px; font-size: 10.5px; color: var(--text-muted);
   border-top: 1px solid var(--border-subtle); background: var(--card);
@@ -3572,39 +3603,54 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 .infra-source-icon-svg :is(svg, img) { display: block; width: 100%; height: 100%; }
 .infra-source-icon-fallback { border-radius: 3px; background: var(--border-panel); flex-shrink: 0; }
 
-.infra-main { min-width: 0; }
-.infra-row-charts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
-.infra-chart-card { --card-pad-x: 14px; --card-pad-b: 8px; background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg);
-  padding: 12px var(--card-pad-x) var(--card-pad-b); }
-.infra-chart-card .clbl { font-size: 12px; font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; color: var(--text-primary); }
-.infra-chart-card .cval { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: var(--text-muted); font-weight: 500; }
+/* The Infra scroller is a container, so its chart grid reflows on the width of
+ * the column it has rather than the viewport's: the sources rail and the nav
+ * rail both take a share of the window, as the host rail does on Runtime. */
+.infra-main { min-width: 0; container-type: inline-size; container-name: infra; }
+
+/* Infrastructure's chart cards are the APM service page's Runtime cards
+ * (components/charts/CardChart: .runtime-chart-card, its header, plot height
+ * and legend), on the Runtime tab's six-track grid. A half spans three tracks,
+ * a third two, and a full-width card all six, so a row of halves and a row of
+ * thirds line up on the same gutters. */
+.infra-card-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 14px; margin-bottom: 20px; }
+.infra-card-grid .rt-half { grid-column: span 3; }
+.infra-card-grid .rt-third { grid-column: span 2; }
+.infra-card-grid .rt-full { grid-column: span 6; }
+.infra-card-grid .rt-third .chart-host { height: 180px; }
+/* The window's reading beside a card's title ("72.8%"), muted so the title
+ * still leads; the Runtime card's .cval sets its size and colour. */
+.infra-card-grid .cval { font-family: 'JetBrains Mono', monospace; font-weight: 500; }
+@container infra (max-width: 900px) {
+  .infra-card-grid .rt-third { grid-column: span 3; }
+  .infra-card-grid .rt-third .chart-host { height: 200px; }
+}
+@container infra (max-width: 560px) {
+  .infra-card-grid > * { grid-column: span 6; }
+}
+/* A fleet's three readings (FleetCards) stay one row, at their own height,
+   until the column is too narrow for any card to share a row. */
+@container infra (min-width: 561px) and (max-width: 900px) {
+  .infra-card-grid.is-fleet .rt-third { grid-column: span 2; }
+  .infra-card-grid.is-fleet .rt-third .chart-host { height: 180px; }
+}
 
 /* Host detail */
 .infra-host-detail { }
 .infra-host-meta { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
-.infra-detail-grid { display: flex; flex-direction: column; gap: 14px; margin-bottom: 20px; }
-.infra-chart-full { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); }
-.infra-chart-head { padding: 12px 16px 4px; display: flex; align-items: center; justify-content: space-between; }
-.infra-chart-tabs { display: flex; gap: 4px; background: var(--panel); padding: 2px; border-radius: var(--radius-sm); }
-.infra-chart-tabs .ict { padding: 3px 10px; font-size: 10.5px; color: var(--text-secondary); border-radius: 4px; cursor: pointer; }
-.infra-chart-tabs .ict.active { background: var(--raised); color: var(--text-primary); font-weight: 600; }
-.infra-chart-body { display: flex; align-items: stretch; padding-top: 6px; }
-.infra-chart-svg-wrap { flex: 1; min-width: 0; padding: 4px 12px 12px; }
-.infra-chart-legend { width: 220px; flex-shrink: 0; border-left: 1px solid var(--border-subtle); padding: 10px 14px; display: flex; flex-direction: column; gap: 4px; }
-.ilegend-hdr { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; margin-bottom: 4px; }
-.ilegend-row { display: flex; align-items: center; gap: 7px; padding: 3px 0; font-size: 10.5px; }
-.ilegend-swatch { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
-.ilegend-name { flex: 1; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; }
-.ilegend-val { font-family: 'JetBrains Mono', monospace; font-weight: 600; color: var(--text-primary); font-size: 10.5px; }
-.infra-detail-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.ilegend-showall { display: flex; align-items: center; justify-content: space-between; padding: 6px 0 0; margin-top: 2px; border-top: 1px solid var(--border-subtle); }
-.ilegend-showall-count { font-size: 10px; color: var(--text-muted); }
-.ilegend-showall-btn { background: none; border: none; color: var(--brand); font-family: inherit; font-size: 10.5px; font-weight: 600; cursor: pointer; padding: 0; }
-.ilegend-showall-btn:hover { color: var(--brand-active); }
+/* A host's top processes, in the Latency Drilldown's legend column
+ * (ProcessChartPanel). A ranking rather than a legend: no row is a line on the
+ * chart, so a row is not a control and keeps the default pointer. */
+.drill2-legend-hdr { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
+.drill2-item.is-static { cursor: default; }
+/* A view production has and this prototype does not yet: dimmed and inert, as
+ * the sidebar stubs a page that is not built. */
+.seg-toggle .seg.is-stub { opacity: .42; cursor: default; }
+.seg-toggle .seg.is-stub:hover { color: var(--text-secondary); }
 
 /* Under a multi-series chart that is holding series back (components/charts/
- * SeriesBudgetFooter.jsx). Same rule, size and brand link as the process legend's
- * "6 of 12 · Show all" above, so the two read as one pattern.
+ * SeriesBudgetFooter.jsx): a rule, a muted count on the left, and on the right
+ * the brand actions "Show 20 more · Show all", whichever apply.
  *
  * It closes off the card it sits in, so its rule runs the card's full width
  * rather than stopping at the card's padding: it cancels the padding with
@@ -3622,15 +3668,25 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
  * section's footer meets the legend column's divider in a T. */
 .red-chart-section > .series-budget { margin: 0; padding: 7px 16px 8px; }
 .split-charts > .series-budget { margin: 0; padding: 7px 14px 8px; }
+/* A third-width card has no room for the count and its actions side by side.
+ * Each stays whole: the actions wrap as one line under the count, at the right,
+ * rather than the count breaking mid-phrase and a dot left dangling. */
+.runtime-chart-card > .series-budget { flex-wrap: wrap; row-gap: 3px; }
+.runtime-chart-card > .series-budget > :not(.series-budget-actions) { white-space: nowrap; }
+.runtime-chart-card > .series-budget > .series-budget-actions { margin-left: auto; flex-wrap: nowrap; }
 .series-budget-btn { background: none; border: none; padding: 0; color: var(--brand); font-family: inherit; font-size: 10.5px;
   font-weight: 600; cursor: pointer; flex-shrink: 0; }
 .series-budget-btn:hover { color: var(--brand-active); }
+.series-budget-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 2px; }
+/* The actions sit together at the right, a dot between each, and wrap as a
+ * group under the count when the footer is too narrow for both. */
+.series-budget-actions { display: inline-flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 4px 8px; }
+.series-budget-sep { color: var(--text-muted); }
 .series-budget-note { text-align: right; }
 .series-budget-progress { flex: 1; max-width: 120px; height: 3px; border-radius: 99px; background: var(--panel); overflow: hidden; }
 .series-budget-progress > span { display: block; height: 100%; background: var(--brand); transition: width 80ms linear; }
 
 /* generic infra empty-state (AWS / GCP / disconnected KBs resources) */
-.infra-empty-charts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
 .infra-empty-table { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); overflow: hidden; }
 /* These cards already draw a line above their table, or are its top edge, so
    the header row's own top border would double it. */
@@ -3647,42 +3703,50 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 .infra-namespace-search input { width: 100%; background: var(--panel); border: 1px solid var(--border-subtle); color: var(--text-primary); font-family: inherit; font-size: 11.5px; border-radius: var(--radius-sm); padding: 6px 10px; outline: none; }
 .infra-namespace-search input:focus { border-color: var(--brand); }
 .infra-namespace-opt { display: flex; align-items: center; gap: 9px; padding: 8px 4px; cursor: pointer; font-size: 12px; color: var(--text-secondary); border-radius: var(--radius-sm); }
-.infra-namespace-opt:hover { background: var(--panel-2); color: var(--text-primary); }
 .infra-namespace-opt input { accent-color: var(--brand); }
 
 /* Kubernetes cluster dashboard */
 .k8s-stat-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 20px; }
 .k8s-stat-card { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); padding: 13px 15px; }
-.k8s-stat-lbl { font-size: 10.5px; color: var(--text-secondary); font-weight: 500; margin-bottom: 8px; }
+.k8s-stat-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 6px; margin: -3px -6px 5px 0; }
+.k8s-stat-lbl { font-size: 10.5px; color: var(--text-secondary); font-weight: 500; padding-top: 3px; }
 .k8s-stat-val { font-size: 24px; font-weight: 600; font-family: 'JetBrains Mono', monospace; color: var(--healthy); line-height: 1; }
 .k8s-stat-val.zero { color: var(--text-primary); }
 .k8s-stat-val.unhealthy { color: var(--critical); }
-.k8s-alloc-legend { display: flex; gap: 14px; margin-top: 6px; padding: 0 4px; }
-.k8s-alloc-legend-item { display: flex; align-items: center; gap: 5px; font-size: 10.5px; color: var(--text-secondary); }
-.k8s-alloc-legend-item .sw { width: 10px; height: 2px; border-radius: 1px; }
-.k8s-alloc-legend-item .sw.dashed { background: repeating-linear-gradient(90deg, currentColor 0 3px, transparent 3px 5px); height: 2px; color: inherit; }
 
 .k8s-events { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); overflow: hidden; margin-bottom: 20px; }
 .k8s-events-head { padding: 12px 16px; font-size: 13px; font-weight: 600; border-bottom: 1px solid var(--border-subtle); }
-.k8s-events-query { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--border-subtle); }
-.k8s-events-query input { flex: 1; background: var(--panel); border: 1px solid var(--border-subtle); color: var(--text-primary); font-family: 'JetBrains Mono', monospace; font-size: 11.5px; border-radius: var(--radius-sm); padding: 6px 10px; outline: none; }
-.k8s-events-query input:focus { border-color: var(--brand); }
+/* The Logs bar, reused whole (InfraView's K8sEvents). The bar and the pipe row
+   keep their Logs spacing; only the notes under the generated query are new. */
+.k8s-events .pipe-toolbar { padding: 0 12px 10px 14px; }
+.k8s-events-notes { padding: 8px 16px 2px; border-bottom: 1px solid var(--border-subtle); }
+.k8s-events-notes:empty { display: none; }
+.k8s-events-notes p { margin: 0 0 6px; font-size: 11px; color: var(--text-secondary); }
 .k8s-events-search-btn { background: var(--brand); color: #fff; border: none; padding: 6px 14px; font-family: inherit; font-size: 11.5px; font-weight: 600; border-radius: var(--radius-sm); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .k8s-events-search-btn:hover { background: var(--brand-hover); }
 .k8s-events-search-btn svg { width: 13px; height: 13px; }
-.k8s-events-logs-link { font-size: 11px; color: var(--text-secondary); text-decoration: none; white-space: nowrap; display: inline-flex; align-items: center; gap: 5px; }
-.k8s-events-logs-link:hover { color: var(--brand); }
-.k8s-events-logs-link svg { width: 12px; height: 12px; }
 
 /* K8s dropdown selector (Node / Pod drill-in header) */
 .k8s-selector-row { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
 .k8s-selector { display: inline-flex; align-items: center; gap: 8px; background: var(--panel); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 6px 12px; font-size: 12px; }
 .k8s-selector-lbl { color: var(--text-muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: .4px; font-weight: 600; }
 .k8s-selector-val { color: var(--text-primary); font-family: 'JetBrains Mono', monospace; font-weight: 600; }
+/* The way back from the chip to the namespace choice: a square the chip's
+   height, in its border, so the two read as one control. */
+.infra-back { display: inline-flex; align-items: center; justify-content: center; width: 29px; height: 29px; padding: 0;
+  background: var(--card); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);
+  color: var(--text-secondary); cursor: pointer; }
+.infra-back svg { width: 14px; height: 14px; }
+.infra-back:hover { color: var(--text-primary); border-color: var(--border-strong); }
+.infra-back:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
 
 /* Containers table (Pod detail) */
 .k8s-containers-table { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); overflow: hidden; margin-bottom: 20px; }
-.k8s-containers-head { padding: 12px 16px; font-size: 13px; font-weight: 600; border-bottom: 1px solid var(--border-subtle); }
+.k8s-containers-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 16px; font-size: 13px; font-weight: 600; border-bottom: 1px solid var(--border-subtle); }
+/* Clear Container, at the head's right. The negative margins take back its
+   padding, so its text lines up on the head's inset and showing it does not
+   make the head any taller. */
+.k8s-containers-head .split-ep-clear { margin: -1px -4px; white-space: nowrap; }
 
 
 /* ============ Runtime tab ============ */
@@ -3762,7 +3826,9 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 }
 
 .runtime-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.runtime-chart-card { background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); padding: 12px 14px 8px; }
+/* --card-pad-*: the padding, named, so a series-budget footer (a fleet card
+   under a budget) reaches the card's edges like a legend chart's does. */
+.runtime-chart-card { --card-pad-x: 14px; --card-pad-b: 8px; background: var(--card); border: 1px solid var(--card-border); border-radius: var(--radius-lg); padding: 12px var(--card-pad-x) var(--card-pad-b); }
 .runtime-chart-card .clbl { font-size: 11.5px; font-weight: 600; margin-bottom: 8px; color: var(--text-primary); display: flex; align-items: center; justify-content: space-between; }
 .runtime-chart-card .cval { font-size: 12px; color: var(--text-secondary); font-weight: 500; }
 .runtime-chart-card .chart-host { height: 200px; }
@@ -3796,7 +3862,7 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
   background: none; color: var(--text-muted); cursor: pointer; opacity: .55; transition: opacity .12s, background .12s, color .12s; }
 .card-menu-btn svg { width: 15px; height: 15px; }
 .kpi-card:hover .card-menu-btn, .panel:hover .card-menu-btn, .chart-card:hover .card-menu-btn,
-.split-chart-card:hover .card-menu-btn, .runtime-chart-card:hover .card-menu-btn { opacity: 1; }
+.split-chart-card:hover .card-menu-btn, .runtime-chart-card:hover .card-menu-btn, .k8s-stat-card:hover .card-menu-btn { opacity: 1; }
 .card-menu-btn:hover, .card-menu-btn:focus-visible, .card-menu-btn.open { opacity: 1; background: var(--panel-2); color: var(--text-primary); }
 .card-menu-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
 
@@ -4395,12 +4461,12 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 .tw-table-db .tw-dbdur { min-width: 112px; }
 .tw-dbdur-total { display: block; font-weight: 500; }
 .tw-dbdur-line {
-  display: block; font-size: 11.5px; color: var(--text-secondary);
+  display: block; font-size: 12.5px; color: var(--text-secondary);
 }
 .tw-dbdur-total + .tw-dbdur-line { margin-top: 5px; }
 .tw-dbdur-k {
   display: inline-block; width: 28px;
-  font-family: 'Rubik', sans-serif; font-size: 10px; font-weight: 400;
+  font-family: 'Rubik', sans-serif; font-size: 12.5px; font-weight: 400;
   color: var(--text-muted);
 }
 .tw-table .dim { color: var(--text-muted); }
@@ -4646,11 +4712,11 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
   margin-right: 7px; vertical-align: middle;
 }
 .tw-svc {
-  flex-shrink: 0; font-size: 11px; font-weight: 500; color: var(--text-secondary);
+  flex-shrink: 0; font-size: 12.5px; font-weight: 500; color: var(--text-secondary);
   white-space: nowrap;
 }
 .tw-name {
-  min-width: 0; font-family: 'JetBrains Mono', monospace; font-size: 11px;
+  min-width: 0; font-family: 'JetBrains Mono', monospace; font-size: 12.5px;
   color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .tw-kind { color: var(--text-muted); }
@@ -4665,7 +4731,7 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 }
 .tw-dur {
   position: relative; z-index: 1;
-  flex: 0 0 66px; font-size: 11px; color: var(--text-secondary); text-align: right;
+  flex: 0 0 66px; font-size: 12.5px; color: var(--text-secondary); text-align: right;
   font-variant-numeric: tabular-nums;
 }
 
@@ -4721,8 +4787,8 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 }
 
 /* ══ Endpoint detail ═══════════════════════════════════════════════════ */
-.ep-hits { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-.ep-hits td { padding: 8px 12px; border-bottom: 1px solid var(--border-subtle); color: var(--text-primary); }
+.ep-hits { width: 100%; border-collapse: collapse; font-size: 11px; }
+.ep-hits td { padding: 8px 12px; font-size: 11px; border-bottom: 1px solid var(--border-subtle); color: var(--text-primary); }
 .ep-hits tr:last-child td { border-bottom: none; }
 .ep-hits .num { text-align: right; color: var(--text-secondary); }
 

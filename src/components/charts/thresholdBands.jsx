@@ -42,6 +42,8 @@ const RULE_OPACITY = 0.6
 // as a band of its own rather than a hairline at the top of the plot.
 const POOR_HEADROOM = 1.2
 
+const isNumber = v => typeof v === 'number' && Number.isFinite(v)
+
 /**
  * The zone and rule elements for one chart, in drawing order.
  *
@@ -53,14 +55,69 @@ const POOR_HEADROOM = 1.2
  * clipped with its rule, so a threshold scaled off the plot would leave its
  * label floating above it.
  *
+ * Two more forms, for an alert rule's tiers (docs/alerts/DESIGN.md D7), which
+ * leave the two-threshold call above exactly as it was:
+ *
+ *   - ONE threshold. Give only `good` and the plot is good below it and needs
+ *     improvement (a warning) above it; give only `poor` and it is good below
+ *     and poor (critical) above, with nothing in between. A rule with only a
+ *     warning tier, or only a critical one, has one line to cross, and a third
+ *     zone would claim a tier it does not have.
+ *   - LOWER IS WORSE, `direction: 'lower'`, for a reading that is bad when it
+ *     drops: an RPM that falls away, an Apdex. Poor runs from 0 up to `poor`,
+ *     needs-improvement from there to `good`, and good from `good` to the top,
+ *     so here `poor` < `good`. Either threshold may be left out, as above.
+ *     For its axis, hand bandAxisTop the HIGHER threshold — `good` — as its
+ *     second argument: it is the one that needs headroom above it.
+ *
+ * Every form keeps the rules above: zones first, then the dashed rules, every
+ * element ifOverflow="hidden", and each rule in the colour of the zone it
+ * opens as the reading gets worse. A call with neither threshold draws nothing.
+ *
  * Returns an array of Recharts elements — never wrap it in a component.
  */
-export function thresholdBands({ good, poor, keyPrefix = 'bands', fmt } = {}) {
+export function thresholdBands({ good, poor, keyPrefix = 'bands', fmt, direction = 'higher' } = {}) {
   const label = v => (fmt ? {
     value: fmt(v), position: 'insideBottomRight', offset: 4, fill: 'var(--text-muted)', fontSize: 10,
   } : undefined)
   const zone = { fillOpacity: ZONE_OPACITY, ifOverflow: 'hidden' }
   const rule = { strokeDasharray: RULE_DASH, strokeOpacity: RULE_OPACITY, ifOverflow: 'hidden' }
+  const hasGood = isNumber(good)
+  const hasPoor = isNumber(poor)
+  const goodRule = () => <ReferenceLine key={`${keyPrefix}-good-rule`} y={good} stroke="var(--warning)" label={label(good)} {...rule} />
+  const poorRule = () => <ReferenceLine key={`${keyPrefix}-poor-rule`} y={poor} stroke="var(--critical)" label={label(poor)} {...rule} />
+
+  if (direction === 'lower') {
+    // Worst at the bottom. The good zone has no y2, so it runs to the top of
+    // the plot however tall the axis is, as the poor zone does the other way up.
+    const out = []
+    if (hasPoor) out.push(<ReferenceArea key={`${keyPrefix}-poor`} y1={0} y2={poor} fill="var(--critical)" {...zone} />)
+    if (hasGood) out.push(<ReferenceArea key={`${keyPrefix}-warn`} y1={hasPoor ? poor : 0} y2={good} fill="var(--warning)" {...zone} />)
+    if (hasGood || hasPoor) out.push(<ReferenceArea key={`${keyPrefix}-good`} y1={hasGood ? good : poor} fill="var(--healthy)" {...zone} />)
+    if (hasGood) out.push(goodRule())
+    if (hasPoor) out.push(poorRule())
+    return out
+  }
+
+  if (hasGood && !hasPoor) {
+    return [
+      <ReferenceArea key={`${keyPrefix}-good`} y1={0} y2={good} fill="var(--healthy)" {...zone} />,
+      <ReferenceArea key={`${keyPrefix}-warn`} y1={good} fill="var(--warning)" {...zone} />,
+      goodRule(),
+    ]
+  }
+  if (hasPoor && !hasGood) {
+    return [
+      <ReferenceArea key={`${keyPrefix}-good`} y1={0} y2={poor} fill="var(--healthy)" {...zone} />,
+      <ReferenceArea key={`${keyPrefix}-poor`} y1={poor} fill="var(--critical)" {...zone} />,
+      poorRule(),
+    ]
+  }
+  if (!hasGood && !hasPoor) return []
+
+  // The two-threshold form, higher is worse: the Web Vitals bands. Its
+  // elements are pinned byte for byte (thresholdBands.test.js), so the forms
+  // above are added beside it rather than folded into it.
   return [
     <ReferenceArea key={`${keyPrefix}-good`} y1={0} y2={good} fill="var(--healthy)" {...zone} />,
     <ReferenceArea key={`${keyPrefix}-warn`} y1={good} y2={poor} fill="var(--warning)" {...zone} />,

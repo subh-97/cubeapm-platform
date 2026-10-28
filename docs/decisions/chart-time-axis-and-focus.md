@@ -110,7 +110,9 @@ health strip (36 divs, no Recharts, each already an exact instant range).
 
 Out of scope, deliberately: `HoverChartPopover` and `ErrorSpark` (decorative,
 no timestamps), `Sparkline`/`KpiCard` (positions by array index), the trace
-Waterfall (a trace's own 0..totalMs, not the page's window), and everything
+Waterfall (a trace's own 0..totalMs, not the page's window), the Detail tab's
+Slow Requests histogram and heatmap (a drag there filters the list beneath and
+leaves the range alone; `slow-requests-latency.md`), and everything
 under `*/explore/` — another session owns it, and `ExploreView` has recorded the
 *opposite* policy under ARCH D5: a drag there is the page's own range and
 deliberately does not touch the app's.

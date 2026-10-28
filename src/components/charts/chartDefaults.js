@@ -14,7 +14,10 @@
 // keeps (what its search matches, and how it scrolls a row into view).
 
 export const AXIS_TICK = { fontSize: 10, fill: 'var(--text-muted)' }
-export const GRID_PROPS = { strokeDasharray: '3 3', stroke: 'var(--border-subtle)', vertical: false }
+// The grid also paints the plot area's background (--chart-plot-bg, at 64%),
+// and since every chart on the platform draws its grid from here, every plot
+// area is the same grey.
+export const GRID_PROPS = { strokeDasharray: '3 3', stroke: 'var(--border-subtle)', vertical: false, fill: 'var(--chart-plot-bg)', fillOpacity: 0.64 }
 
 // Spread onto every series and every Tooltip.
 export const NO_ANIM = { isAnimationActive: false }
@@ -49,6 +52,18 @@ export function fmtCount(v) {
 
 export const fmtMs = v => fmtCompact(v)
 export const fmtPct = v => fmtCompact(v)
+
+// A level read as a percentage — CPU, memory, disk — on the service page's
+// Runtime tab and on Infrastructure. One decimal on a card's axis and tooltip;
+// two in a legend, where the figure sits beside a table row that prints two.
+// A bucket that has not happened yet prints nothing rather than a zero.
+export const fmtPct1 = v => (v == null || Number.isNaN(v) ? '' : `${v.toFixed(1)}%`)
+export const fmtPct2 = v => (v == null || Number.isNaN(v) ? '' : `${v.toFixed(2)}%`)
+
+// A limit is configuration, not a reading — `-Xmx` does not move because Redis
+// is down, and neither does a namespace's CPU request. Dashing it says so, the
+// same way on every chart that carries one.
+export const LIMIT_DASH = '4 3'
 
 // The APM RED tab's figures: its legend values, axis ticks and tooltip rows.
 // Moved here out of ServiceOverview unchanged when the Browser page drew the

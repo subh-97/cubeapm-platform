@@ -559,6 +559,16 @@ test('phrase, empty, exists and comparisons are already reference spelling', () 
   assert.equal(x('duration:>100ms'), 'duration:>100ms | stats count()')
 })
 
+test('comparisons: every symbol, a band, and a quoted value beside a negation', () => {
+  assert.equal(x('duration:>=8.8ms AND duration:<27.83ms'), 'duration:>=8.8ms AND duration:<27.83ms | stats count()')
+  assert.equal(x('http.status:>499 duration_ms:<=5'), 'http.status:>499 duration_ms:<=5 | stats count()')
+  // Read as a value, not a bare run: the quoted space no longer splits the term.
+  assert.equal(x('f!=v AND m:>"a b"'), 'NOT f:="v" AND m:>"a b" | stats count()')
+  assert.equal(x('m:<"\\"x"'), 'm:<"\\"x" | stats count()')
+  // Punctuation outside a number's is quoted.
+  assert.equal(x('m:>a/b'), 'm:>"a/b" | stats count()')
+})
+
 test('field names that are not plain identifiers are quoted', () => {
   assert.equal(x('compact-revision:=5'), '"compact-revision":="5" | stats count()')
   assert.equal(x('"compact-revision":="5"'), '"compact-revision":="5" | stats count()')

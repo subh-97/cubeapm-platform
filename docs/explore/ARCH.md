@@ -104,7 +104,9 @@ animation, shared axis and grid formatting). Values are formatted by `src/utils/
 Behaviour to match: x-axis spanning the full aligned range; y from 0; a multi-series tooltip at the
 hovered timestamp with the nearest series emphasised and the rest dimmed; a dashed crosshair;
 drag-select zoom; stacked areas drawn in reverse with an "Others" series; a 20-series limit with a
-"Showing 20 of N · Show all" footer; and a "Common: k=v, …" line when Labels is "all". A key counts
+"Showing 20 of N · Show all" footer (here also "Show 20 more" and "Hide all", the actions every
+chart's series budget offers — components/charts/seriesBudget.js); and a "Common: k=v, …" line when
+Labels is "all". A key counts
 as common only when every series carries it with the same value; each legend label uses the varying
 keys that series actually has, and an empty label renders as "-".
 

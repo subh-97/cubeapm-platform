@@ -154,13 +154,14 @@ export function resolveWindow(range, nowMs = BASE_TIME.getTime()) {
   // figure is calibrated on stays sixty whole buckets; the short presets
   // already end on a 15 or 30 s boundary past it and keep theirs. Taking the
   // later of the two leaves Today's end, which is still to come, where it was.
-  // An absolute range ends where it was told to.
+  // An absolute range ends where it was told to — its raw end, not `r.end`,
+  // which the query step would pull back by up to fifteen minutes.
   const off = -new Date(nowMs).getTimezoneOffset()
   const floorTo = t => t - ((((t - off * MIN) % step) + step) % step)
   const begin = floorTo(r.start)
   const nowSec = Math.floor(nowMs / 1000)
   const nowMin = nowSec - ((((nowSec - off * MIN) % MIN) + MIN) % MIN)
-  const end = Math.max(begin + 1, range?.kind === 'absolute' ? r.end : Math.max(r.end, nowMin))
+  const end = Math.max(begin + 1, range?.kind === 'absolute' ? r.rawEnd : Math.max(r.end, nowMin))
   const spanSec = end - begin
   const stepMin = step / MIN
 
@@ -227,7 +228,25 @@ export function resolveWindow(range, nowMs = BASE_TIME.getTime()) {
     nowSec,
     label: rangeLabel(range),
     isAbsolute: range?.kind === 'absolute',
+    // An absolute range exactly as it was asked for, in ms: the window's start
+    // is floored to its step, so it can open before `from`. A reader that has
+    // to hold exactly the span another page selected (the Traces merge of the
+    // Slow Requests panel's requests) reads this, not `start`.
+    exactMs: range?.kind === 'absolute' ? [range.from, range.to] : null,
   }
+}
+
+/**
+ * One minute of the clock, in the shape `sampleAt` reads, for a reading that
+ * belongs to a minute rather than to a window's bucket: the minute starting at
+ * `tSec`, measured from `nowMs`. It is exactly the bucket a one-minute window
+ * would draw there — same instant, same incident share — so a series sampled
+ * minute by minute agrees with Last 1 hour's chart wherever the two overlap,
+ * whatever window the minute is later read from.
+ */
+export function minuteInstant(tSec, nowMs = BASE_TIME.getTime()) {
+  const m = (Math.floor(nowMs / 1000) - tSec) / MIN
+  return { t: tSec, ms: tSec * 1000, m, durMin: 1, w: incidentWeightOver(m, 1) }
 }
 
 /** The reference window every published figure was measured over. */

@@ -30,6 +30,7 @@ import { sharePercents, shareText } from './shares'
 // reuses; said here rather than left to the page having loaded it first.
 import './errors.css'
 import './error-details.css'
+import { alertPayloadForError } from '@/utils/alerts/editorPayloads'
 
 // A breakdown list past this many rows stops being a glance. The tail is
 // summed into one line rather than dropped, so the counts still add up.
@@ -534,6 +535,15 @@ export default function ErrorDetailsDrawer({ group, win, onClose, onOpenTrace, o
           title={`Open ${group.service}'s ${group.side} errors on its service page`}
         >
           Open service
+        </button>
+        {/* The rule editor on a count of this exception (docs/alerts/DESIGN.md D13). */}
+        <button
+          type="button"
+          className="hbtn"
+          onClick={() => onOpenLink?.({ view: 'alertEditor', ...alertPayloadForError(group) })}
+          title={`Create an alert rule on ${group.exceptionShort} from ${group.service}`}
+        >
+          Alert on this error
         </button>
       </div>
     </aside>

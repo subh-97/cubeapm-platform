@@ -12,8 +12,10 @@ import {
   applyIncoming, commit, committedQuery, DATASOURCES, draftQuery, initialState,
   isDirty, isMetricsSource, setDatasource, setEditor, setSetting, setTab, tabsFor,
 } from '@/utils/explore/editorState'
-import { buildChartModel, buildTableRows, SHOW_ALL } from '@/utils/explore/series'
+import { buildChartModel, buildTableRows, SHOW_ALL, LEGEND_LIMIT } from '@/utils/explore/series'
+import { SERIES_STEP } from '@/components/charts/seriesBudget'
 import { queryReduced } from '@/utils/explore/api'
+import { alertPayloadForExplore } from '@/utils/alerts/editorPayloads'
 import { COMPARE_OPTIONS, resolveRange, zoomRange } from '@/utils/timeRange'
 import '@/components/explore/explore-page.css'
 
@@ -40,8 +42,9 @@ import '@/components/explore/explore-page.css'
 //   · An incoming payload is applied once per nonce (ARCH D13). A second
 //     arrival carrying the same card re-applies because its nonce is new.
 //
-// `onOpenLink` is deliberately absent: ARCH D13's links run INTO Explore, and
-// nothing here links back out yet.
+// `onOpenLink` has one use: ARCH D13's links run INTO Explore, and the one
+// way back out is the results toolbar's Create alert, which hands the rule
+// editor what the chart is drawing (docs/alerts/DESIGN.md D13).
 
 const CHART_HEIGHT = 300
 
@@ -77,7 +80,7 @@ function RunIcon({ busy }) {
  *   a payload from a card menu or a Logs/Traces page (ARCH D13)
  * @param {() => void} [props.onIncomingApplied]
  */
-export default function ExploreView({ goHome, timeRange, setTimeRange, setToast, incoming, onIncomingApplied }) {
+export default function ExploreView({ goHome, timeRange, setTimeRange, setToast, incoming, onIncomingApplied, onOpenLink }) {
   const [page, setPage] = useState(initialState)
   // The range this page is drawing, when a drag has set one. Null means "the
   // app's range", which is what the time picker edits.
@@ -86,7 +89,9 @@ export default function ExploreView({ goHome, timeRange, setTimeRange, setToast,
   const [runId, setRunId] = useState(0)
   const [legendSearch, setLegendSearch] = useState('')
   const [selection, setSelection] = useState(SHOW_ALL)
-  const [limitOn, setLimitOn] = useState(true)
+  // How many series the legend lists: the reference's twenty, raised a step at
+  // a time by "Show 20 more", Infinity after "Show all".
+  const [legendLimit, setLegendLimit] = useState(LEGEND_LIMIT)
   const [hoverKey, setHoverKey] = useState(null)
   const [csvBusy, setCsvBusy] = useState(false)
   // null means "as tall as its content", which is where the editor starts and
@@ -238,14 +243,14 @@ export default function ExploreView({ goHome, timeRange, setTimeRange, setToast,
     formula: page.formula,
     stack: page.stack,
     search: legendSearch,
-    limitOn,
+    limit: legendLimit,
     selection,
     prevSeries: result.prevSeries,
     prevFailed: result.prevFailed,
     compareShiftSec: result.compareShiftSec,
   }), [
     result.series, result.prevSeries, result.prevFailed, result.compareShiftSec,
-    page.legendLabel, page.formula, page.stack, legendSearch, limitOn, selection,
+    page.legendLabel, page.formula, page.stack, legendSearch, legendLimit, selection,
   ])
 
   const tableRows = useMemo(() => buildTableRows({
@@ -262,7 +267,7 @@ export default function ExploreView({ goHome, timeRange, setTimeRange, setToast,
   const resultKey = `${committed?.datasource ?? ''}|${committed?.query ?? ''}|${page.legendLabel}`
   useEffect(() => {
     setSelection(SHOW_ALL)
-    setLimitOn(true)
+    setLegendLimit(LEGEND_LIMIT)
     setHoverKey(null)
   }, [resultKey])
 
@@ -433,6 +438,9 @@ export default function ExploreView({ goHome, timeRange, setTimeRange, setToast,
               compare={page.compare}
               setCompare={setting('compare')}
               onCsv={onCsv}
+              onCreateAlert={onOpenLink && committed?.query
+                ? () => onOpenLink({ view: 'alertEditor', ...alertPayloadForExplore(editor, committed) })
+                : undefined}
               csvBusy={csvBusy}
               seriesCount={result.series.length || undefined}
             />
@@ -489,7 +497,9 @@ export default function ExploreView({ goHome, timeRange, setTimeRange, setToast,
                   onSearchChange={setLegendSearch}
                   selection={selection}
                   onSelectionChange={setSelection}
-                  onShowAll={() => setLimitOn(false)}
+                  onShowMore={() => setLegendLimit(l => l + SERIES_STEP)}
+                  onShowAll={() => setLegendLimit(Infinity)}
+                  onShowFewer={() => setLegendLimit(LEGEND_LIMIT)}
                   hoverKey={hoverKey}
                   onHoverKey={setHoverKey}
                   comparing={comparing}

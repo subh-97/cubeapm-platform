@@ -1,12 +1,14 @@
 // The series palettes. RED_EP_COLORS and epColor moved here from the service
 // page and must keep every endpoint's colour; BROWSER_COLORS must keep clear of
 // every status hue, because its lines are drawn over status-coloured bands.
+// RESOURCE_COLORS moved here from the Runtime tab and must keep its colours,
+// and neither it nor infraColor may spend a status hue on a series.
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { REFERENCE_WINDOW as win } from '@/data/timeWindow'
 import { BROWSER_APPS, pageViewsForWindow, ajaxCallsForWindow, webVitalsForWindow } from '@/data/browser'
-import { RED_EP_COLORS, epColor, BROWSER_COLORS, browserColor, cycledColor } from './chartPalette.js'
+import { RED_EP_COLORS, epColor, BROWSER_COLORS, browserColor, cycledColor, infraColor, RESOURCE_COLORS } from './chartPalette.js'
 
 const rgb = hex => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255)
 
@@ -107,5 +109,23 @@ test('every list the Browser page charts fits in one pass of its palette', () =>
       assert.equal(new Set(colors).size, rows.length)
       for (const c of colors) assert.match(c, /^#[0-9A-F]{6}$/, `${app.id}'s ${noun}: no faded second-pass colour`)
     }
+  }
+})
+
+test('the Runtime tab keeps its resource colours, and none of them is a status hue', () => {
+  assert.deepEqual(RESOURCE_COLORS, { used: '#3B82F6', committed: '#06B6D4', limit: '#A78BFA', alt: '#F472B6' })
+  // Green runs to about 160°, and red and amber sit below 60°. Pink (#F472B6,
+  // 330°) is identity on this platform, never a severity.
+  for (const c of Object.values(RESOURCE_COLORS)) {
+    const h = hue(c)
+    assert.ok(h > 160, `${c} has hue ${h?.toFixed(0)}°`)
+  }
+})
+
+test('Infra colours a fleet from the Browser palette, so no host wears a status hue', () => {
+  for (let i = 0; i < 64; i++) assert.equal(infraColor(i), cycledColor(BROWSER_COLORS, i))
+  for (let i = 0; i < BROWSER_COLORS.length; i++) {
+    const h = hue(infraColor(i))
+    assert.ok(h >= 180 && h <= 285, `${infraColor(i)} has hue ${h?.toFixed(0)}°`)
   }
 })

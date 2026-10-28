@@ -100,8 +100,10 @@ function thStyle(c) {
 // caller hands over an order no single column expresses (worst rating first,
 // then the largest figure). `className` is added to the scroller, for a page's
 // own table rules. The scroller is .table-scroll, which lets a table wider than
-// its panel scroll sideways instead of losing its last columns.
-export function SortableTable({ columns, rows, rowKey, defaultSort = null, defaultDir = 'desc', onRowClick, empty, sortable = true, className }) {
+// its panel scroll sideways instead of losing its last columns. `selectedKey`
+// is the rowKey of a row the page has picked (a pod's container), drawn as
+// picked; left out, no row is.
+export function SortableTable({ columns, rows, rowKey, defaultSort = null, defaultDir = 'desc', onRowClick, empty, sortable = true, className, selectedKey }) {
   const { rows: sorted, sort, toggle } = useSortedRows(rows, defaultSort, defaultDir)
   const infoOf = c => (c.info != null
     ? <span className="sortable-th-info" style={TH_INFO_STYLE} onClick={stopClick}>{c.info}</span>
@@ -119,7 +121,7 @@ export function SortableTable({ columns, rows, rowKey, defaultSort = null, defau
         </thead>
         <tbody>
           {sorted.map(r => (
-            <tr key={rowKey(r)} onClick={onRowClick ? () => onRowClick(r) : undefined}>
+            <tr key={rowKey(r)} className={selectedKey != null && rowKey(r) === selectedKey ? 'selected' : undefined} onClick={onRowClick ? () => onRowClick(r) : undefined}>
               {columns.map(c => (
                 <td key={c.key} className={c.mono ? 'mono' : undefined} style={c.align === 'left' ? { textAlign: 'left' } : undefined}>
                   {c.clip

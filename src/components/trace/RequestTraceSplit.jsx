@@ -28,6 +28,35 @@ function sortRows(data, sortBy) {
 
 const defaultMeta = r => <>{r.timestamp} · trace <span className="mono">{r.traceId}</span></>
 const defaultDuration = r => `${r.latencyMs} ms`
+
+// "Sort by" and its Latency / Time / None toggle, as the head of either panel
+// draws it.
+function SortBy({ sortBy, onSort }) {
+  return (
+    <>
+      <span className="sort-lbl">Sort by</span>
+      <div className="seg-toggle">
+        {SLOWREQ_SORTS.map(s => (
+          // The <div class="seg"> look is kept; role, focus and keys make
+          // the sort reachable without a mouse.
+          <div
+            key={s.id}
+            className={`seg${sortBy === s.id ? ' active' : ''}`}
+            role="button"
+            tabIndex={0}
+            aria-pressed={sortBy === s.id}
+            onClick={() => onSort(s.id)}
+            onKeyDown={ev => {
+              if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); onSort(s.id) }
+            }}
+          >
+            {s.label}
+          </div>
+        ))}
+      </div>
+    </>
+  )
+}
 // A trace nothing has been folded on yet. Shared, so never changed in place:
 // a fold makes that trace a set of its own.
 const NO_FOLDS = new Set()
@@ -80,7 +109,15 @@ export function TraceErrorSummary({ trace, onOpenException }) {
  *
  *   sortBy / onSortBy      the sort, when the caller keeps it (in a URL, say)
  *   limit                  how many rows show, cut after sorting
+ *   headLead               a control in the head, before Sort by — the Slow
+ *                          Requests panel's "Show preview" choice
  *   headExtra              a control in the head, before the card menu
+ *   controlsAt             'head' (default) or 'list': where Sort by and
+ *                          headExtra sit. 'list' puts them on a bar at the top
+ *                          of the list, over the rows they order and count —
+ *                          for a panel whose head and list are far apart (the
+ *                          Slow Requests chart between them). With no rows
+ *                          left (emptyList) the bar goes with the list.
  *   resolveTrace(id)       how a trace id becomes a trace (default buildTrace)
  *   onOpenException(span, trace)
  *                          when given, a failed trace's preview opens with an
@@ -97,13 +134,18 @@ export function TraceErrorSummary({ trace, onOpenException }) {
  *   stickyPreview          the preview keeps beside the rows in view while a
  *                          long list scrolls under it, rather than staying at
  *                          the top of the split (see request-trace-split.css)
+ *   above                  a section between the head and the split — the
+ *                          Slow Requests panel's latency chart, which filters
+ *                          the list under it. It stays when the list empties
+ *                          (emptyList), so the chart that emptied it is still
+ *                          there to widen it again.
  */
 export default function RequestTraceSplit({
   onOpenTrace, data, title = 'Slow Requests', initialSort = 'latency',
-  sortBy: sortByProp, onSortBy, limit, headExtra, resolveTrace = buildTrace,
+  sortBy: sortByProp, onSortBy, limit, headLead, headExtra, controlsAt = 'head', resolveTrace = buildTrace,
   onOpenException, emptyList, emptyPreview = 'Select a request to view its trace',
   rowMeta = defaultMeta, durationLabel = defaultDuration,
-  initialSelected = null, stickyPreview = false,
+  initialSelected = null, stickyPreview = false, above,
 }) {
   const [ownSort, setOwnSort] = useState(initialSort)
   const sortBy = sortByProp ?? ownSort
@@ -159,33 +201,26 @@ export default function RequestTraceSplit({
       <div className="panel-head is-divided">
         <div className="panel-head-left">{title}</div>
         <div className="panel-head-right">
-          <span className="sort-lbl">Sort by</span>
-          <div className="seg-toggle">
-            {SLOWREQ_SORTS.map(s => (
-              // The <div class="seg"> look is kept; role, focus and keys make
-              // the sort reachable without a mouse.
-              <div
-                key={s.id}
-                className={`seg${sortBy === s.id ? ' active' : ''}`}
-                role="button"
-                tabIndex={0}
-                aria-pressed={sortBy === s.id}
-                onClick={() => setSortBy(s.id)}
-                onKeyDown={ev => {
-                  if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); setSortBy(s.id) }
-                }}
-              >
-                {s.label}
-              </div>
-            ))}
-          </div>
-          {headExtra}
+          {headLead}
+          {controlsAt === 'head' && (
+            <>
+              <SortBy sortBy={sortBy} onSort={setSortBy} />
+              {headExtra}
+            </>
+          )}
           <CardMenu kind="list" title={title} />
         </div>
       </div>
+      {above}
       {rows.length === 0 && emptyList != null ? emptyList : (
         <div className="slowreq-split">
           <div className="slowreq-list">
+            {controlsAt === 'list' && (
+              <div className="rts-list-bar">
+                <div className="rts-list-bar-sort"><SortBy sortBy={sortBy} onSort={setSortBy} /></div>
+                {headExtra}
+              </div>
+            )}
             {rows.map(r => (
               <button
                 type="button"
@@ -246,5 +281,58 @@ export default function RequestTraceSplit({
         </div>
       )}
     </div>
+  )
+}
+
+/**
+ * The split's list on its own, for a column too narrow to hold a waterfall
+ * beside it: the service page's DB tab puts its Slow Queries under its charts.
+ * With no preview to pick a row into, a row opens its trace in trace details
+ * straight away. It has no panel chrome of its own, being a section of the
+ * column it sits in, headed the way that column's charts are.
+ *
+ * Takes the split's rows and the props of it that still apply: onOpenTrace,
+ * data, title, initialSort, rowMeta and durationLabel. `columns` names the two
+ * columns in the header over the rows: what a row is, and its duration.
+ */
+export function RequestTraceList({
+  onOpenTrace, data, title = 'Slow Requests', initialSort = 'latency',
+  rowMeta = defaultMeta, durationLabel = defaultDuration,
+  columns = ['Request', 'Duration'],
+}) {
+  const [sortBy, setSortBy] = useState(initialSort)
+  const rows = useMemo(() => sortRows(data, sortBy), [data, sortBy])
+
+  return (
+    <section className="rts-list" aria-label={title}>
+      <div className="rts-list-head">
+        <span className="rts-list-title">{title}</span>
+        <div className="panel-head-right">
+          <SortBy sortBy={sortBy} onSort={setSortBy} />
+          <CardMenu kind="list" title={title} />
+        </div>
+      </div>
+      <div className="rts-list-cols">
+        <span>{columns[0]}</span>
+        <span>{columns[1]}</span>
+      </div>
+      <div className="slowreq-list">
+        {rows.map(r => (
+          <button
+            type="button"
+            className="slowreq-row"
+            key={r.traceId}
+            onClick={() => onOpenTrace?.(r.traceId)}
+            title={`Open trace ${r.traceId} in trace details`}
+          >
+            <div>
+              <div className="ep">{r.endpoint}</div>
+              <div className="meta">{rowMeta(r)}</div>
+            </div>
+            <div className="dur">{durationLabel(r)}</div>
+          </button>
+        ))}
+      </div>
+    </section>
   )
 }

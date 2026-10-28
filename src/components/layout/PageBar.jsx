@@ -4,6 +4,7 @@ import {
   validateCustomRange, autoFillTo, formatDateTimeInput,
 } from '@/utils/timeRange'
 import { seedCustomRange, normalizeAutoRefresh, panelPosition } from '@/utils/timePanel'
+import Breadcrumbs from './Breadcrumbs'
 import './page-bar.css'
 
 function SvgIcon({ name, className }) {
@@ -26,7 +27,8 @@ function SvgIcon({ name, className }) {
  *
  * Kept as a wrapper — pages author their breadcrumb content as children,
  * which lets each page keep its own trail shape (including selects like
- * InfraView's host picker) without any restructuring here.
+ * InfraView's host picker) without any restructuring here. A trail too long
+ * for its side of the bar folds its middle crumbs into "…" (Breadcrumbs.jsx).
  *
  * `actions` is the same idea for the right-hand side: a page can put its own
  * controls ahead of the shared ones without this file learning what they are.
@@ -46,6 +48,11 @@ function SvgIcon({ name, className }) {
  *                        must not run a second one of its own.
  *   onAutoRefreshChange  receives the new interval. Passing it is what makes the
  *                        auto-refresh control appear at all.
+ *
+ * `showTime` (default true) leaves the time-range picker out when false, for a
+ * view the range says nothing about — the Alerts page's contact points and
+ * mute schedules are configuration, not history (docs/alerts/DESIGN.md D16).
+ * Every page that does not pass it gets the bar it always had.
  */
 export default function PageBar({
   children,
@@ -59,6 +66,7 @@ export default function PageBar({
   refreshing = false,
   autoRefresh,
   onAutoRefreshChange,
+  showTime = true,
 }) {
   const [timeOpen, setTimeOpen] = useState(false)
   const timeBtnRef = useRef(null)
@@ -111,7 +119,7 @@ export default function PageBar({
 
   return (
     <div className="card-crumbs">
-      <div className="card-crumbs-left">{children}</div>
+      <Breadcrumbs>{children}</Breadcrumbs>
       <div className="card-crumbs-right">
         {actions}
         {onAutoRefreshChange && (
@@ -140,7 +148,7 @@ export default function PageBar({
         >
           <SvgIcon name="refresh" className={refreshing ? 'ex-spin' : undefined} />
         </button>
-        <div style={{ position: 'relative' }} ref={timeBtnRef}>
+        {showTime && <div style={{ position: 'relative' }} ref={timeBtnRef}>
           <button
             ref={timeTriggerRef}
             className={`hbtn time-btn${timeOpen ? ' active' : ''}`}
@@ -166,7 +174,7 @@ export default function PageBar({
               anchorRef={timeBtnRef}
             />
           )}
-        </div>
+        </div>}
         {showSettings && (
           <button
             className={`hbtn icon${settingsOpen ? ' active' : ''}`}

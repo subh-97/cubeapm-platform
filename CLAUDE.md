@@ -29,10 +29,10 @@ All routes are children of `<AppShell />` via `<Outlet />`:
 - `/mobile-traces` → Mobile Traces (sidebar "MTraces"): the Traces explorer over the mobile dataset (`MOBILE_TRACES_SOURCE`); a request's trace opens at `/trace/<id>?datasource=mobile`
 - `/logs` → LogsPage  
 - `/metrics` → MetricsPage
-- `/alerts` → AlertsPage
+- `/alerts` → AlertsView: Rules, Insights, Contact points, Mute schedules and Notifications, under production's `?tab=` values; `/alerts/:id` → AlertRuleView, a rule's page; `/alerts/new` and `/alerts/:id/edit` → AlertEditorView, the editor. The three load as their own chunk (`docs/decisions/alerts-page.md`)
 - `/settings` → SettingsPage
 
-The sidebar starts with Home, then follows the production app's list: APM & Services (a service's APM page), Logs, Infrastructure, Browser, Traces, MTraces, Profiles, Errors, Mobile, Dashboard, Explore, SLO, Alerts, Monitors, Investigation. Items not built yet (Profiles, Mobile, Dashboard, SLO, Alerts, Monitors, Investigation) are stubbed with `opacity-.42` and no click handler.
+The sidebar starts with Home, then follows the production app's list: APM & Services (a service's APM page), Logs, Infrastructure, Browser, Traces, MTraces, Profiles, Errors, Mobile, Dashboard, Explore, SLO, Alerts, Monitors, Investigation. Items not built yet (Profiles, Mobile, Dashboard, SLO, Monitors, Investigation) are stubbed with `opacity-.42` and no click handler.
 
 ### Data layer
 Mock data in `src/data/`, generated as a function of the selected time range rather than stored flat. `src/utils/timeRange.js` models the range (`{kind:'preset'}` or `{kind:'absolute'}`, owned by `App`); `src/data/timeWindow.js` turns it into a window and samples one shared incident profile for every series, aggregate and level mix. Last 1 hour reproduces the published figures exactly; wider ranges dilute the incident, and p90 falls off a cliff where a mean would fade. See `docs/decisions/time-range-windowing.md`. Every service has RED metrics (Rate, Error, Duration) computed through status resolution functions. Replace with real API calls when integrating with the CubeAPM backend.
@@ -141,6 +141,10 @@ Decisions worth not re-deriving. Read the relevant one before reworking that are
 - `docs/decisions/errors-page.md` — the `/errors` page: filter series then group, the errors variant of the query builder, the URL dialects it reads, and how it hands off to Traces and the service page
 - `docs/decisions/mobile-traces-page.md` — the `/mobile-traces` page: one explorer driven by a dataset `source`, the session-built mobile data and its decodable trace ids, severity bands for HTTP codes, the one-span mobile trace view, and every difference from production
 - `docs/decisions/browser-page.md` — the `/browser` (RUM) page: the original's URL dialect as its only state, the service page's frame and panels reused, synced legend isolation, vitals bands, the source-map-gated exception modal, and the trace's way back to Browser
+- `docs/decisions/infra-charts.md` — every Infrastructure chart is a service-page chart (`LegendLineChart` for fleets, `CardChart` — the Runtime card — for the rest, the Latency Drilldown frame for a host's CPU and memory), no status hues on series, and what each choice cost
+- `docs/decisions/alerts-page.md` — the Alerts module (`/alerts`, a rule's page, the editor): production's URL dialect, a store of the viewer's edits over a seed rebuilt each load, one evaluator behind the history, the preview and the charts, every entry point's payload, keyboard and focus, and every difference from production
+- `docs/decisions/slow-requests-latency.md` — the Detail tab's Slow Requests: one endpoint's requests modelled minute by minute, a latency Histogram | Heatmap whose drag filters the list (and does not zoom), "slow" as the window's slowest tenth and why it parts from the p90 card at an hour, decodable request trace ids, View in Traces landing on the panel's rows, the duration comparisons it needed, and every difference from production
+- `docs/alerts/` — the Alerts study and its working papers: `reference/production.md` (what production does: every screen, string and URL key, 19 journeys, defects R1–R47), `DESIGN.md` (decisions D1–D18, signed off, binding) and `PLAN.md` (the phases as built, the status tables and the open gaps)
 
 `docs/HANDOFF.md` describes where the project stands overall.
 

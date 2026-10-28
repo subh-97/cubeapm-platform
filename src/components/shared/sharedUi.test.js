@@ -19,6 +19,11 @@ import ViewToggle from './ViewToggle.jsx'
 import { SortableTable, SortableTh, CellBar } from './SortableTable.jsx'
 import FilterSelect from './FilterSelect.jsx'
 import ServicePicker from '../ServicePicker.jsx'
+import ViewTabs from './ViewTabs.jsx'
+import { viewTabId, viewTabPanelId } from './viewTabIds.js'
+import { Gauge, Crosshair, ChartLine, Globe, Database, TriangleAlert, Cpu, PanelsTopLeft, ArrowLeftRight, Activity, TextSearch } from 'lucide-react'
+import { SERVICE_TABS } from '@/utils/route'
+import { BROWSER_TABS } from '@/utils/browserUrl'
 
 const noop = () => {}
 const html = el => renderToStaticMarkup(el)
@@ -296,4 +301,116 @@ test('a strip starts in its place, and each state has its modifier', () => {
   assert.equal(revealClass('natural'), '')
   assert.equal(revealClass('hidden'), ' is-hidden')
   assert.equal(revealClass('revealed'), ' is-revealed')
+})
+
+/* ── ViewTabs ── */
+
+// The two strips ViewTabs replaced, verbatim: the service page's, and
+// Browser's, which is the full tablist pattern.
+const SERVICE_VIEW_META = {
+  overview: { label: 'Overview', Icon: Gauge },
+  red: { label: 'RED', Icon: ChartLine },
+  detail: { label: 'Detail', Icon: Crosshair },
+  external: { label: 'External', Icon: Globe },
+  db: { label: 'DB', Icon: Database },
+  errors: { label: 'Errors', Icon: TriangleAlert },
+  runtime: { label: 'Runtime', Icon: Cpu },
+}
+const SERVICE_VIEWS = SERVICE_TABS.map(id => ({ id, ...SERVICE_VIEW_META[id] }))
+const BROWSER_TAB_META = {
+  pageviews: { label: 'Page Views', Icon: PanelsTopLeft },
+  'ajax-calls': { label: 'Ajax Calls', Icon: ArrowLeftRight },
+  'web-vitals': { label: 'Web Vitals', Icon: Activity },
+  errors: { label: 'Errors', Icon: TriangleAlert },
+  traces: { label: 'Traces', Icon: TextSearch },
+}
+const TAB_STRIP = BROWSER_TABS.map(id => ({ id, ...BROWSER_TAB_META[id] }))
+
+// ServiceOverview.jsx, the view strip.
+function ServiceViewStrip({ serviceSubTab, setServiceSubTab }) {
+  return (
+    <div className="view-tabs" role="tablist" aria-label="Service views">
+      {SERVICE_VIEWS.map(({ Icon, ...v }) => (
+        <button
+          key={v.id}
+          type="button"
+          role="tab"
+          aria-selected={serviceSubTab === v.id}
+          className={`view-tab${serviceSubTab === v.id ? ' active' : ''}`}
+          onClick={() => setServiceSubTab(v.id)}
+        >
+          <Icon size={14} strokeWidth={1.75} aria-hidden="true" />
+          {v.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+// BrowserView.jsx, the tab strip.
+function BrowserTabStrip({ tab, selectTab, onTabKeyDown }) {
+  const tabRefs = { current: {} }
+  const tabId = id => `brw-tab-${id}`
+  const PANEL_ID = 'brw-tab-panel'
+  return (
+    <div className="view-tabs" role="tablist" aria-label="Browser views" onKeyDown={onTabKeyDown}>
+      {TAB_STRIP.map(({ Icon, ...t }) => (
+        <button
+          key={t.id}
+          ref={el => { tabRefs.current[t.id] = el }}
+          id={tabId(t.id)}
+          data-tab={t.id}
+          type="button"
+          role="tab"
+          aria-selected={tab === t.id}
+          aria-controls={PANEL_ID}
+          tabIndex={tab === t.id ? 0 : -1}
+          className={`view-tab${tab === t.id ? ' active' : ''}`}
+          onClick={() => selectTab(t.id)}
+        >
+          <Icon size={14} strokeWidth={1.75} aria-hidden="true" />
+          {t.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+test('ViewTabs without an idPrefix draws the service page\'s strip exactly', () => {
+  for (const active of [...SERVICE_TABS, 'nope']) {
+    assert.equal(
+      html(<ViewTabs tabs={SERVICE_VIEWS} active={active} onSelect={noop} ariaLabel="Service views" />),
+      html(<ServiceViewStrip serviceSubTab={active} setServiceSubTab={noop} />),
+      `active=${active}`,
+    )
+  }
+})
+
+test('ViewTabs with an idPrefix draws Browser\'s tablist exactly', () => {
+  for (const active of BROWSER_TABS) {
+    assert.equal(
+      html(<ViewTabs tabs={TAB_STRIP} active={active} onSelect={noop} ariaLabel="Browser views" idPrefix="brw-tab" />),
+      html(<BrowserTabStrip tab={active} selectTab={noop} onTabKeyDown={noop} />),
+      `active=${active}`,
+    )
+  }
+  assert.equal(viewTabId('brw-tab', 'errors'), 'brw-tab-errors')
+  assert.equal(viewTabPanelId('brw-tab'), 'brw-tab-panel')
+})
+
+test('a count follows the label when given, and nothing is added when it is not', () => {
+  const tabs = [
+    { id: 'alerts', label: 'Rules', Icon: Gauge, count: 14 },
+    { id: 'alert-stats', label: 'Insights', Icon: ChartLine, count: 0 },
+    { id: 'alert-logs', label: 'Notifications', Icon: Cpu },
+  ]
+  const out = html(<ViewTabs tabs={tabs} active="alerts" onSelect={noop} ariaLabel="Alerts views" idPrefix="alr-tab" />)
+  assert.match(out, /Rules<span class="view-tab-count">14<\/span><\/button>/)
+  assert.match(out, /Insights<span class="view-tab-count">0<\/span><\/button>/, 'zero is a count')
+  assert.match(out, /Notifications<\/button>/)
+  assert.equal((out.match(/view-tab-count/g) ?? []).length, 2)
+  assert.match(out, /^<div class="view-tabs" role="tablist" aria-label="Alerts views">/)
+  assert.match(out, /id="alr-tab-alerts" data-tab="alerts" type="button" role="tab" aria-selected="true" aria-controls="alr-tab-panel" tabindex="0"/)
+  const extra = html(<ViewTabs tabs={tabs} active="x" onSelect={noop} ariaLabel="A" className="is-alerts" />)
+  assert.match(extra, /^<div class="view-tabs is-alerts" role="tablist" aria-label="A">/)
 })

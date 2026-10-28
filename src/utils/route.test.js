@@ -4,7 +4,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseRoute, routeUrl, serviceUrl, traceUrl, canonicalUrl, SERVICE_TABS } from './route.js'
+import { parseRoute, routeUrl, serviceUrl, traceUrl, canonicalUrl, alertRuleUrl, alertEditorUrl, SERVICE_TABS } from './route.js'
 import { services } from '@/data/services'
 
 const first = services[0].id
@@ -156,4 +156,34 @@ test('every URL App prints parses back to the same route', () => {
       assert.deepEqual(parseRoute(path, query ? `?${query}` : ''), { view: 'service', serviceId: s.id, serviceSubTab: tab })
     }
   }
+})
+
+// ---------- Alerts (docs/alerts/DESIGN.md D14) ----------
+
+test('production\'s Alerts paths parse to the hub, a rule and the editor', () => {
+  assert.deepEqual(parseRoute('/alerts'), { view: 'alerts' })
+  assert.deepEqual(parseRoute('/alerts/'), { view: 'alerts' })
+  assert.deepEqual(parseRoute('/alerts/437'), { view: 'alertRule', ruleId: '437' })
+  assert.deepEqual(parseRoute('/alerts/437', '?alert_id=13501299483493697436'), { view: 'alertRule', ruleId: '437' })
+  assert.deepEqual(parseRoute('/alerts/new'), { view: 'alertEditor', ruleId: null })
+  assert.deepEqual(parseRoute('/alerts/437/edit'), { view: 'alertEditor', ruleId: '437' })
+  assert.deepEqual(parseRoute('/alerts/437/edit/'), { view: 'alertEditor', ruleId: '437' })
+  assert.deepEqual(parseRoute('/alerts/437/history'), { view: 'alertRule', ruleId: '437' }, 'an extra segment still names the rule')
+  assert.deepEqual(parseRoute('/alerts/r%20one'), { view: 'alertRule', ruleId: 'r one' })
+})
+
+test('each Alerts route prints the one URL it is spelled as', () => {
+  assert.equal(alertRuleUrl(437), '/alerts/437')
+  assert.equal(alertEditorUrl(437), '/alerts/437/edit')
+  assert.equal(alertEditorUrl(null), '/alerts/new')
+  for (const path of ['/alerts', '/alerts/437', '/alerts/new', '/alerts/437/edit', '/alerts/r%20one']) {
+    assert.equal(routeUrl(parseRoute(path)), path, path)
+  }
+})
+
+test('the Alerts pages own their query strings, so App carries them across untouched', () => {
+  const study = '?service=cubedemo-web&index=cube%3Aerror&time=7d&view=graph&env=UNSET'
+  assert.equal(canonicalUrl('/alerts', study), `/alerts${study}`)
+  assert.equal(canonicalUrl('/alerts/437', '?alert_id=9&notifyTime=1792056582'), '/alerts/437?alert_id=9&notifyTime=1792056582')
+  assert.equal(canonicalUrl('/alerts/', '?tab=alert-logs&rule_id=437'), '/alerts?tab=alert-logs&rule_id=437')
 })

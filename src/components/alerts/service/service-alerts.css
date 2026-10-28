@@ -1,0 +1,11 @@
+/* Alerts on the service page (docs/alerts/DESIGN.md D13): the settings
+   drawer's Alerts tab. */
+
+.svc-alerts-list { list-style: none; margin: 0 0 14px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.svc-alerts-list li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 8px; align-items: center; }
+.svc-alerts-list a { color: var(--text-primary); font-weight: 600; font-size: 12.5px; text-decoration: none; }
+.svc-alerts-list a:hover { color: var(--brand); text-decoration: underline; }
+.svc-alerts-cond { grid-column: 2; font-size: 11.5px; color: var(--text-muted); }
+.svc-alerts-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.svc-alerts-actions .hbtn { text-decoration: none; }
+.svc-alerts-actions svg { width: 13px; height: 13px; }

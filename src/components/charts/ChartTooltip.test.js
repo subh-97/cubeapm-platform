@@ -86,3 +86,19 @@ test('the chart the pointer is in still renders its panel', () => {
   // An unsynced chart passes no `suppressed` at all, and must be unaffected.
   assert.notEqual(ChartTooltip(props), null)
 })
+
+// A chart whose x is not time — the Slow Requests latency histogram — heads its
+// tooltip with what its bar spans instead. Only then: a time chart's heading is
+// its instant, and a `heading` passed beside a `tMs` must not replace it.
+test('a reading that is not an instant can carry a heading of its own', () => {
+  const find = (node, text) => {
+    if (node == null || typeof node !== 'object') return node === text
+    const kids = [].concat(node.props?.children ?? [])
+    return kids.some(k => (Array.isArray(k) ? k.some(x => find(x, text)) : find(k, text)))
+  }
+  const range = '11.36 ms - 12.92 ms'
+  const bar = ChartTooltip({ nowMs: props.nowMs, items: props.items, heading: range })
+  assert.ok(find(bar, range), 'the heading is drawn')
+  const timed = ChartTooltip({ ...props, heading: range })
+  assert.ok(!find(timed, range), 'beside an instant, the instant heads the tooltip')
+})

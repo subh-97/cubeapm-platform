@@ -9,6 +9,8 @@ import { rumExploreQuery } from '@/data/explore/eventsStore'
 import PageBar from '@/components/layout/PageBar'
 import ServicePicker from '@/components/ServicePicker'
 import FilterSelect from '@/components/shared/FilterSelect'
+import ViewTabs from '@/components/shared/ViewTabs'
+import { viewTabId, viewTabPanelId } from '@/components/shared/viewTabIds'
 import { CardActionContext } from '@/components/CardMenu'
 import { useScrollReveal, revealClass } from '@/hooks/useScrollReveal'
 import PageViewsTab from '@/components/browser/PageViewsTab'
@@ -31,8 +33,9 @@ const TAB_META = {
 }
 const TAB_STRIP = BROWSER_TABS.map(id => ({ id, ...TAB_META[id] }))
 // The tab strip names the body it controls, and the body says which tab it is.
-const tabId = id => `brw-tab-${id}`
-const PANEL_ID = 'brw-tab-panel'
+const TAB_ID_PREFIX = 'brw-tab'
+const tabId = id => viewTabId(TAB_ID_PREFIX, id)
+const PANEL_ID = viewTabPanelId(TAB_ID_PREFIX)
 
 // The URL says server|client, production's values, so a pasted link still
 // reads; the Type filter says what they mean in a browser (BROWSER_KINDS).
@@ -222,6 +225,10 @@ export default function BrowserView({
       }
       return
     }
+    if (/^Create Alert\b/.test(String(action ?? ''))) {
+      setToast?.(`${action} · ${title} - alerts on browser metrics come later. A rule on ${app.name}'s RUM events can be made from Logs.`)
+      return
+    }
     setToast?.(`${action} · ${title} - that screen is not part of this prototype yet.`)
   }, [onOpenLink, setToast, app.id, app.name])
 
@@ -265,21 +272,6 @@ export default function BrowserView({
     const at = document.activeElement
     if (!at || at === document.body) tabRefs.current[tab]?.focus()
   }, [bodyKey, tab])
-
-  // The tab strip is one Tab stop; the arrows, Home and End move along it, and
-  // Enter or Space opens the tab (a new screen, so it is not done on arrow).
-  const onTabKeyDown = (e) => {
-    const ids = TAB_STRIP.map(t => t.id)
-    const i = ids.indexOf(document.activeElement?.dataset?.tab ?? tab)
-    const to = e.key === 'ArrowRight' ? (i + 1) % ids.length
-      : e.key === 'ArrowLeft' ? (i - 1 + ids.length) % ids.length
-        : e.key === 'Home' ? 0
-          : e.key === 'End' ? ids.length - 1
-            : null
-    if (to == null) return
-    e.preventDefault()
-    tabRefs.current[ids[to]]?.focus()
-  }
 
   // One syncId per tab: hovering any chart lines up the cursor on the others.
   const syncId = `rum-${tab}`
@@ -362,26 +354,16 @@ export default function BrowserView({
             </div>
           )}
         </div>
-        <div className="view-tabs" role="tablist" aria-label="Browser views" onKeyDown={onTabKeyDown}>
-          {TAB_STRIP.map(({ Icon, ...t }) => (
-            <button
-              key={t.id}
-              ref={el => { tabRefs.current[t.id] = el }}
-              id={tabId(t.id)}
-              data-tab={t.id}
-              type="button"
-              role="tab"
-              aria-selected={tab === t.id}
-              aria-controls={PANEL_ID}
-              tabIndex={tab === t.id ? 0 : -1}
-              className={`view-tab${tab === t.id ? ' active' : ''}`}
-              onClick={() => selectTab(t.id)}
-            >
-              <Icon size={14} strokeWidth={1.75} aria-hidden="true" />
-              {t.label}
-            </button>
-          ))}
-        </div>
+        {/* The strip is one Tab stop; the arrows, Home and End move along it,
+            and Enter or Space opens the tab (ViewTabs). */}
+        <ViewTabs
+          tabs={TAB_STRIP}
+          active={tab}
+          onSelect={selectTab}
+          ariaLabel="Browser views"
+          idPrefix={TAB_ID_PREFIX}
+          tabRefs={tabRefs}
+        />
       </div>
       <div
         ref={mainRef}

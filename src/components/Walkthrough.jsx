@@ -10,16 +10,8 @@ const STEPS = [
     pad: 6,
   },
   {
-    target: '.summary-strip',
-    badge: 'Step 2',
-    title: 'Fleet health at a glance',
-    desc: 'Total services, plus a live count of Critical, Warning, and Healthy. Colors are reserved strictly for severity across the platform.',
-    placement: 'bottom',
-    pad: 8,
-  },
-  {
     target: '.panel table',
-    badge: 'Step 3',
+    badge: 'Step 2',
     title: 'Critical services surface first',
     desc: 'The service list always sorts by severity, never alphabetically. Incidents lead so you can act instead of scroll.',
     placement: 'top',
@@ -27,7 +19,7 @@ const STEPS = [
   },
   {
     target: '.help-btn',
-    badge: 'Step 4',
+    badge: 'Step 3',
     title: 'Help is always one click away',
     desc: 'Open the Help Center anytime from this icon to search guides, learn each feature, and find what you need.',
     placement: 'right',

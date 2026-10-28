@@ -17,26 +17,30 @@ import PageBar from '@/components/layout/PageBar'
 import ServicePicker from '@/components/ServicePicker'
 import CardMenu, { CardActionContext } from '@/components/CardMenu'
 import { explorePayloadForCard } from '@/utils/explore/editorState'
+import { alertPayloadForCard } from '@/utils/alerts/editorPayloads'
 import InfoTip from '@/components/shared/InfoTip'
 import SearchGlyph from '@/components/shared/SearchGlyph'
 import FilterSelect from '@/components/shared/FilterSelect'
 import ViewToggle from '@/components/shared/ViewToggle'
 import TitleDropdown from '@/components/shared/TitleDropdown'
+import ViewTabs from '@/components/shared/ViewTabs'
 import { SortableTh, CellBar } from '@/components/shared/SortableTable'
 import { useSortedRows } from '@/hooks/useSortedRows'
 import { useScrollReveal, revealClass } from '@/hooks/useScrollReveal'
-import RequestTraceSplit from '@/components/trace/RequestTraceSplit'
+import RequestTraceSplit, { RequestTraceList } from '@/components/trace/RequestTraceSplit'
+import SlowRequestsPanel from '@/components/trace/SlowRequestsPanel'
 import ErrorGroupsPanel from '@/components/errors/ErrorGroupsPanel'
 import BreakAtSlashes from '@/components/browser/BreakAtSlashes'
 import { errorGroupsForWindow, tracesFiltersFor } from '@/data/errors'
 import { Gauge, Crosshair, ChartLine, Globe, Database, TriangleAlert, Cpu } from 'lucide-react'
-import { GRID_PROPS, NO_ANIM, AREA_PROPS, LINE_PROPS, valueAxisProps, maxOf, niceAxis, formatDecimals, fmtCompact, fmtBytes, fmtCount, fmtRedMs, fmtRedRpm, fmtRedPct } from '@/components/charts/chartDefaults'
+import { GRID_PROPS, NO_ANIM, AREA_PROPS, LINE_PROPS, LIMIT_DASH, valueAxisProps, maxOf, niceAxis, formatDecimals, fmtCompact, fmtBytes, fmtCount, fmtPct1, fmtRedMs, fmtRedRpm, fmtRedPct } from '@/components/charts/chartDefaults'
 import { buildTimeAxis, withX } from '@/components/charts/timeAxis'
-import { useMeasuredWidth, useSeriesHover } from '@/components/charts/useTimeFocus'
+import { useMeasuredWidth } from '@/components/charts/useTimeFocus'
 import ChartTooltip from '@/components/charts/ChartTooltip'
 import { TimeChart, SvcTooltip, rowInstant } from '@/components/charts/TimeChart'
 import LegendLineChart from '@/components/charts/LegendLineChart'
 import MiniChart from '@/components/charts/MiniChart'
+import CardChart from '@/components/charts/CardChart'
 // For .errp-delta, the Errors page's count chip, so the Errors tab's counts
 // read the same as the page its "Open in Errors" button lands on. Imported
 // here rather than relied on through ErrorsView; every rule in it is
@@ -45,7 +49,7 @@ import '@/components/errors/errors.css'
 import { useSeriesBudget } from '@/components/charts/useSeriesBudget'
 import SeriesBudgetFooter from '@/components/charts/SeriesBudgetFooter'
 import { fixesAxis, TOOLTIP_ROWS } from '@/components/charts/seriesBudget'
-import { epColor } from '@/utils/chartPalette'
+import { epColor, RESOURCE_COLORS } from '@/utils/chartPalette'
 import { KpiCardsSkeleton, LatencyDrilldownSkeleton, TrendChartsSkeleton } from '@/pages/ServiceOverviewSkeleton'
 
 // Which tabs there are, and their order, is SERVICE_TABS in utils/route — the
@@ -177,7 +181,7 @@ function syntheticEndpoint(name) {
 // The endpoint view: the same four numbers as the service, narrowed to one
 // route. It exists because a log record knows its endpoint, and sending that
 // link to the service overview would drop the one thing the record told us.
-function EndpointTab({ data, endpoint, onOpenUpstream, onOpenTrace, syncId, win, onFocus }) {
+function EndpointTab({ data, serviceId, endpoint, onOpenUpstream, onOpenTrace, onOpenLink, syncId, win, onFocus }) {
   // An endpoint arriving from a log record will often not be in the RED list -
   // that list is what the service page happens to chart, not everything the
   // service serves. Showing the picker's first row instead would quietly answer
@@ -189,6 +193,10 @@ function EndpointTab({ data, endpoint, onOpenUpstream, onOpenTrace, syncId, win,
       : data.red
   ), [data.red, endpoint])
   const ep = eps.find(e => e.endpoint === endpoint) ?? eps[0]
+  // An endpoint the RED table does not list is modelled from the figures shown
+  // for it here, so its Slow Requests chart describes the same endpoint the
+  // cards above do.
+  const fallback = useMemo(() => ({ rpm: ep.rpm, p90: ep.p90 }), [ep.rpm, ep.p90])
   const latS = statusForLatency(ep.p90)
   const errS = statusForErrorRate(ep.errPct)
 
@@ -247,7 +255,15 @@ function EndpointTab({ data, endpoint, onOpenUpstream, onOpenTrace, syncId, win,
           </table>
         </div>
       )} />
-      <RequestTraceSplit onOpenTrace={onOpenTrace} data={data.slow} />
+      <SlowRequestsPanel
+        serviceId={serviceId}
+        endpoint={ep.endpoint}
+        fallback={fallback}
+        win={win}
+        onOpenTrace={onOpenTrace}
+        onOpenLink={onOpenLink}
+        setTimeRange={onFocus}
+      />
       <RequestTraceSplit onOpenTrace={onOpenTrace} data={data.errors} title="Requests with Errors" initialSort="none" />
       <InfraCorrelation hosts={data.infra} win={win} />
     </>
@@ -695,43 +711,18 @@ function InfraCorrelation({ hosts, win }) {
   )
 }
 
-function SlowQueriesTable() {
-  const { rows, sort, toggle } = useSortedRows(slowQueries, 'duration', 'desc')
-  const Hdr = ({ sortKey, align, children }) => {
-    const active = sort?.key === sortKey
-    const dir = active ? sort.dir : null
-    return (
-      <span className="split-ep-head-cell" onClick={() => toggle(sortKey)} style={{ justifyContent: align === 'left' ? 'flex-start' : 'flex-end' }}>
-        <span>{children}</span>
-        <svg className={`sortable-th-arrow${active ? ' active' : ''}${dir === 'asc' ? ' asc' : ''}`}
-          viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor"
-          strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <circle cx="12" cy="12" r="9" /><path d="M12 8v8M9 13l3 3 3-3" />
-        </svg>
-      </span>
-    )
-  }
-  return (
-    <div className="panel">
-      <div className="panel-head is-divided">
-        <div className="panel-head-left">Slow Queries</div>
-        <CardMenu kind="list" title="Slow Queries" />
-      </div>
-      <div className="split-ep-head slowq-head is-sortable">
-        <Hdr sortKey="time" align="left">Time</Hdr>
-        <Hdr sortKey="query" align="left">Query</Hdr>
-        <Hdr sortKey="duration">Duration</Hdr>
-      </div>
-      {rows.map((q, i) => (
-        <div key={i} className="slowq-row">
-          <div className="t">{q.time}</div>
-          <div className="q" title={q.query}>{q.query}</div>
-          <div className="d">{q.duration} ms</div>
-        </div>
-      ))}
-    </div>
-  )
+// The DB tab's Slow Queries, as rows of the Slow Requests list: the query is
+// what a row names, and it opens the trace of the request it ran in. `timeMs`
+// is read off the stamp ("Jul 15, 22:38pm") so the Time sort is newest first;
+// the stamps carry no year, and every row shares one.
+const STAMP_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+function stampMs(stamp) {
+  const m = /^(\w{3}) (\d+), (\d+):(\d+)/.exec(stamp)
+  return m ? Date.UTC(2000, STAMP_MONTHS.indexOf(m[1]), +m[2], +m[3], +m[4]) : NaN
 }
+const SLOW_QUERY_ROWS = slowQueries.map(q => ({
+  endpoint: q.query, latencyMs: q.duration, timestamp: q.time, timeMs: stampMs(q.time), traceId: q.traceId,
+}))
 
 const RED_COLUMNS = ['Total Requests', 'Time Consumed %', 'RPM', 'Response Time (p90)', 'Response Time (avg)', 'Error %']
 
@@ -1180,7 +1171,7 @@ function EndpointBreakdownRows({ rows }) {
 const DB_FILTER_OPTIONS = ['All Database Calls', 'MySQL', 'Redis']
 const DB_KIND_FOR_FILTER = { 'MySQL': 'mysql', 'Redis': 'redis' }
 
-function DbTab({ svc, data, syncId, win, onFocus }) {
+function DbTab({ svc, data, syncId, win, onFocus, onOpenTrace }) {
   const [sel, setSel] = useState(null)
   const [hoverKey, setHoverKey] = useState(null)
   const [filter, setFilter] = useState('All Database Calls')
@@ -1289,10 +1280,13 @@ function DbTab({ svc, data, syncId, win, onFocus }) {
             </div>
           )}
           {!ep && <SeriesBudgetFooter budget={budget} noun="operations" />}
+          {/* Under the charts, half the page wide, so the list without the
+              waterfall the Slow Requests panel shows beside it: a row opens
+              its trace. Above an operation's callers when one is picked. */}
+          <RequestTraceList title="Slow Queries" columns={['Query', 'Duration']} data={SLOW_QUERY_ROWS} onOpenTrace={onOpenTrace} />
           {ep && <EndpointBreakdownRows rows={callers} />}
         </div>
       </div>
-      <SlowQueriesTable />
     </>
   )
 }
@@ -1523,160 +1517,11 @@ function TracesTab() {
   )
 }
 
-/**
- * Series identity for the runtime panel.
- *
- * Six of these twelve charts draw some combination of a limit, a committed and
- * a used line, and they have to agree about which colour is which. A reader who
- * learns "blue is what the JVM is actually holding" on the heap chart must not
- * have to relearn it on eden, so the colour is keyed on the series' ROLE rather
- * than on the chart it happens to sit in.
- *
- * Blues, teals, purples and pinks only. Red, amber and green mean severity
- * everywhere else on this platform, and "which series is this" is not a
- * severity.
- */
-const RT_COLORS = {
-  used: '#3B82F6',
-  committed: '#06B6D4',
-  limit: '#A78BFA',
-  alt: '#F472B6',
-}
-
-// A limit is configuration, not a reading — `-Xmx` does not move because Redis
-// is down. Dashing it says so, and it says so identically on all five charts
-// that carry one.
-const LIMIT_DASH = '4 3'
-
-const fmtRuntimePct = v => (v == null || Number.isNaN(v) ? '' : `${v.toFixed(1)}%`)
+// The runtime panel's series colours (RESOURCE_COLORS), limit dash (LIMIT_DASH),
+// percentage format (fmtPct1) and card (CardChart) are shared with the
+// Infrastructure pages' charts, and moved out of this file when those drew the
+// same charts. Garbage-collector time is the panel's own.
 const fmtRuntimeMs = v => (v == null || Number.isNaN(v) ? '' : `${v.toFixed(1)} ms`)
-
-/**
- * Merge the series one runtime chart draws into a row per bucket.
- *
- * Every series in the panel is sampled from the same window, so they share an
- * index — there is no need to join on time.
- */
-function runtimeRows(series, win) {
-  const base = series[0]?.rows ?? []
-  return withX(base.map((d, i) => {
-    const row = { t: d.t, label: d.label, exactTime: d.exactTime }
-    for (const s of series) row[s.key] = s.rows[i]?.value
-    return row
-  }), win)
-}
-
-/**
- * Every series the chart drew, in the order its legend lists them.
- *
- * Read off the ROW rather than off `payload`, so a series that is null in this
- * particular bucket still holds its place. A tooltip whose rows appear and
- * disappear as the pointer travels cannot be scanned, and on a used-vs-limit
- * chart the missing row is usually the one being looked for.
- */
-function RuntimeTooltip({ active, payload, series, fmt, nowMs, hoverKey, suppressed }) {
-  if (!active || !payload?.length) return null
-  const row = payload[0]?.payload ?? {}
-  const items = series.map(s => ({
-    key: s.key,
-    label: s.label,
-    value: fmt(row[s.key]),
-    color: s.color,
-  }))
-  return (
-    <ChartTooltip
-      tMs={rowInstant(payload[0])}
-      nowMs={nowMs ?? Date.now()}
-      items={items}
-      hoverKey={hoverKey}
-      suppressed={suppressed}
-      minWidth={series.length > 1 ? 196 : 160}
-    />
-  )
-}
-
-/**
- * One runtime chart: header, plot, tooltip, legend.
- *
- * Twelve configurations of this rather than twelve blocks of chart markup. The
- * panel's charts differ in what they plot and in almost nothing else, and every
- * one of them has to carry the same tick ladder, the same drag-to-focus, the
- * same tooltip and the same crosshair as the rest of the page — which is
- * exactly the kind of agreement that rots when it is retyped twelve times.
- *
- * @param {string} title     the header, and the name the card menu acts on
- * @param {Array}  series    [{ key, label, color, rows, dash }] in legend order
- * @param {Function} fmt     value → axis label
- * @param {Function} [tipFmt] value → tooltip value; defaults to `fmt`, and
- *                           differs where a unit is worth the width in a
- *                           tooltip but not on every tick
- * @param {boolean} [area]   filled bands instead of lines
- * @param {'half'|'third'} [span] how much of the grid row the card takes
- */
-function RuntimeChart({ title, series, fmt, tipFmt, area = false, span = 'half', syncId, win, onFocus }) {
-  const [hoverKey, hoverProps] = useSeriesHover()
-  const data = useMemo(() => runtimeRows(series, win), [series, win])
-  const keys = useMemo(() => series.map(s => s.key), [series])
-  const dimFor = key => (hoverKey == null || hoverKey === key ? 1 : 0.2)
-  const Chart = area ? AreaChart : LineChart
-
-  return (
-    <div className={`runtime-chart-card rt-${span}`}>
-      <div className="clbl">
-        <span className="clbl-text">{title}</span>
-        <CardMenu kind="chart" title={title} />
-      </div>
-      <TimeChart className="chart-host" win={win} onFocus={onFocus}>
-        {(axis, focus) => (
-          <Chart data={data} margin={{ top: 6, right: 4, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
-            <CartesianGrid {...GRID_PROPS} />
-            <XAxis {...axis.props} />
-            <YAxis {...valueAxisProps({ maxValue: maxOf(data, keys), format: fmt })} />
-            {/* Not decoration: Recharts delivers no move events to the wrapper
-                without a Tooltip, so the drag-to-focus gesture depends on it. */}
-            <Tooltip
-              content={p => (
-                <RuntimeTooltip
-                  {...p}
-                  series={series}
-                  fmt={tipFmt ?? fmt}
-                  nowMs={win.end * 1000}
-                  hoverKey={hoverKey}
-                  suppressed={!focus.hovered}
-                />
-              )}
-              {...NO_ANIM}
-            />
-            {series.map(s => (area ? (
-              <Area key={s.key} {...AREA_PROPS} dataKey={s.key} stackId="rt"
-                stroke={s.color} fill={s.color}
-                fillOpacity={0.3 * dimFor(s.key)} strokeOpacity={dimFor(s.key)}
-                strokeWidth={1.4} dot={false} activeDot={{ r: 3, strokeWidth: 0 }}
-                {...hoverProps(s.key)} />
-            ) : (
-              <Line key={s.key} {...LINE_PROPS} dataKey={s.key} connectNulls={false}
-                stroke={s.color} strokeOpacity={dimFor(s.key)}
-                strokeWidth={s.dash ? 1.2 : 1.5} strokeDasharray={s.dash}
-                dot={false} activeDot={{ r: 3, strokeWidth: 0 }}
-                {...hoverProps(s.key)} />
-            )))}
-            {focus.overlay}
-          </Chart>
-        )}
-      </TimeChart>
-      {series.length > 1 && (
-        <div className="runtime-legend">
-          {series.map(s => (
-            <div key={s.key} className="runtime-legend-item" {...hoverProps(s.key)}>
-              <span className="runtime-legend-swatch" style={{ background: s.color }} />
-              {s.label}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
 
 function RuntimeTab({ syncId, win, onFocus }) {
   // null is every host, averaged per JVM: the default, and what Clear returns
@@ -1706,13 +1551,13 @@ function RuntimeTab({ syncId, win, onFocus }) {
     const rt = runtimeMetrics
     // A single-series chart has no legend, so its one tooltip row is labelled
     // with the host it was sampled from — the only thing left worth saying.
-    const one = rows => [{ key: 'value', label: hostName, color: RT_COLORS.used, rows }]
-    const limitRow = rows => ({ key: 'limit', label: 'limit', color: RT_COLORS.limit, rows, dash: LIMIT_DASH })
-    const committedRow = rows => ({ key: 'committed', label: 'committed', color: RT_COLORS.committed, rows })
-    const usedRow = rows => ({ key: 'used', label: 'used', color: RT_COLORS.used, rows })
+    const one = rows => [{ key: 'value', label: hostName, color: RESOURCE_COLORS.used, rows }]
+    const limitRow = rows => ({ key: 'limit', label: 'limit', color: RESOURCE_COLORS.limit, rows, dash: LIMIT_DASH })
+    const committedRow = rows => ({ key: 'committed', label: 'committed', color: RESOURCE_COLORS.committed, rows })
+    const usedRow = rows => ({ key: 'used', label: 'used', color: RESOURCE_COLORS.used, rows })
 
     return [
-      { title: 'CPU Used %', span: 'half', fmt: fmtRuntimePct, series: one(rt.cpuPct) },
+      { title: 'CPU Used %', span: 'half', fmt: fmtPct1, series: one(rt.cpuPct) },
       { title: 'Memory Used (bytes)', span: 'half', fmt: fmtBytes, series: one(rt.memUsedBytes) },
       { title: 'Thread Count', span: 'half', fmt: fmtCount, series: one(rt.threadCount) },
       {
@@ -1720,8 +1565,8 @@ function RuntimeTab({ syncId, win, onFocus }) {
         span: 'half',
         fmt: fmtCount,
         series: [
-          { key: 'count', label: 'count', color: RT_COLORS.used, rows: rt.classCount.count },
-          { key: 'unloaded', label: 'unloaded', color: RT_COLORS.alt, rows: rt.classCount.unloaded },
+          { key: 'count', label: 'count', color: RESOURCE_COLORS.used, rows: rt.classCount.count },
+          { key: 'unloaded', label: 'unloaded', color: RESOURCE_COLORS.alt, rows: rt.classCount.unloaded },
         ],
       },
       {
@@ -1741,8 +1586,8 @@ function RuntimeTab({ syncId, win, onFocus }) {
         fmt: fmtCompact,
         tipFmt: fmtRuntimeMs,
         series: [
-          { key: 'g1Old', label: 'G1 Old Generation', color: RT_COLORS.alt, rows: rt.gcCpuTime.g1Old },
-          { key: 'g1Young', label: 'G1 Young Generation', color: RT_COLORS.used, rows: rt.gcCpuTime.g1Young },
+          { key: 'g1Old', label: 'G1 Old Generation', color: RESOURCE_COLORS.alt, rows: rt.gcCpuTime.g1Old },
+          { key: 'g1Young', label: 'G1 Young Generation', color: RESOURCE_COLORS.used, rows: rt.gcCpuTime.g1Young },
         ],
       },
       {
@@ -1791,7 +1636,7 @@ function RuntimeTab({ syncId, win, onFocus }) {
         <RuntimeScope win={win} roster={roster} selectedId={host} onShowAll={() => setHost(null)} reveal={stripReveal} />
         <div className="runtime-grid">
           {charts.map(c => (
-            <RuntimeChart key={c.title} {...c} syncId={syncId} win={win} onFocus={onFocus} />
+            <CardChart key={c.title} {...c} syncId={syncId} win={win} onFocus={onFocus} />
           ))}
         </div>
       </div>
@@ -1849,14 +1694,17 @@ export default function ServiceOverview({ serviceId, onSelectService, onOpenTrac
   // open the query builder on the nearest thing to it (ARCH D13). Only the
   // Detail tab is scoped to one endpoint, so only it carries that filter.
   const onCardAction = useCallback((action, title) => {
-    const payload = explorePayloadForCard({
-      action,
-      title,
-      serviceId,
-      endpoint: serviceSubTab === 'detail' ? endpoint : '',
-    })
+    const scope = { action, title, serviceId, endpoint: serviceSubTab === 'detail' ? endpoint : '' }
+    const payload = explorePayloadForCard(scope)
     if (payload) {
       onOpenLink?.({ view: 'explore', ...payload })
+      return
+    }
+    // Create Alert opens the rule editor on the card's query, with the
+    // thresholds that colour the card (docs/alerts/DESIGN.md D13).
+    const alert = alertPayloadForCard(scope)
+    if (alert) {
+      onOpenLink?.({ view: 'alertEditor', ...alert })
       return
     }
     setToast?.(`${action} · ${title} - that screen is not part of this prototype yet.`)
@@ -1874,13 +1722,13 @@ export default function ServiceOverview({ serviceId, onSelectService, onOpenTrac
   if (serviceSubTab === 'overview') {
     body = <OverviewTab svc={svc} data={data} win={win} syncId={syncId} onFocus={setTimeRange} onOpenTrace={onOpenTrace} onOpenUpstream={openExternal} />
   } else if (serviceSubTab === 'detail') {
-    body = <EndpointTab data={data} endpoint={endpoint} onOpenUpstream={openExternal} onOpenTrace={onOpenTrace} syncId={syncId} win={win} onFocus={setTimeRange} />
+    body = <EndpointTab data={data} serviceId={svc.id} endpoint={endpoint} onOpenUpstream={openExternal} onOpenTrace={onOpenTrace} onOpenLink={onOpenLink} syncId={syncId} win={win} onFocus={setTimeRange} />
   } else if (serviceSubTab === 'red') {
     body = <RedTab win={win} endpoints={data.red} syncId={syncId} onFocus={setTimeRange} />
   } else if (serviceSubTab === 'external') {
     body = <ExternalTab svc={svc} data={data} syncId={syncId} win={win} onFocus={setTimeRange} />
   } else if (serviceSubTab === 'db') {
-    body = <DbTab svc={svc} data={data} syncId={syncId} win={win} onFocus={setTimeRange} />
+    body = <DbTab svc={svc} data={data} syncId={syncId} win={win} onFocus={setTimeRange} onOpenTrace={onOpenTrace} />
   } else if (serviceSubTab === 'errors') {
     body = <ErrorsTab win={win} serviceId={svc.id} onFocus={setTimeRange} syncId={syncId} onOpenLink={onOpenLink} side={errorsSide} onSide={onErrorsSide} />
   } else if (serviceSubTab === 'runtime') {
@@ -1931,21 +1779,7 @@ export default function ServiceOverview({ serviceId, onSelectService, onOpenTrac
             <FilterSelect label="Version" value={filterVersion} options={FILTER_OPTS.version} onSelect={setFilterVersion} />
           </div>
         </div>
-        <div className="view-tabs" role="tablist" aria-label="Service views">
-          {SERVICE_VIEWS.map(({ Icon, ...v }) => (
-            <button
-              key={v.id}
-              type="button"
-              role="tab"
-              aria-selected={serviceSubTab === v.id}
-              className={`view-tab${serviceSubTab === v.id ? ' active' : ''}`}
-              onClick={() => setServiceSubTab(v.id)}
-            >
-              <Icon size={14} strokeWidth={1.75} aria-hidden="true" />
-              {v.label}
-            </button>
-          ))}
-        </div>
+        <ViewTabs tabs={SERVICE_VIEWS} active={serviceSubTab} onSelect={setServiceSubTab} ariaLabel="Service views" />
       </div>
       <div
         className={`svc-main${serviceSubTab === 'runtime' ? ' has-rail' : ''}`}
