@@ -1,0 +1,21 @@
+/* FilterChips: capsules that narrow a list to one kind. Quiet until chosen:
+   a hairline on the card, then the brand's tint for the one that is on, as a
+   selected pill reads elsewhere. They wrap rather than scroll. */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 11px;
+  border: 1px solid var(--border-subtle); border-radius: 999px; background: var(--card);
+  font-family: inherit; font-size: 12px; font-weight: 500; line-height: 1; color: var(--text-secondary);
+  cursor: pointer; transition: background-color .12s ease, border-color .12s ease, color .12s ease;
+}
+.chip:hover { border-color: var(--border-panel); color: var(--text-primary); }
+.chip:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.chip.is-on {
+  background: var(--brand-muted); border-color: color-mix(in srgb, var(--brand) 35%, transparent);
+  color: var(--brand-on-muted); font-weight: 600;
+}
+.chip.is-empty:not(.is-on) { opacity: .55; }
+.chip-icon { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; flex-shrink: 0; }
+.chip-icon svg, .chip-icon img { width: 14px; height: 14px; }
+.chip-count { font-size: 10.5px; font-weight: 500; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.chip.is-on .chip-count { color: inherit; opacity: .75; }

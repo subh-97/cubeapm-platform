@@ -83,11 +83,31 @@ not re-deriving.
 - **Two labelled menus per row**, Snooze and Actions, replace production's seven icon-only
   controls (R11). An item a rule does not allow stays, disabled, with the reason as its title.
 - **Two ways to make a rule open the tab**, side by side above the timeline: "Create a rule from a
-  template" (white; a picker of five — error rate, p90 latency, throughput per service, host CPU,
-  error log volume — each opening the editor already set, `utils/alerts/ruleTemplates.js`) and
-  "Create a rule from scratch" (the brand's blue; a blank editor). They replace the toolbar's
+  template" (white; it opens the template drawer, below) and "Create a rule from scratch" (the
+  brand's blue; a blank editor). They replace the toolbar's
   New rule button, removed on review (2026-10-23): the toolbar is the search alone. With no rules
   at all, the empty state still offers New rule, and `n` still starts one.
+- **The template drawer** (`TemplateDrawer.jsx`, 2026-10-26) is production's "Alert templates"
+  drawer in our language, built on the config drawer, the `.svc-search` box, `EmptyState` and a
+  new shared `FilterChips` (capsules: All, then each category with its mark). Sixteen templates
+  (`utils/alerts/ruleTemplates.js`) in five categories by what a rule watches — Services 5,
+  Dependencies 3, Logs 2, Hosts 2, Kubernetes 4 — where production lists a category per Kubernetes
+  object and placeholder "Dummy" ones. The capsules count what the search leaves, and a search
+  that empties one offers the matches in the others. A card gives its source (the vendor's mark
+  for infrastructure, the sidebar's glyph for APM and Logs), what it does in one sentence, and the
+  condition in the rule list's own words ("Error % > 3% critical, > 1% warning, for 5m · one alert
+  per service"); a template whose query a rule already runs is marked In use. The card is the
+  button: its primary "Use template" has an `::after` that covers the card, as the banners' CTAs
+  do. Each card first also previewed what the template would have done over the page's range (a
+  strip and "Would have fired once in the last 1 hr, on 2 of 7 services"); that came out on
+  review the same day, and the editor's preview, one click on, says it. Every query was still
+  checked against the demo's data at every hour: nine catch the payment incident, five stay quiet,
+  none fires outside the incident, and the two that need kube-state-metrics are kept rather than
+  left out (`needs` in the catalogue; the editor's preview shows they have no data here). The log counts swing with the time of day more
+  than the incident moves them, so the log templates sit above the busiest quiet hour. Templates
+  set what payloads could not before: an anomaly rule (`kind`) and a check interval
+  (`intervalSec`); and the rule list names their measures ("Redis clients", "Calls vs an hour
+  ago", "K8s event count") instead of "Value".
 - **No row selection, no bulk changes.** 7b built them — a select box per row and a bar that
   paused, snoozed, moved, re-routed or deleted the selection as one change with one Undo — and on
   review (2026-10-23) they came out, with the count line above the rules. A rule is changed from
@@ -153,7 +173,8 @@ with Undo; deletes say what they do. A contact point in use says why it can't be
 lists the rules that still send there. Insights flags always-firing, flapping and never-fired rules,
 with Tune. The notification log says which event each send was and why a held or failed one was.
 The editor is one page with a live preview. Create-from-context prefills thresholds, name and
-group; production prefills none. Nothing waits for a Search click (rule 5).
+group; production prefills none. A template says whether a rule already uses it. Nothing waits
+for a Search click (rule 5).
 
 ## Known gaps
 

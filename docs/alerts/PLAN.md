@@ -269,6 +269,9 @@ the repo has no DOM tests (Known gaps).
   - Group by (Group / Service / Contact point / None) — *removed 2026-10-21* (D3): the list
     always groups by each rule's own group, and New rule is the shared `.run-btn` primary button
     — *moved 2026-10-23* to the "Create a rule from scratch" banner, beside one for templates;
+  - the templates banner opens the template drawer (*2026-10-26*): 16 templates in five
+    categories, a card each, marked In use when a rule already runs its query
+    (docs/decisions/alerts-page.md);
   - grouped rows sorted by severity (R6), with D3's row anatomy;
   - paused rules folded per group (R47);
   - Snooze and Actions as labelled menus (R11);

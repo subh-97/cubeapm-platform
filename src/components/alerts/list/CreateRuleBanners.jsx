@@ -1,18 +1,19 @@
 import { useId, useState } from 'react'
-import { ArrowRight, ChevronRight, Plus } from 'lucide-react'
-import { AlertDialog } from '@/components/alerts/shared'
-import { RULE_TEMPLATES } from '@/utils/alerts/ruleTemplates'
+import { ArrowRight, Plus } from 'lucide-react'
+import TemplateDrawer from './TemplateDrawer'
 import awsLogo from '@/assets/infra/aws.svg'
 import kafkaLogo from '@/assets/infra/kafka.svg'
 import kubernetesLogo from '@/assets/infra/kubernetes.svg'
 
 /**
  * The two ways to make a rule, side by side above the timeline: from a
- * template (white) or from scratch (the brand's blue). A template opens the
- * editor already set (utils/alerts/ruleTemplates.js); scratch opens it blank.
- * `onTemplate(template)` and `onScratch()` do the opening.
+ * template (white), which opens the template drawer (TemplateDrawer.jsx), or
+ * from scratch (the brand's blue), which opens the editor blank. A template
+ * opens the editor already set (utils/alerts/ruleTemplates.js).
+ * `onTemplate(template)` and `onScratch()` do the opening; `rules` are the
+ * page's rules, which the drawer marks a template In use by.
  */
-export default function CreateRuleBanners({ onTemplate, onScratch }) {
+export default function CreateRuleBanners({ rules, onTemplate, onScratch }) {
   const [picking, setPicking] = useState(false)
   const templateId = useId()
   const scratchId = useId()
@@ -42,9 +43,11 @@ export default function CreateRuleBanners({ onTemplate, onScratch }) {
       </section>
 
       {picking && (
-        <TemplatePicker
-          onCancel={() => setPicking(false)}
+        <TemplateDrawer
+          rules={rules}
+          onClose={() => setPicking(false)}
           onPick={(t) => { setPicking(false); onTemplate(t) }}
+          onScratch={() => { setPicking(false); onScratch() }}
         />
       )}
     </div>
@@ -100,28 +103,5 @@ function ScratchArt() {
       <circle className="art-badge" cx="98" cy="13" r="11" />
       <path className="art-plus" d="M98 8 V18 M93 13 H103" />
     </svg>
-  )
-}
-
-// The templates as a list to choose from; one opens the editor on it.
-function TemplatePicker({ onPick, onCancel }) {
-  const bodyId = useId()
-  return (
-    <AlertDialog title="Create a rule from a template" onCancel={onCancel} describedBy={bodyId}>
-      <p id={bodyId} className="alr-dialog-text">Pick one to open the editor with it set. Nothing is saved until you save it there.</p>
-      <ul className="rtab-tpl-list">
-        {RULE_TEMPLATES.map(t => (
-          <li key={t.id}>
-            <button type="button" className="rtab-tpl" onClick={() => onPick(t)}>
-              <span className="rtab-tpl-text">
-                <span className="rtab-tpl-title">{t.title}</span>
-                <span className="rtab-tpl-desc">{t.description}</span>
-              </span>
-              <ChevronRight aria-hidden="true" />
-            </button>
-          </li>
-        ))}
-      </ul>
-    </AlertDialog>
   )
 }

@@ -88,8 +88,12 @@ export function ruleMetric(rule) {
   if (model?.type === 'quick' && QUICK_METRIC[model.calculate]) return QUICK_METRIC[model.calculate](model)
   const ds = datasourceId(rule?.datasource)
   const q = tiersOf(rule).query
-  if (ds === 'logs') return { metric: /stats\s+count\(\)/.test(q) ? 'Log count' : 'Logs', unit: 'count' }
-  if (ds === 'traces') return { metric: /stats\s+count\(\)/.test(q) ? 'Span count' : 'Spans', unit: 'count' }
+  // A count, grouped or not: "stats count()" and "stats by (service) count()".
+  const counted = /stats\s+(?:by\s*\([^)]*\)\s*)?count\(\)/.test(q)
+  // Kubernetes events arrive in the log stream, but they are events, not log lines.
+  if (ds === 'logs' && /event\.domain:=\s*"k8s"/.test(q)) return { metric: counted ? 'K8s event count' : 'K8s events', unit: 'count' }
+  if (ds === 'logs') return { metric: counted ? 'Log count' : 'Logs', unit: 'count' }
+  if (ds === 'traces') return { metric: counted ? 'Span count' : 'Spans', unit: 'count' }
   if (ds === 'mobile') return { metric: 'Requests', unit: 'count' }
   const ms = /\*\s*1000\b/.test(q)
   const pq = /histogram_quantile\(\s*([\d.]+)/.exec(q)
@@ -106,6 +110,15 @@ export function ruleMetric(rule) {
   if (/cube_apm_calls_total\b/.test(q) && /\*\s*60\b/.test(q)) return { metric: 'RPM', unit: 'rpm' }
   if (/system_cpu_utilization\b/.test(q)) return { metric: 'CPU', unit: '%' }
   if (/redis_memory_used_bytes\b/.test(q)) return { metric: 'Memory', unit: /\/\s*1e6\b/.test(q) ? 'MB' : null }
+  // The templates' own measures (ruleTemplates.js), so a rule made from one
+  // reads as what it watches rather than as "Value".
+  if (/\boffset\s+1h\b/.test(q) && /system_memory_usage_bytes\b/.test(q)) return { metric: 'Memory vs an hour ago', unit: '%' }
+  if (/\boffset\s+1h\b/.test(q) && /cube_apm_calls_total\b/.test(q)) return { metric: 'Calls vs an hour ago', unit: '%' }
+  if (/redis_connected_clients\b/.test(q)) return { metric: 'Redis clients', unit: null }
+  if (/mysql_threads_connected\b/.test(q)) return { metric: 'MySQL threads', unit: null }
+  if (/k8s_pod_cpu_utilization\b/.test(q)) return { metric: 'Pod CPU', unit: '%' }
+  if (/kube_pod_container_status_restarts_total\b/.test(q)) return { metric: 'Restarts', unit: null }
+  if (/kube_node_status_condition\b/.test(q)) return { metric: 'Node ready', unit: null }
   return { metric: 'Value', unit: null }
 }
 

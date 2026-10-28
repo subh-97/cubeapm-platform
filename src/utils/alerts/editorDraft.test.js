@@ -9,7 +9,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { alertsSeed } from '@/data/alerts'
 import { NEEDS_CLOSING_PIPE } from '@/data/alertsEngine'
-import { buildQuickQuery } from '@/utils/explore/builders'
+import { buildQuickQuery, emptyPair } from '@/utils/explore/builders'
 import { tiersOf } from './condition'
 import {
   blankDraft, draftFromRule, draftFromPayload, draftFromSuggestion, ruleFromDraft, validateDraft, isDirty,
@@ -174,6 +174,20 @@ test('an entry point\'s payload opens prefilled, and an incoming model loses its
   const suggested = ruleFromDraft(draftFromSuggestion({ calculate: 'error_percentage', service: 'cart-service', tiers: { warning: { op: '>', threshold: 1 }, critical: { op: '>', threshold: 3 } }, forSec: 300, name: 'cart-service error rate' }))
   assert.match(tiersOf(suggested).query, /service="cart-service"/)
   assert.equal(suggested.duration, 300)
+})
+
+test('a payload can ask for an anomaly rule and its own check interval; anything else is ignored', () => {
+  const quickRpm = { type: 'quick', calculate: 'rpm', value: '90', labelPairs: [emptyPair()], groupBy: ['service'] }
+  const anomaly = draftFromPayload({ datasource: 'prometheus', model: quickRpm, kind: 'anomaly', tiers: { warning: { op: '<>', deviations: 3 } }, intervalSec: 300 })
+  assert.equal(anomaly.kind, 'anomaly')
+  assert.deepEqual(anomaly.tiers.anomaly.warning, { op: '<>', value: '3' })
+  assert.equal(anomaly.intervalSec, 300)
+  const saved = ruleFromDraft(anomaly)
+  assert.equal(saved.kind, 'anomaly')
+  assert.equal(saved.interval, 300)
+  const logs = draftFromPayload({ datasource: 'vlogs', query: '* | stats count()', kind: 'anomaly', intervalSec: 7 })
+  assert.equal(logs.kind, 'static', 'anomaly reads Metrics only')
+  assert.equal(logs.intervalSec, 60, 'an interval the editor does not offer is not taken')
 })
 
 test('a draft is dirty when it would save something different, and only then', () => {
