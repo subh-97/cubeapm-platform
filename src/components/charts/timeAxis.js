@@ -34,6 +34,7 @@
 // directly the way `timeWindow` is.
 
 import { formatLocal } from '@/utils/timeRange'
+import { VALUE_AXIS_MAX_WIDTH } from '@/components/charts/chartDefaults'
 
 const SEC = 1000
 
@@ -56,6 +57,22 @@ const AXIS_TICK = { fontSize: 10, fill: 'var(--text-muted)' }
 /** Most ticks any axis should carry, however wide it is. */
 const MAX_TICKS = 13
 const MIN_TICKS = 2
+
+// What one character of a tick label draws as, at AXIS_TICK's 10px in the
+// product's font with its tabular digits: `18:50` measures 27.3px, `18:50:30`
+// 42.3px and the widest month date 33.4px. Six a character is over all of them,
+// so the estimate errs toward dropping a label rather than clipping one.
+const CHAR_PX = 6
+
+// How much of the measured width may not be plot. Most charts hand the axis the
+// width of the box they draw in, and the plot sits inside it after a value axis
+// on the left and a 4-8px margin on the right. The axis does not know which
+// chart it is drawing for, so it places labels on the narrowest plot that box
+// could hold: a label it keeps clears both edges of every chart, and the price
+// is an occasional label dropped that would just have fitted. A caller that has
+// already taken the gutters off (the Traces and Errors volume charts) pays that
+// price twice, which is a few pixels of a thousand.
+const PLOT_INSET_PX = VALUE_AXIS_MAX_WIDTH + 8
 
 /**
  * What a tick at this interval has to say.
@@ -140,24 +157,40 @@ export function tickInstants(win, intervalSec) {
  * first interval whose labels have room, which is what makes the axis get
  * denser on a wide chart and sparser on a narrow one without either of them
  * changing what the ticks MEAN.
+ *
+ * The budget counts every instant an interval lands on, including any whose
+ * label insidePlot will drop at an edge: the count stands in for the spacing
+ * between neighbours, and dropping an end label does not widen that. But an
+ * interval only fits if two of its labels survive the edges, or a ladder of
+ * three twelve-hourly ticks, two of them on the edges, would win on a narrow
+ * chart and draw a single label.
  */
 export function pickTickInterval(win, plotWidth, gapPx) {
   const width = Math.max(0, plotWidth || 0)
-  for (const interval of TICK_STEPS) {
-    if (interval < win.step) continue
+  const steps = TICK_STEPS.filter(s => s >= win.step)
+  const drawsAnAxis = (instants, kind) => insidePlot(win, instants, width, kind).length >= MIN_TICKS
+  for (const interval of steps) {
     const kind = formatKind(win, interval)
-    const n = tickInstants(win, interval).length
+    const instants = tickInstants(win, interval)
+    const n = instants.length
     if (n < MIN_TICKS) continue
-    if (n <= MAX_TICKS && n * (gapPx ?? GAP_PX[kind]) <= width) return { interval, kind }
+    if (n <= MAX_TICKS && n * (gapPx ?? GAP_PX[kind]) <= width && drawsAnAxis(instants, kind)) {
+      return { interval, kind }
+    }
   }
-  // Nothing fits. Fall back to the coarsest ladder that still LANDS ON
-  // something, not to the coarsest step in the table: a weekly interval inside
-  // a thirty-minute window ticks on no instant at all, and the axis then draws
-  // zero labels — which is what a chart does on its very first paint, before
-  // the width has been measured. Two crowded labels are an axis; none is not.
-  for (let i = TICK_STEPS.length - 1; i >= 0; i--) {
-    const interval = TICK_STEPS[i]
-    if (interval < win.step) continue
+  // Nothing fits. Fall back to the coarsest ladder that still draws two labels
+  // inside the plot, and failing that to the coarsest that LANDS ON two
+  // instants at all, not to the coarsest step in the table: a weekly interval
+  // inside a thirty-minute window ticks on no instant, and the axis then draws
+  // zero labels. That second fallback is what a chart gets on its very first
+  // paint, before the width has been measured and there is no inside to keep
+  // labels in. Two crowded labels are an axis; none is not.
+  const coarseFirst = [...steps].reverse()
+  for (const interval of coarseFirst) {
+    const kind = formatKind(win, interval)
+    if (drawsAnAxis(tickInstants(win, interval), kind)) return { interval, kind }
+  }
+  for (const interval of coarseFirst) {
     if (tickInstants(win, interval).length >= MIN_TICKS) {
       return { interval, kind: formatKind(win, interval) }
     }
@@ -179,6 +212,46 @@ export function formatTick(ms, kind) {
 }
 
 /**
+ * Where a tick at this instant can be drawn, as fractions of the plot from its
+ * left edge (0) to its right (1). A numeric axis draws the instant at its own
+ * place; a band scale draws it at the centre of the bucket that holds it. The
+ * edge test asks both, so a bar chart and a line chart over one window keep the
+ * same ladder rather than each trimming its own ends.
+ */
+function tickFractions(win, ms) {
+  const sec = ms / SEC
+  const out = [(sec - win.start) / (win.end - win.start)]
+  const n = win.buckets?.length
+  if (n) {
+    const i = Math.max(0, Math.min(n - 1, Math.floor((sec - win.start) / win.step)))
+    out.push((i + 0.5) / n)
+  }
+  return out
+}
+
+/**
+ * The ticks whose labels stay inside the plot.
+ *
+ * The ladder puts ticks on round instants without asking where those land, so a
+ * window that ends a few seconds past a round mark has its last tick on the
+ * plot's right edge. Centred there, half the label hangs off the end of the SVG
+ * and is clipped to "19:2". Shifting it inward instead, which is what Recharts'
+ * own `preserveEnd` does, would keep the text but move it off its instant: the
+ * axis draws no tick lines, so nothing would mark where 19:20 really is, and the
+ * label would sit over 19:18. The axis may be terser than the tooltip but never
+ * wrong about the instant, so a label that cannot sit on its instant is not
+ * drawn. The left edge is held to the same rule; a label hanging under the
+ * value axis reads as one of its labels.
+ */
+function insidePlot(win, instants, width, labelKind) {
+  const plot = width - PLOT_INSET_PX
+  return instants.filter(ms => {
+    const half = (formatTick(ms, labelKind).length * CHAR_PX) / 2
+    return tickFractions(win, ms).every(f => f * plot >= half && (1 - f) * plot >= half)
+  })
+}
+
+/**
  * The full axis description for a window at a measured pixel width.
  *
  * `kind` is how the chart plots x:
@@ -191,7 +264,13 @@ export function formatTick(ms, kind) {
  */
 export function buildTimeAxis(win, { width = 0, kind = 'time' } = {}) {
   const { interval, kind: labelKind } = pickTickInterval(win, width)
-  const instants = tickInstants(win, interval)
+  const all = tickInstants(win, interval)
+  const inside = insidePlot(win, all, width, labelKind)
+  // Fewer than two inside only when the picker found no interval that keeps
+  // two clear of the edges: the chart has not been measured yet, or is too
+  // narrow for any ladder. Then the whole ladder is drawn, crowded, rather
+  // than one label or none.
+  const instants = inside.length >= MIN_TICKS ? inside : all
 
   if (kind === 'category') {
     // Snap each instant to the bucket that contains it, then take that bucket's

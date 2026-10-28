@@ -176,13 +176,18 @@ export function timeAxisProps(length, { minTickGap = 44 } = {}) {
 // and a flat-zero series needs a scale to be flat against. A percentage is not
 // one of them: CPU on a multi-core host passes 100%, and an axis pinned there
 // would draw the busiest host as merely full.
+//
+// The cap is exported because the time axis places its labels on the narrowest
+// plot a chart could have, which is the one beside the widest gutter.
+export const VALUE_AXIS_MAX_WIDTH = 56
+
 export function valueAxisProps({ format = fmtCompact, domain, allowDecimals = true, maxValue } = {}) {
   const widest = maxValue == null ? 4 : Math.max(String(format(maxValue)).length, 1)
   return {
     tick: AXIS_TICK,
     tickLine: false,
     axisLine: false,
-    width: Math.min(56, Math.max(26, widest * 7 + 8)),
+    width: Math.min(VALUE_AXIS_MAX_WIDTH, Math.max(26, widest * 7 + 8)),
     tickFormatter: format,
     allowDecimals,
     ...(domain ? { domain } : null),
