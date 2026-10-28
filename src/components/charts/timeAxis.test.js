@@ -228,6 +228,85 @@ test('both kinds of axis draw the same ladder in the same words', () => {
   }
 })
 
+// A window that ends a few seconds past a round mark puts its last tick ON the
+// plot's right edge, and a label centred there hangs half off the end of the
+// SVG: Last 1 hour opened at 18:50:07 drew "18:50" out to x=515 in a 505px
+// Runtime chart. What follows models where Recharts actually draws each label,
+// independently of how the axis decided to keep it, and checks it against the
+// plot it is drawn in.
+
+// The layouts a time axis is drawn in, as the plot's insets from the box the
+// axis was measured from: the widest value axis valueAxisProps makes beside the
+// widest right margin in use, the narrowest pair, and a caller that has taken
+// both off already (Traces and Errors budget their volume charts on the plot).
+const LAYOUTS = [{ left: 56, right: 8 }, { left: 26, right: 4 }, { left: 0, right: 0 }]
+
+// A label's drawn width, estimated. Measured at the axis's 10px in the
+// product's font, `18:50` is 27.3px, `18:50:30` 42.3px and the widest month
+// date 33.4px; six pixels a character is over every one of them.
+const textWidth = s => s.length * 6
+
+// Where Recharts centres a tick: a numeric axis at the instant's own place
+// across the domain, a band scale at the centre of the bucket the tick names.
+function tickCentre(win, value, kind, { left, right }, width) {
+  const plot = width - left - right
+  if (kind === 'category') {
+    const i = win.buckets.findIndex(b => b.label === value)
+    return left + ((i + 0.5) / win.buckets.length) * plot
+  }
+  return left + ((value / 1000 - win.start) / (win.end - win.start)) * plot
+}
+
+function overruns(win, width, kind) {
+  const axis = buildTimeAxis(win, { width, kind })
+  const out = []
+  for (const layout of LAYOUTS) {
+    const lo = layout.left
+    const hi = width - layout.right
+    for (const value of axis.ticks) {
+      const text = axis.props.tickFormatter(value)
+      const x = tickCentre(win, value, kind, layout, width)
+      const half = textWidth(text) / 2
+      if (x - half < lo || x + half > hi) {
+        out.push(`"${text}" spans ${(x - half).toFixed(1)}..${(x + half).toFixed(1)} in a plot ${lo}..${hi}`)
+      }
+    }
+  }
+  return out
+}
+
+test('a window ending just past a round mark does not draw its last label off the chart', () => {
+  const win = resolveWindow({ kind: 'preset', value: '1h' }, new Date(2026, 9, 12, 18, 50, 7).getTime())
+  for (const width of [505, 720]) {
+    const labels = labelsOf(win, width)
+    assert.ok(!labels.includes('18:50'), `@${width}: "18:50" sits on the right edge but is drawn: ${labels.join(' ')}`)
+    // Only the labels that cannot sit on their instant go; the ladder is the
+    // same ladder, still on round instants.
+    assert.ok(labels.includes('18:40'), `@${width}: the cut took more than the edge: ${labels.join(' ')}`)
+    assert.deepEqual(overruns(win, width, 'time'), [], `@${width}`)
+  }
+})
+
+test('no tick label passes the plot edge', () => {
+  // Every preset, opened at "now"s that walk its ticks through every distance
+  // from both edges: a prime stride of 7919 s (about 2.2 hours) lands on a
+  // different phase of every interval in the ladder, over the week it covers.
+  const first = new Date(2026, 9, 5, 18, 50, 7).getTime()
+  for (let k = 0; k < 80; k++) {
+    const nowMs = first + k * 7919 * 1000
+    for (const v of PRESETS) {
+      const win = resolveWindow({ kind: 'preset', value: v }, nowMs)
+      for (const width of [NARROW, 505, 720, WIDE, 1100]) {
+        for (const kind of ['time', 'category']) {
+          const bad = overruns(win, width, kind)
+          assert.deepEqual(bad, [],
+            `${v} opened ${new Date(nowMs).toString().slice(4, 24)} @${width}px (${kind}): ${bad[0]}`)
+        }
+      }
+    }
+  }
+})
+
 // The empty-tick-set case: at a width where nothing in the table fits, the
 // ladder must still land on something. It used to fall through to a weekly
 // interval, which ticks on no instant at all inside a short window — and that

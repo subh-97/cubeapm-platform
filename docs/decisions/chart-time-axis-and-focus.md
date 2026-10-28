@@ -41,6 +41,38 @@ Four rules, each of which was a bug before it was a rule:
    its six-hourly ticks read `Oct 05 Oct 05 Oct 05 Oct 05 Oct 06 …`. The date
    belongs exactly where it says which day, and nowhere else.
 
+### A label stays inside the plot
+
+The ladder puts ticks on round instants without asking where they land, so a
+window that ends a few seconds past a round mark (Last 1 hour opened at
+18:50:07 runs 17:50 to 18:50) has a tick on each edge of the plot. Centred
+there, half of each label hangs outside: on the right it ran past the SVG and
+was clipped (`18:50` out to x=515 in a 505px Runtime chart, which has a 4px
+right margin), and on the left it sat under the value axis. Those labels are now
+dropped, by `insidePlot` in `timeAxis.js`, which applies to every chart because
+they all build their axis there.
+
+- **Drop, don't shift.** Recharts' `preserveEnd` would slide the label inward to
+  fit. There are no tick lines, so nothing would mark the real instant, and
+  `18:50` would sit over 18:48. The axis may be terser than the tooltip, but it
+  must never be wrong about the instant.
+- **The narrowest plot the box could hold.** Most charts give the axis the width
+  of the box they draw in, not the plot's. So the axis assumes the widest value
+  gutter `valueAxisProps` makes (`VALUE_AXIS_MAX_WIDTH`, 56px) plus an 8px right
+  margin. A label it keeps fits on every chart. The cost is occasionally dropping
+  a label that would just have fitted.
+- **Both scales are checked.** A tick is kept only if its label fits both where a
+  numeric axis draws the instant and where a band scale draws the centre of its
+  bucket. So a bar chart and a line chart over the same window keep the same
+  ladder.
+- **The budget still counts edge ticks.** The tick count stands in for the
+  spacing between neighbours, and dropping an end label doesn't change that
+  spacing. But an interval only qualifies if at least two of its labels survive.
+  Otherwise a narrow 24-hour chart would pick the twelve-hourly ladder, two of
+  whose three ticks sit on the edges, and draw one label. Only a chart that
+  hasn't been measured yet, or is too narrow for any ladder, falls back to
+  drawing the whole ladder.
+
 ### Terse axis, qualified tooltip
 
 A tick reads `18:00` where the tooltip behind it reads `Oct 01 18:00`. The tick
