@@ -127,6 +127,9 @@ export default function RuleChart({
         syncId="alr-rule"
         win={win}
         onFocus={onFocus}
+        // The chart's own Compare (the control above and its dashed line)
+        // is the comparison here; its ⋮ offers Expand's larger copy only.
+        compare={false}
       />
       {/* The strip sits in the same two columns as the chart above it, so its
           track spans exactly the plot: the y axis's gutter on the left, the

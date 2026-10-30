@@ -1,4 +1,5 @@
 import CardMenu from '@/components/CardMenu'
+import ChartActions from '@/components/charts/ChartActions'
 
 /**
  * Placeholders for the Overview tab while its figures are in flight.
@@ -6,7 +7,9 @@ import CardMenu from '@/components/CardMenu'
  * Each one is built from the same classes, in the same card, as the panel it
  * stands in for, titles and menus included, so the real panel replaces it
  * without anything on the page moving. The titles are known before the query
- * returns; only the figures are not, so only the figures are bones.
+ * returns; only the figures are not, so only the figures are bones. A chart's
+ * corner is the real card's Expand and ⋮ (ChartActions) with nothing to
+ * expand yet, so Expand is drawn disabled rather than left out.
  *
  * Every bone shares one sheen (see `.ovsk-bone`): it is painted against the
  * viewport rather than the element, so it reads as one light passing over the
@@ -115,7 +118,7 @@ export function LatencyDrilldownSkeleton() {
     <div className="panel" aria-busy="true">
       <div className="panel-head is-divided">
         <div className="panel-head-left">Latency Drilldown</div>
-        <CardMenu kind="chart" title="Latency Drilldown" total="Total" />
+        <ChartActions title="Latency Drilldown" total="Total" />
       </div>
       <div className="drill2">
         <div className="drill2-chart">
@@ -163,7 +166,7 @@ export function TrendChartsSkeleton() {
     <div className="charts-row" aria-busy="true">
       {TREND_SLOTS.map(t => (
         <div key={t.title} className="chart-card">
-          <div className="clbl"><span className="clbl-text">{t.title}</span><CardMenu kind="chart" title={t.title} /></div>
+          <div className="clbl"><span className="clbl-text">{t.title}</span><ChartActions title={t.title} /></div>
           <div className="chart-host">
             <PlotSkeleton ghost={t.ghost} top={4} right={4} xTicks={6} />
           </div>

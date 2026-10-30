@@ -56,6 +56,9 @@ const CHART_BANDS = Object.fromEntries(VITALS.map(m => [m, bandsFor(m, true)]))
 // The least a chart's axis may top out at, so all three bands always show.
 // The charts lift it further themselves when a page's line runs higher.
 const CHART_TOP = Object.fromEntries(VITALS.map(m => [m, bandAxisTop(0, WEB_VITAL_THRESHOLDS[m].poor)]))
+// A card's chart fits its axis itself, over the line it draws, so its top moves
+// with the window: a card's Compare reads it off each window's own line.
+const cardTop = (m, series) => bandAxisTop(maxOf(series, 'value'), WEB_VITAL_THRESHOLDS[m].poor)
 
 const MENU_COLUMNS = VITALS.map(m => VITAL_SHORT[m])
 
@@ -121,6 +124,20 @@ export default function WebVitalsTab({ app, win, timeRange, syncId, onFocus, vie
     selected: isolated, onSelect: setIsolated,
   }
 
+  // A card or chart over another window, for its Compare, as on Page Views:
+  // the same reader called with that window, the same vital picked off it. The
+  // bands and a chart's axis floor are the same for every window; only a
+  // card's axis top moves with its line.
+  const cardAt = m => w => {
+    const s = webVitalsSummaryForWindow(w, app.id)
+    const series = s?.series[m] ?? []
+    return { value: s?.[m] ?? null, series, yTop: cardTop(m, series) }
+  }
+  const chartAt = m => w => {
+    const d = webVitalsForWindow(w, app.id)
+    return { eps: d.rows, epSeries: d.series[m] }
+  }
+
   return (
     <>
       {summary && (
@@ -139,10 +156,11 @@ export default function WebVitalsTab({ app, win, timeRange, syncId, onFocus, vie
               series={summary.series[m]}
               rating={vitalRating(m, summary.status[m])}
               overlays={CARD_BANDS[m]}
-              yTop={bandAxisTop(maxOf(summary.series[m], 'value'), WEB_VITAL_THRESHOLDS[m].poor)}
+              yTop={cardTop(m, summary.series[m])}
               syncId={syncId}
               win={win}
               onFocus={onFocus}
+              forWindow={cardAt(m)}
             />
           ))}
         </div>
@@ -168,6 +186,7 @@ export default function WebVitalsTab({ app, win, timeRange, syncId, onFocus, vie
                 axisFormat={VITAL_TICK[m]}
                 overlays={CHART_BANDS[m]}
                 yTop={CHART_TOP[m]}
+                forWindow={chartAt(m)}
                 {...chart}
               />
             ))}

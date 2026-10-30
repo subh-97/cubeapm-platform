@@ -33,6 +33,9 @@ Runtime tab leaves out:
 - `budgetNoun`: puts the card under a series budget (`useSeriesBudget`, with
   `SeriesBudgetFooter` under the plot), worded with that noun ("hosts").
 
+Both the Runtime tab and every Infra card pass `forWindow`: the card over
+another window, for its Compare (`docs/decisions/chart-compare-expand.md`).
+
 `RT_COLORS`, `LIMIT_DASH` and `fmtRuntimePct` moved with it, as
 `RESOURCE_COLORS` (`utils/chartPalette`), `LIMIT_DASH` and `fmtPct1`
 (`chartDefaults`).
@@ -90,15 +93,42 @@ Runtime tab leaves out:
   have no data in this prototype. They show dimmed and inert with a title that
   says so, the same way the sidebar stubs pages that aren't built. They used to
   look clickable and do nothing.
-- **The ⋮ menus show a toast.** Infra's card menus offer what the service page's
-  offer. The screens behind them aren't wired to Infra yet (alerts, Compare,
-  Explore over host metrics), so every item says "not part of this prototype
-  yet" rather than doing nothing. `system_cpu_utilization` and friends exist in
-  the Explore metrics store (`data/explore/metricsStore.js`), so the Explore
-  item is the obvious next one to wire.
-- **No-data cards have no menu.** They contain nothing to alert on, compare or
-  explore. They also carry no drag handlers, because there is no tooltip to
-  start the gesture from.
+- **Every chart expands and compares.** Each chart's corner is Expand and the
+  ⋮ (`ChartActions`), and the ⋮'s Compare draws the chart over the page's
+  window and over the same span an hour, a day or a week back
+  (`docs/decisions/chart-compare-expand.md`). The earlier chart is drawn by the
+  derivation the card uses, run on the earlier window's rows:
+  - A drill-in's cards (a host, a node, a pod, a pod's container) are each one
+    function of the row they chart (`rowCard`). The earlier copy finds that
+    row in the earlier window by name, the way the page resolves its own
+    selection. The container charts keep the picked container's name.
+  - A fleet card keeps the page's busiest-first order, and so its hosts, in
+    the earlier copy. Re-ranked by its own means, the hosts at the edge of the
+    budget trade places (an hour back on CPU, a day back on disk), and the two
+    charts would draw different hosts under one title. Colours are keyed on a
+    host's place in the data, which every window shares.
+  - The Pod list's cards re-apply the namespace and the Filter to the earlier
+    window's pods.
+  - A host's CPU and memory panels draw the chart with its Top processes
+    column in the modal, as the panel does under the one tab with data. The
+    stubbed tabs stay on the page.
+  - The figures beside MySQL's titles and beside Redis's memory and commands
+    are the summary's current readings, not the window's, so the earlier copy
+    prints none rather than today's figure over another day's line. A figure
+    read off the window (a host's disk, a node's CPU, Redis's evictions) is
+    worked out again for the earlier window.
+
+  Every view reads its rows through per-window caches (`perWindow`), so an
+  earlier window's 64 hosts are built once however many cards draw them.
+- **The rest of the ⋮ shows a toast.** Create Alert on a host's CPU opens the
+  alert editor. The other items' screens aren't wired to Infra yet (alerts on
+  other metrics, Explore over host metrics), so they say "not part of this
+  prototype yet" rather than doing nothing. `system_cpu_utilization` and
+  friends exist in the Explore metrics store (`data/explore/metricsStore.js`),
+  so the Explore item is the obvious next one to wire.
+- **No-data cards have no menu and no Expand.** They contain nothing to alert
+  on, compare, explore or look at closer. They also carry no drag handlers,
+  because there is no tooltip to start the gesture from.
 - **The card grid is the Runtime tab's six tracks** (`.infra-card-grid`): a half
   spans three tracks, a third two, a full card six. It reflows on the Infra
   column's own width through a container query, as the Runtime grid does.

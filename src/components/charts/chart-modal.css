@@ -1,0 +1,70 @@
+/* A chart card's Expand and Compare modal: src/components/charts/ChartModal.jsx.
+
+   The platform's dialog (.tw-modal-overlay / .tw-modal, the trace exception
+   modal's) at the width production gives its Compare: nearly the whole
+   screen, because the point is the shape of a line and a line wants width.
+   Every colour is a token, so both themes follow. */
+
+.tw-modal.chart-modal { width: min(1440px, 100%); }
+
+.chart-modal-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 12px 14px 12px 18px; border-bottom: 1px solid var(--border-subtle); flex-shrink: 0;
+}
+/* Compare's head is the choice of window, centred over the two charts as
+   production's is; Close keeps the corner. The empty start balances it. */
+.chart-modal.is-compare .chart-modal-head { display: grid; grid-template-columns: 1fr auto 1fr; }
+.chart-modal.is-compare .chart-modal-head::before { content: ''; }
+.chart-modal-compare { display: flex; align-items: center; justify-content: center; min-width: 0; }
+.chart-modal-acts { display: inline-flex; align-items: center; gap: 6px; justify-self: end; flex-shrink: 0; }
+.chart-modal-acts .card-menu-btn { opacity: 1; }
+
+/* The select reads as a field here, not as a filter chip: it is the only
+   control in the head. */
+.filter-select.chart-modal-compare-select {
+  width: auto; min-width: 210px; height: 32px; gap: 10px;
+  background: none; border: 1px solid var(--border-panel);
+}
+.filter-select.chart-modal-compare-select:hover,
+.filter-select.chart-modal-compare-select.dd-open { background: none; border-color: var(--border-strong); }
+.chart-modal-compare-select .filter-label { font-size: 12.5px; font-weight: 500; color: var(--text-secondary); }
+.chart-modal-compare-select .filter-value { justify-content: space-between; }
+.chart-modal-compare-select .filter-value > span { font-size: 12.5px; font-weight: 500; color: var(--text-primary); }
+
+.chart-modal-title,
+.chart-modal-panel-title {
+  display: inline-flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; min-width: 0;
+  font-size: 14px; font-weight: 600; color: var(--text-primary);
+}
+.chart-modal-panel-title { font-size: 13px; }
+.chart-modal .cval { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; font-weight: 500; color: var(--text-secondary); }
+.chart-modal-range { font-size: 11.5px; font-weight: 400; color: var(--text-muted); }
+
+/* The charts get the height; the body scrolls when a short screen cannot fit
+   both of a Compare's. */
+.chart-modal-body {
+  flex: 1; min-height: 0; overflow: auto;
+  display: flex; flex-direction: column; gap: 14px; padding: 14px 18px 18px;
+}
+.chart-modal-panel {
+  flex-shrink: 0; min-width: 0;
+  border: 1px solid var(--card-border, var(--border-subtle)); border-radius: var(--radius-lg);
+  background: var(--card); overflow: hidden;
+}
+.chart-modal-panel.is-solo { border: none; border-radius: 0; overflow: visible; }
+.chart-modal-panel-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 11px 14px 10px; border-bottom: 1px solid var(--border-head, var(--border-subtle));
+}
+.chart-modal-panel-head .card-menu-btn { opacity: 1; }
+.chart-modal-panel-body { padding: 10px 12px 8px; min-width: 0; }
+.chart-modal-panel.is-solo .chart-modal-panel-body { padding: 0; }
+
+@media (max-width: 640px) {
+  .tw-modal-overlay.chart-modal-overlay { padding: 12px; }
+  .chart-modal-body { padding: 12px; }
+  .chart-modal.is-compare .chart-modal-head { grid-template-columns: 1fr auto; }
+  .chart-modal.is-compare .chart-modal-head::before { display: none; }
+  .chart-modal-compare { justify-content: flex-start; }
+  .filter-select.chart-modal-compare-select { min-width: 0; }
+}

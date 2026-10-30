@@ -3857,14 +3857,24 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 /* The kebab is quiet until the card is hovered or the menu is open, so a grid
    of cards does not read as a grid of buttons. It stays visible on focus so a
    keyboard reader can still find it. */
-.card-menu-btn { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+.card-menu-btn, .card-expand-btn { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
   width: 22px; height: 22px; padding: 0; border: none; border-radius: var(--radius-sm);
   background: none; color: var(--text-muted); cursor: pointer; opacity: .55; transition: opacity .12s, background .12s, color .12s; }
 .card-menu-btn svg { width: 15px; height: 15px; }
 .kpi-card:hover .card-menu-btn, .panel:hover .card-menu-btn, .chart-card:hover .card-menu-btn,
-.split-chart-card:hover .card-menu-btn, .runtime-chart-card:hover .card-menu-btn, .k8s-stat-card:hover .card-menu-btn { opacity: 1; }
-.card-menu-btn:hover, .card-menu-btn:focus-visible, .card-menu-btn.open { opacity: 1; background: var(--panel-2); color: var(--text-primary); }
-.card-menu-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.split-chart-card:hover .card-menu-btn, .runtime-chart-card:hover .card-menu-btn, .k8s-stat-card:hover .card-menu-btn,
+.panel:hover .card-expand-btn, .chart-card:hover .card-expand-btn,
+.split-chart-card:hover .card-expand-btn, .runtime-chart-card:hover .card-expand-btn { opacity: 1; }
+.card-menu-btn:hover, .card-menu-btn:focus-visible, .card-menu-btn.open,
+.card-expand-btn:hover:not(:disabled), .card-expand-btn:focus-visible { opacity: 1; background: var(--panel-2); color: var(--text-primary); }
+.card-menu-btn:focus-visible, .card-expand-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+/* A chart card's corner: Expand, then the ⋮ (ChartActions). One element, so a
+   header laid out as "title … menu" keeps its two ends. The expand glyph is
+   drawn a size under the ⋮'s, which is a heavier mark. */
+.card-actions { display: inline-flex; align-items: center; gap: 2px; flex-shrink: 0; }
+.card-expand-btn svg { width: 13px; height: 13px; }
+/* Disabled only on a loading skeleton, where it holds the header's shape. */
+.card-actions .card-expand-btn:disabled { cursor: default; opacity: .3; }
 
 .card-menu-panel { min-width: 178px; padding: 4px 0; background: var(--raised);
   border: 1px solid var(--border-panel); border-radius: var(--radius-md);

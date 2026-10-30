@@ -43,9 +43,9 @@ const heap = [
 const legendOf = html => [...html.matchAll(/<div class="runtime-legend-item"><span class="runtime-legend-swatch" style="background:([^"]+)"><\/span>([^<]*)<\/div>/g)]
   .map(([, color, label]) => ({ color, label }))
 
-test('left at its defaults it draws the Runtime card: a half, the title alone, a ⋮ menu, no legend for one series', () => {
+test('left at its defaults it draws the Runtime card: a half, the title alone, Expand and a ⋮ menu, no legend for one series', () => {
   const html = render({ title: 'CPU Used %', series: one })
-  assert.match(html, /^<div class="runtime-chart-card rt-half"><div class="clbl"><span class="clbl-text">CPU Used %<\/span><button type="button" class="card-menu-btn"/)
+  assert.match(html, /^<div class="runtime-chart-card rt-half"><div class="clbl"><span class="clbl-text">CPU Used %<\/span><span class="card-actions"><button type="button" class="card-expand-btn" title="Expand CPU Used %" aria-label="Expand CPU Used %"[^>]*>.*?<\/button><button type="button" class="card-menu-btn"/)
   assert.match(html, /<div class="chart-host" style="width:100%">/, 'sized by the card class, not inline')
   assert.doesNotMatch(html, /runtime-legend/)
 })

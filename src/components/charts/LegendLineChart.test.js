@@ -10,7 +10,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { renderToStaticMarkup } from 'react-dom/server.browser'
 import { createElement as h } from 'react'
-import { REFERENCE_WINDOW as win } from '@/data/timeWindow'
+import { REFERENCE_WINDOW as win, shiftWindow } from '@/data/timeWindow'
 import { epColor, browserColor } from '@/utils/chartPalette'
 import { fmtRedRpm, fmtRpm2 } from '@/components/charts/chartDefaults'
 import LegendLineChart from './LegendLineChart.jsx'
@@ -129,4 +129,39 @@ test('the legend speaks of what it lists, and takes an info node and a scroll', 
   assert.match(html, /<div class="drill2-legend is-scroll">/)
   assert.equal(legendRows(html)[0].value, '12.50')
   assert.match(render({ searchPlaceholder: 'Find a page…' }), /placeholder="Find a page…"/)
+})
+
+// A Compare draws the chart again over an earlier window (forWindow). Ranked
+// by its own window, the earlier drawing would trade the rows at the edge of
+// its budget for others, and the two charts would draw different rows under
+// one title — so it lists, and draws, the page's rows in the page's order,
+// each with its own window's figure.
+test('over an earlier window the legend keeps the page\'s rows and order, with that window\'s figures', () => {
+  const earlier = shiftWindow(win, 86400)
+  // Yesterday's figures run the other way round: ranked by its own window, the
+  // earlier drawing would list (and draw) the page's last rows first.
+  const thenRpm = RPMS.map(v => 100 - v)
+  const forWindow = w => ({
+    eps: eps.map((e, i) => ({ ...e, rpm: thenRpm[i] })),
+    epSeries: epSeries.map(s => ({ ...s, series: w.buckets.map(b => ({ t: b.t, label: b.label, exactTime: b.exactTime, value: 1 })) })),
+  })
+  let view
+  function Probe() {
+    const tree = LegendLineChart({ title: 'RPM', eps, epSeries, dataKey: 'rpm', fmtFn: fmtRedRpm, syncId: 's', win, legendSort: 'valueDesc', forWindow })
+    const find = node => {
+      if (node == null || typeof node !== 'object') return null
+      if (node.props?.view) return node.props.view
+      for (const k of [].concat(node.props?.children ?? [])) { const v = find(k); if (v) return v }
+      return null
+    }
+    view = find(tree)
+    return null
+  }
+  renderToStaticMarkup(h(Probe))
+  const page = legendRows(render({ legendSort: 'valueDesc' }))
+  const then = legendRows(renderToStaticMarkup(view.render(earlier)))
+  assert.deepEqual(then.map(r => r.label), page.map(r => r.label), 'the same rows, in the page\'s order')
+  assert.deepEqual(then.map(r => r.swatch), page.map(r => r.swatch), 'each in its own colour')
+  const byLabel = new Map(eps.map((e, i) => [e.endpoint, fmtRedRpm(thenRpm[i])]))
+  assert.deepEqual(then.map(r => r.value), then.map(r => byLabel.get(r.label)), 'each with the earlier window\'s figure')
 })

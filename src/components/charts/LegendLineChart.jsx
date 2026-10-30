@@ -9,7 +9,7 @@ import { TimeChart, rowInstant } from '@/components/charts/TimeChart'
 import { useSeriesBudget } from '@/components/charts/useSeriesBudget'
 import SeriesBudgetFooter from '@/components/charts/SeriesBudgetFooter'
 import { fixesAxis, TOOLTIP_ROWS } from '@/components/charts/seriesBudget'
-import CardMenu from '@/components/CardMenu'
+import ChartActions from '@/components/charts/ChartActions'
 import SearchGlyph from '@/components/shared/SearchGlyph'
 import { epColor } from '@/utils/chartPalette'
 import './legend-line-chart.css'
@@ -57,6 +57,19 @@ function legendOrder(eps, dataKey, legendSort) {
   return all.sort((a, b) => (val(b) - val(a)) || (a - b))
 }
 
+// Rows in a given order of LABELS: the order the page's own drawing lists
+// them in, handed to the chart's other drawings (a Compare's earlier window).
+// Ranked by its own window, the earlier drawing would trade the rows at the
+// edge of its series budget for others, and the two charts of a Compare would
+// draw different routes under one title. A row the order does not name goes
+// after the rows it does, in the window's own order.
+function orderByLabels(eps, labels, labelKey, fallback) {
+  const rank = new Map(labels.map((l, i) => [l, i]))
+  const own = new Map(fallback.map((ei, i) => [ei, i]))
+  const at = i => rank.get(eps[i]?.[labelKey]) ?? Infinity
+  return fallback.slice().sort((a, b) => (at(a) - at(b)) || (own.get(a) - own.get(b)))
+}
+
 /**
  * One line per row of `eps` over the page's window, with a searchable legend
  * beside it: the service page's RED charts, and the Browser page's Page Views,
@@ -97,9 +110,64 @@ function legendOrder(eps, dataKey, legendSort) {
  *                     '30.00' in the legend). It gets the axis's top as well,
  *                     so a load-time axis can keep one unit from 0 to the top.
  *                     Left out, the axis prints with `fmtFn`, as it always has.
+ *   forWindow(w)      the chart over another window, by the same derivation
+ *                     that gave its props for `win`: { eps, epSeries } and
+ *                     whatever else moves with the window (yTop, overlays).
+ *                     It is what the chart's Compare draws ("1 day ago",
+ *                     ChartModal). Left out, the chart can be expanded but
+ *                     offers no Compare.
+ *   compare           false to leave Compare out of the ⋮ even with a
+ *                     forWindow: a chart that owns a comparison of its own
+ *                     (the alert rule's, RuleChart).
  */
-export default function LegendLineChart({
-  title, eps, epSeries, dataKey, fmtFn, syncId, win, onFocus,
+export default function LegendLineChart(props) {
+  const { title, info, win, forWindow, compare = true } = props
+  // What the reader has done to the legend — the row they isolated (by label,
+  // when the caller does not own it) and what they typed in its search — is
+  // the chart's, not one drawing's: Expand and Compare open on the legend as
+  // the card shows it, and both drawings of a Compare isolate and filter
+  // together. Hover and the series budget stay with each drawing.
+  const [ownSelected, setOwnSelected] = useState(null)
+  const [search, setSearch] = useState('')
+  const legend = { ownSelected, setOwnSelected, search, setSearch }
+
+  // The chart over any window: its own props for the page's window, the
+  // caller's derivation laid over them for any other. Built with each render,
+  // since every prop is part of what the chart draws; a window's rows are
+  // worked out once per build, however often the modal asks for them. A window
+  // the derivation has nothing for draws no rows, never the page's.
+  const { eps, dataKey, legendSort = 'data', labelKey = 'endpoint' } = props
+  const pageOrder = legendOrder(eps, dataKey, legendSort).map(i => eps[i]?.[labelKey])
+  const other = new WeakMap()
+  const at = w => {
+    if (w === win) return props
+    if (!other.has(w)) other.set(w, { ...props, eps: [], epSeries: [], ...(forWindow(w) ?? {}), rankLabels: pageOrder })
+    return other.get(w)
+  }
+  const view = {
+    win,
+    comparable: compare !== false && typeof forWindow === 'function',
+    render: w => <LegendLineBody {...at(w)} {...legend} win={w} />,
+  }
+
+  return (
+    <div className="red-chart-section">
+      <div className="red-chart-head">
+        {info ? <span className="clbl-text">{title}{info}</span> : <span>{title}</span>}
+        <ChartActions title={title} view={view} />
+      </div>
+      <LegendLineBody {...props} {...legend} />
+    </div>
+  )
+}
+
+/**
+ * Everything under the chart's header: the plot, its legend and its series
+ * budget. The chart draws it once over the page's window, and its Expand and
+ * Compare draw it again in the modal, over whichever window they show.
+ */
+function LegendLineBody({
+  eps, epSeries, dataKey, fmtFn, syncId, win, onFocus,
   labelKey = 'endpoint',
   colorFor = epColor,
   formatLabel,
@@ -108,22 +176,26 @@ export default function LegendLineChart({
   onSelect,
   noun = 'endpoints',
   searchPlaceholder = `Search ${noun}…`,
-  info,
   overlays,
   yTop,
   height = 260,
   legendScroll = false,
   axisFormat,
+  ownSelected,
+  setOwnSelected,
+  search,
+  setSearch,
+  rankLabels,
 }) {
-  // Isolation has two owners. Left to itself the chart keeps an index into
-  // `eps`, as the service page's RED charts always have. Given `selected` — a
-  // LABEL, or null for none — the caller owns it, so the charts of one panel
-  // can isolate the same row together; the index is meaningless across charts
-  // whose legends sort differently, which is why the shared form is a label.
+  // Isolation has two owners, and either way it is held by LABEL. Left to
+  // itself the chart keeps its own (`ownSelected`, held by LegendLineChart so
+  // its every drawing shares it), as the service page's RED charts always
+  // have. Given `selected` — a label, or null for none — the caller owns it,
+  // so the charts of one panel can isolate the same row together. A label,
+  // not an index into `eps`: the index is meaningless across charts whose
+  // legends sort differently, and across the windows of a Compare.
   const controlled = selected !== undefined
-  const [ownSelected, setOwnSelected] = useState(null)
   const [hoverKey, setHoverKey] = useState(null)
-  const [search, setSearch] = useState('')
   const [plotWidth, setPlotWidth] = useState(0)
   const dimOpacityFor = (key) => (hoverKey == null || hoverKey === key ? 1 : 0.22)
   const labelOf = i => eps[i]?.[labelKey]
@@ -137,9 +209,10 @@ export default function LegendLineChart({
   // service page's search has always been.
   const q = search.trim().toLowerCase()
   const shownIdxs = useMemo(() => {
-    const all = legendOrder(eps, dataKey, legendSort)
+    const own = legendOrder(eps, dataKey, legendSort)
+    const all = rankLabels ? orderByLabels(eps, rankLabels, labelKey, own) : own
     return q ? all.filter(i => labelMatches(eps[i], q, formatLabel, labelKey)) : all
-  }, [eps, dataKey, legendSort, labelKey, formatLabel, q])
+  }, [eps, dataKey, legendSort, labelKey, formatLabel, q, rankLabels])
   const budget = useSeriesBudget(shownIdxs.length, plotWidth)
   const drawnIdxs = shownIdxs.slice(0, budget.count)
 
@@ -156,7 +229,8 @@ export default function LegendLineChart({
     const i = selected == null ? -1 : eps.findIndex(e => e?.[labelKey] === selected)
     sel = i === -1 ? null : i
   } else {
-    sel = ownSelected != null && drawnIdxs.includes(ownSelected) ? ownSelected : null
+    const i = ownSelected == null ? -1 : eps.findIndex(e => e?.[labelKey] === ownSelected)
+    sel = i !== -1 && drawnIdxs.includes(i) ? i : null
   }
   const pinned = sel != null && !drawnIdxs.includes(sel) ? sel : null
   const legendIdxs = pinned != null ? [pinned, ...drawnIdxs] : drawnIdxs
@@ -164,8 +238,9 @@ export default function LegendLineChart({
 
   const toggle = ei => {
     const next = sel === ei ? null : ei
-    if (!controlled) setOwnSelected(next)
-    onSelect?.(next == null ? null : labelOf(next))
+    const label = next == null ? null : labelOf(next)
+    if (!controlled) setOwnSelected(label)
+    onSelect?.(label)
   }
 
   // A scrolling legend can hold the isolated row below its own fold: in the
@@ -240,11 +315,7 @@ export default function LegendLineChart({
   )
 
   return (
-    <div className="red-chart-section">
-      <div className="red-chart-head">
-        {info ? <span className="clbl-text">{title}{info}</span> : <span>{title}</span>}
-        <CardMenu kind="chart" title={title} />
-      </div>
+    <>
       <div className="drill2">
         <div className="drill2-chart">
           <TimeChart win={win} onFocus={onFocus} height={height} onWidth={setPlotWidth}>
@@ -311,6 +382,6 @@ export default function LegendLineChart({
         </div>
       </div>
       <SeriesBudgetFooter budget={budget} noun={noun} />
-    </div>
+    </>
   )
 }
