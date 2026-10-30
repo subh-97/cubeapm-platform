@@ -10,6 +10,7 @@ import { resolveWindow } from '@/data/timeWindow'
 import PageBar from '@/components/layout/PageBar'
 import TableQuerySearch from '@/components/TableQuerySearch'
 import CardMenu, { CardActionContext } from '@/components/CardMenu'
+import ChartActions from '@/components/charts/ChartActions'
 import { alertPayloadForHostCpu } from '@/utils/alerts/editorPayloads'
 import SearchGlyph from '@/components/shared/SearchGlyph'
 import FilterSelect from '@/components/shared/FilterSelect'
@@ -183,9 +184,9 @@ const emptyColumns = labels => labels.map((label, i) => ({ key: label, label, al
 //
 //   - A fleet — every host, every node — is three of the Runtime tab's cards
 //     in a row, a line per host on each and no legend (FleetCards).
-//   - Anything else is the Runtime tab's card (CardChart): a title with its ⋮
-//     menu and the window's reading beside it, the plot, and a legend under any
-//     chart that draws more than one series.
+//   - Anything else is the Runtime tab's card (CardChart): a title with its
+//     Expand and ⋮ menu and the window's reading beside it, the plot, and a
+//     legend under any chart that draws more than one series.
 //   - A host's CPU and memory sit in the Latency Drilldown's frame, the chart
 //     beside the processes that use it (ProcessChartPanel).
 //
@@ -193,12 +194,64 @@ const emptyColumns = labels => labels.map((label, i) => ({ key: label, label, al
 // RESOURCE_COLORS for a reading and its ceilings, the brand blue for a lone
 // series. This page shows severity in its tables' dots and bars, and a red
 // memory line beside them would read as a memory alarm.
+//
+// Every chart can be expanded and compared with an earlier window
+// (docs/decisions/chart-compare-expand.md). A card draws its earlier copy by
+// the derivation that gave it the page's window, run on the earlier window's
+// rows: the same host, node or pod re-read there by name, as the page resolves
+// its own selection, with the card's colours, order and Filter kept.
 
 /** A CardChart on this page's window, with its drag and crosshair. */
 function InfraCard(props) {
   const { win, setTimeRange, syncId } = useContext(InfraTime)
   return <CardChart win={win} onFocus={setTimeRange} syncId={syncId} {...props} />
 }
+
+// One build of a window's rows, however many cards ask for it. While a
+// Compare is open every card of the view asks for the earlier window's rows on
+// each render, and a host fleet is 64 hosts of six series wanted by three
+// cards. Keyed on the window OBJECT, which the page memoises per range and
+// shiftWindow per range and shift, so each window is built once and dropped
+// with it. The page reads its own rows through the same caches, so a card and
+// its Compare cannot be fed by two derivations.
+function perWindow(build) {
+  const built = new WeakMap()
+  return win => {
+    if (!built.has(win)) built.set(win, build(win))
+    return built.get(win)
+  }
+}
+const hostsAt = perWindow(infraHostsForWindow)
+const nodesAt = perWindow(k8sNodesForWindow)
+const podsAt = perWindow(k8sPodsForWindow)
+const allocAt = perWindow(k8sAllocationForWindow)
+const containersAt = perWindow(k8sContainersSeriesForWindow)
+const mysqlAt = perWindow(mysqlSeriesForWindow)
+const redisAt = perWindow(redisSeriesForWindow)
+
+// The row a window holds under a name. A host, a node or a pod is selected by
+// NAME (see InfraView), so another window's copy of it is found the same way.
+const named = (rowsAt, key, name) => w => rowsAt(w).find(r => r[key] === name) ?? null
+
+/**
+ * A card drawn from one row (the host, node or pod a page is on), as its
+ * props: what `of` makes of the page's row, and the card's `forWindow`, what
+ * `of` makes of the row `rowIn(w)` finds in another window. One function for
+ * both, so the earlier chart of a Compare cannot drift from the card above it.
+ *
+ * A row the other window does not hold draws nothing rather than the page's:
+ * `none` is the card's empty chart (CardChart reads null as no series).
+ */
+const rowCard = (row, rowIn, none = null) => of => ({
+  ...of(row),
+  forWindow: w => {
+    const r = rowIn(w)
+    return r ? of(r) : none
+  },
+})
+
+/** A card drawn from the window alone (a view's own series), as rowCard is from a row. */
+const windowCard = win => of => ({ ...of(win), forWindow: of })
 
 // One reading, labelled with what it was read from: a single-series card has no
 // legend, so its tooltip row names the host, node or pod instead, as the
@@ -250,38 +303,65 @@ const FLEET_METRICS = [
  * legible and offers the rest under the plot ("Show 20 more · Show all"). Its
  * tooltip lists the busiest TOOLTIP_ROWS of what is drawn, keeps the one under
  * the pointer, and counts the rest.
+ *
+ * `rowsAt(w)` is where `rows` came from, for a card's Compare. The earlier copy
+ * lists the hosts in the page's order rather than re-ranking them by its own
+ * means: re-ranked, the hosts at the edge of the budget trade places (an hour
+ * back on CPU, a day back on disk), and the two charts would draw different
+ * hosts under one title.
  */
-function FleetCards({ rows, nameKey, noun }) {
-  const series = useMemo(() => Object.fromEntries(FLEET_METRICS.map(m => {
-    const busiest = rows.map((r, i) => i).sort((a, b) => rows[b][m.dataKey] - rows[a][m.dataKey])
-    return [m.dataKey, busiest.map(i => ({
-      key: rows[i][nameKey], label: rows[i][nameKey], color: infraColor(i), rows: rows[i][m.seriesKey],
-    }))]
-  })), [rows, nameKey])
+function FleetCards({ rows, rowsAt, nameKey, noun }) {
+  const cards = useMemo(() => FLEET_METRICS.map(m => {
+    const order = busiestFirst(rows, nameKey, m.dataKey)
+    return {
+      ...m,
+      series: fleetLines(rows, nameKey, m.seriesKey, order),
+      forWindow: w => ({ series: fleetLines(rowsAt(w), nameKey, m.seriesKey, order) }),
+    }
+  }), [rows, rowsAt, nameKey])
   return (
     <div className="infra-card-grid is-fleet">
-      {FLEET_METRICS.map(m => (
+      {cards.map(c => (
         <InfraCard
-          key={m.dataKey}
-          title={m.title}
+          key={c.dataKey}
+          title={c.title}
           span="third"
           legend={false}
           tooltipLimit={TOOLTIP_ROWS}
           budgetNoun={noun}
           fmt={fmtPctTick}
           tipFmt={fmtPct2}
-          series={series[m.dataKey]}
+          series={c.series}
+          forWindow={c.forWindow}
         />
       ))}
     </div>
   )
 }
 
+// A fleet's names, busiest first by the window's mean of `dataKey`. Ties keep
+// the data's own order.
+const busiestFirst = (rows, nameKey, dataKey) => rows
+  .map((r, i) => i)
+  .sort((a, b) => rows[b][dataKey] - rows[a][dataKey])
+  .map(i => rows[i][nameKey])
+
+// A fleet card's lines over `rows`, in `order`. A host's colour is keyed on its
+// place in the data, which every window lists in one order, so a host keeps
+// its colour on all three cards and in both charts of a Compare.
+function fleetLines(rows, nameKey, seriesKey, order) {
+  const at = new Map(rows.map((r, i) => [r[nameKey], i]))
+  return order.filter(name => at.has(name)).map(name => {
+    const i = at.get(name)
+    return { key: name, label: name, color: infraColor(i), rows: rows[i][seriesKey] }
+  })
+}
+
 /**
  * A host's CPU or memory over the window, beside the processes that use the
  * most of it: the service page's Latency Drilldown frame — a panel head that
- * names the chart and carries its ⋮ menu, the chart, and a searchable column
- * beside it.
+ * names the chart and carries its Expand and ⋮ menu, the chart, and a
+ * searchable column beside it.
  *
  * The column is a ranking rather than a legend. The agent reports a process's
  * share as one figure, not as a series, so there is no line for a row to name:
@@ -292,14 +372,29 @@ function FleetCards({ rows, nameKey, noun }) {
  * `tabs` are production's other views of the CPU card. Only the first has data
  * in this prototype; the rest are stubbed the way the sidebar stubs a page that
  * is not built yet — dimmed, inert, and saying so on hover.
+ *
+ * `forWindow(w)` is `{ series }` over another window, as a CardChart's is:
+ * what the panel's Compare draws. Its Expand and Compare draw the chart with
+ * its column, the panel under the tab that is showing, which is always the
+ * first. The tabs stay on the page: in the modal there is nothing to switch to.
  */
-function ProcessChartPanel({ title, series, metric, tabs }) {
+function ProcessChartPanel({ title, series, forWindow, metric, tabs }) {
   const { win, setTimeRange, syncId } = useContext(InfraTime)
-  const [search, setSearch] = useState('')
-  const data = useMemo(() => withX(series, win), [series, win])
-  const ranked = useMemo(() => [...HOST_PROCESSES].sort((a, b) => b[metric] - a[metric]), [metric])
-  const q = search.trim().toLowerCase()
-  const shown = q ? ranked.filter(p => p.name.toLowerCase().includes(q)) : ranked
+  // The panel over any window: its own series for the page's window, the
+  // caller's derivation for any other, each worked out once per build.
+  const view = useMemo(() => {
+    const other = new WeakMap()
+    const at = w => {
+      if (w === win) return series
+      if (!other.has(w)) other.set(w, forWindow?.(w)?.series ?? [])
+      return other.get(w)
+    }
+    return {
+      win,
+      comparable: typeof forWindow === 'function',
+      render: w => <ProcessChart series={at(w)} metric={metric} win={w} onFocus={setTimeRange} syncId={syncId} />,
+    }
+  }, [win, series, forWindow, metric, setTimeRange, syncId])
   return (
     <div className="panel">
       <div className="panel-head is-divided">
@@ -313,47 +408,64 @@ function ProcessChartPanel({ title, series, metric, tabs }) {
             </div>
           ) : title}
         </div>
-        <CardMenu kind="chart" title={title} />
+        <ChartActions title={title} view={view} />
       </div>
-      <div className="drill2">
-        <div className="drill2-chart">
-          <TimeChart win={win} onFocus={setTimeRange} height={260}>
-            {(axis, focus) => (
-              <LineChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
-                <CartesianGrid {...GRID_PROPS} />
-                <XAxis {...axis.props} />
-                <YAxis {...valueAxisProps({ format: fmtPct1, maxValue: maxOf(data, 'value') })} />
-                <Tooltip content={p => <SvcTooltip {...p} color={RESOURCE_COLORS.used} unit="" formatVal={fmtPct1} nowMs={win.end * 1000} suppressed={!focus.hovered} />} {...NO_ANIM} />
-                <Line {...LINE_PROPS} dataKey="value" stroke={RESOURCE_COLORS.used} strokeWidth={1.6} dot={false} activeDot={{ r: 3, strokeWidth: 0 }} />
-                {focus.overlay}
-              </LineChart>
-            )}
-          </TimeChart>
-        </div>
-        <div className="drill2-legend is-scroll">
-          <div className="drill2-legend-hdr">Top processes</div>
-          <div className="drill2-search">
-            <SearchGlyph />
-            <input
-              type="search"
-              aria-label="Search processes"
-              placeholder="Search processes…"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
-          </div>
-          {shown.map(p => (
-            <div key={p.name} className="drill2-item is-static">
-              <span className="drill2-row">
-                <span className="drill2-label">{p.name}</span>
-                <span className="drill2-val">{p[metric].toFixed(2)}<span className="drill2-unit">%</span></span>
-              </span>
-            </div>
-          ))}
-          {shown.length === 0 && (
-            <div className="drill2-empty">No processes match "{search.trim()}"</div>
+      <ProcessChart series={series} metric={metric} win={win} onFocus={setTimeRange} syncId={syncId} />
+    </div>
+  )
+}
+
+/**
+ * Everything under the panel's head: the chart, and the processes beside it.
+ * The panel draws it over the page's window, and its Expand and Compare draw
+ * it again in the modal, over whichever window they show. Each copy keeps its
+ * own search.
+ */
+function ProcessChart({ series, metric, win, onFocus, syncId }) {
+  const [search, setSearch] = useState('')
+  const data = useMemo(() => withX(series, win), [series, win])
+  const ranked = useMemo(() => [...HOST_PROCESSES].sort((a, b) => b[metric] - a[metric]), [metric])
+  const q = search.trim().toLowerCase()
+  const shown = q ? ranked.filter(p => p.name.toLowerCase().includes(q)) : ranked
+  return (
+    <div className="drill2">
+      <div className="drill2-chart">
+        <TimeChart win={win} onFocus={onFocus} height={260}>
+          {(axis, focus) => (
+            <LineChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
+              <CartesianGrid {...GRID_PROPS} />
+              <XAxis {...axis.props} />
+              <YAxis {...valueAxisProps({ format: fmtPct1, maxValue: maxOf(data, 'value') })} />
+              <Tooltip content={p => <SvcTooltip {...p} color={RESOURCE_COLORS.used} unit="" formatVal={fmtPct1} nowMs={win.end * 1000} suppressed={!focus.hovered} />} {...NO_ANIM} />
+              <Line {...LINE_PROPS} dataKey="value" stroke={RESOURCE_COLORS.used} strokeWidth={1.6} dot={false} activeDot={{ r: 3, strokeWidth: 0 }} />
+              {focus.overlay}
+            </LineChart>
           )}
+        </TimeChart>
+      </div>
+      <div className="drill2-legend is-scroll">
+        <div className="drill2-legend-hdr">Top processes</div>
+        <div className="drill2-search">
+          <SearchGlyph />
+          <input
+            type="search"
+            aria-label="Search processes"
+            placeholder="Search processes…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
         </div>
+        {shown.map(p => (
+          <div key={p.name} className="drill2-item is-static">
+            <span className="drill2-row">
+              <span className="drill2-label">{p.name}</span>
+              <span className="drill2-val">{p[metric].toFixed(2)}<span className="drill2-unit">%</span></span>
+            </span>
+          </div>
+        ))}
+        {shown.length === 0 && (
+          <div className="drill2-empty">No processes match "{search.trim()}"</div>
+        )}
       </div>
     </div>
   )
@@ -363,6 +475,7 @@ function ProcessChartPanel({ title, series, metric, tabs }) {
 // strip, sliding away and back with `reveal`, and holds the page's one choice:
 // which host (the breadcrumb only names it).
 function HostDetail({ host, hosts, onSelectHost, reveal }) {
+  const card = rowCard(host, named(hostsAt, 'host', host.host))
   return (
     <div className="infra-host-detail">
       <div className={`endpoint-strip is-sticky${revealClass(reveal)}`}>
@@ -374,13 +487,13 @@ function HostDetail({ host, hosts, onSelectHost, reveal }) {
           onSelect={onSelectHost}
         />
       </div>
-      <ProcessChartPanel title="CPU Used %" series={host.cpuSeries} metric="cpu" tabs={['CPU Used %', 'CPU State %', 'Load Average']} />
-      <ProcessChartPanel title="Memory Used %" series={host.memSeries} metric="mem" />
+      <ProcessChartPanel title="CPU Used %" {...card(h => ({ series: h.cpuSeries }))} metric="cpu" tabs={['CPU Used %', 'CPU State %', 'Load Average']} />
+      <ProcessChartPanel title="Memory Used %" {...card(h => ({ series: h.memSeries }))} metric="mem" />
 
       <div className="infra-card-grid">
-        <InfraCard title="Disk Used %" value={fmtPct1(host.disk)} span="third" fmt={fmtPct1} series={one(host.host, host.diskSeries)} />
-        <InfraCard title="Network Traffic (bytes/s)" span="third" area fmt={fmtBytes} series={netSeries(host)} />
-        <InfraCard title="Disk I/O Utilization %" value={fmtPct1(lastReading(host.diskIoSeries) ?? 0)} span="third" fmt={fmtPct1} series={one(host.host, host.diskIoSeries)} />
+        <InfraCard title="Disk Used %" span="third" fmt={fmtPct1} {...card(h => ({ value: fmtPct1(h.disk), series: one(h.host, h.diskSeries) }))} />
+        <InfraCard title="Network Traffic (bytes/s)" span="third" area fmt={fmtBytes} {...card(h => ({ series: netSeries(h) }))} />
+        <InfraCard title="Disk I/O Utilization %" span="third" fmt={fmtPct1} {...card(h => ({ value: fmtPct1(lastReading(h.diskIoSeries) ?? 0), series: one(h.host, h.diskIoSeries) }))} />
       </div>
     </div>
   )
@@ -590,8 +703,9 @@ function K8sClusterView({ namespace, setNamespace, onOpenLink }) {
     ['Repl. Controllers Total', s.replControllersTotal], ['Repl. Controllers Unhealthy', s.replControllersUnhealthy],
   ]
 
-  const alloc = useMemo(() => k8sAllocationForWindow(win), [win])
-  const containers = useMemo(() => k8sContainersSeriesForWindow(win), [win])
+  // Cluster-wide in either scope: a namespace narrows the stats and the table,
+  // not these.
+  const card = windowCard(win)
 
   return (
     <>
@@ -607,9 +721,9 @@ function K8sClusterView({ namespace, setNamespace, onOpenLink }) {
         </div>
       )}
       <div className="infra-card-grid">
-        <InfraCard title="CPU Allocation (cores)" span="third" fmt={fmtCompact} tipFmt={fmtCores2} series={allocSeries(alloc.cpu, CPU_ALLOC_ORDER)} />
-        <InfraCard title="Memory Allocation (bytes)" span="third" fmt={fmtBytes} series={allocSeries(alloc.mem, MEM_ALLOC_ORDER)} />
-        <InfraCard title="Containers" span="third" area allowDecimals={false} fmt={fmtCount} series={containerSeries(containers)} />
+        <InfraCard title="CPU Allocation (cores)" span="third" fmt={fmtCompact} tipFmt={fmtCores2} {...card(w => ({ series: allocSeries(allocAt(w).cpu, CPU_ALLOC_ORDER) }))} />
+        <InfraCard title="Memory Allocation (bytes)" span="third" fmt={fmtBytes} {...card(w => ({ series: allocSeries(allocAt(w).mem, MEM_ALLOC_ORDER) }))} />
+        <InfraCard title="Containers" span="third" area allowDecimals={false} fmt={fmtCount} {...card(w => ({ series: containerSeries(containersAt(w)) }))} />
       </div>
 
       <div className="k8s-stat-grid">
@@ -655,11 +769,11 @@ function K8sClusterView({ namespace, setNamespace, onOpenLink }) {
 
 function K8sDeploymentView() {
   const { win } = useContext(InfraTime)
-  const notAvailable = useMemo(() => k8sContainersSeriesForWindow(win).notReady, [win])
+  const card = windowCard(win)
   return (
     <>
       <div className="infra-card-grid">
-        <InfraCard title="Pods Desired but not Available" span="full" allowDecimals={false} fmt={fmtCount} series={one('not available', notAvailable)} />
+        <InfraCard title="Pods Desired but not Available" span="full" allowDecimals={false} fmt={fmtCount} {...card(w => ({ series: one('not available', containersAt(w).notReady) }))} />
       </div>
       <div className="panel">
         <div className="panel-head">
@@ -699,6 +813,7 @@ function K8sPodDetail({ pod, pods, onSelectPod, reveal }) {
   const [picked, setPicked] = useState({ pod: pod.name, container: null })
   const container = picked.pod === pod.name ? picked.container : null
   const pickContainer = name => setPicked({ pod: pod.name, container: name })
+  const card = rowCard(pod, named(podsAt, 'name', pod.name))
 
   return (
     <div>
@@ -740,11 +855,11 @@ function K8sPodDetail({ pod, pods, onSelectPod, reveal }) {
 
       {container ? <K8sContainerDetail pod={pod} container={container} /> : (
         <div className="infra-card-grid">
-          <InfraCard title="CPU Used (cores)" fmt={fmtCoresTick} tipFmt={fmtCores3} series={one(pod.name, pod.cpuSeries)} />
-          <InfraCard title="Memory Used (bytes)" fmt={fmtBytes} series={one(pod.name, pod.memSeries)} />
-          <InfraCard title="Disk Used %" span="third" fmt={fmtPct1} series={one(pod.name, pod.diskSeries)} />
-          <InfraCard title="Container Restarts" span="third" allowDecimals={false} fmt={fmtCount} series={one(pod.name, pod.restartsSeries)} />
-          <InfraCard title="Network Traffic (bytes/s)" span="third" area fmt={fmtBytes} series={netSeries(pod)} />
+          <InfraCard title="CPU Used (cores)" fmt={fmtCoresTick} tipFmt={fmtCores3} {...card(p => ({ series: one(p.name, p.cpuSeries) }))} />
+          <InfraCard title="Memory Used (bytes)" fmt={fmtBytes} {...card(p => ({ series: one(p.name, p.memSeries) }))} />
+          <InfraCard title="Disk Used %" span="third" fmt={fmtPct1} {...card(p => ({ series: one(p.name, p.diskSeries) }))} />
+          <InfraCard title="Container Restarts" span="third" allowDecimals={false} fmt={fmtCount} {...card(p => ({ series: one(p.name, p.restartsSeries) }))} />
+          <InfraCard title="Network Traffic (bytes/s)" span="third" area fmt={fmtBytes} {...card(p => ({ series: netSeries(p) }))} />
         </div>
       )}
     </div>
@@ -764,6 +879,16 @@ const PROCESS_FIELDS = [{ name: 'command', key: 'command' }]
 // The detail charts' two lines: the pod's total, then the container's own.
 const CONTAINER_COLORS = [RESOURCE_COLORS.used, RESOURCE_COLORS.committed]
 
+// A legend chart's rows from [name, legend figure, series] triples, split into
+// the index-aligned lists LegendLineChart takes.
+const legendRows = rows => ({
+  eps: rows.map(([name, value]) => ({ name, value })),
+  epSeries: rows.map(([name, , series]) => ({ name, series })),
+})
+// A legend chart with nothing to draw. Its forWindow is laid over the page's
+// props, so an empty one has to say so rather than leave the page's rows.
+const NO_LEGEND_ROWS = legendRows([])
+
 /**
  * A pod's page with one of its containers picked, as production draws it: the
  * container's processes, then its CPU, memory and disk as full-width charts
@@ -778,12 +903,18 @@ const CONTAINER_COLORS = [RESOURCE_COLORS.used, RESOURCE_COLORS.committed]
  */
 function K8sContainerDetail({ pod, container }) {
   const { win, setTimeRange, syncId } = useContext(InfraTime)
+  // Each chart's rows as a function of the pod's row, so a chart's Compare
+  // reads the earlier window's copy of the pod the same way. The container
+  // is the one picked, by name, in both.
+  const podIn = named(podsAt, 'name', pod.name)
+  const card = rowCard(pod, podIn)
+  const legendCard = rowCard(pod, podIn, NO_LEGEND_ROWS)
   const charts = [
-    { title: 'CPU Used (cores)', fmtFn: fmtCompact, axisFormat: fmtCoresTick, rows: [['Total', pod.cpuUsed, pod.cpuSeries]] },
-    { title: 'Memory Used (bytes)', fmtFn: fmtBytes, axisFormat: fmtBytes, rows: [['Total', pod.memUsed, pod.memSeries]] },
+    { title: 'CPU Used (cores)', fmtFn: fmtCompact, axisFormat: fmtCoresTick, rows: p => [['Total', p.cpuUsed, p.cpuSeries]] },
+    { title: 'Memory Used (bytes)', fmtFn: fmtBytes, axisFormat: fmtBytes, rows: p => [['Total', p.memUsed, p.memSeries]] },
     {
       title: 'Disk Used %', fmtFn: fmtPct2, axisFormat: fmtPctTick, yTop: 100,
-      rows: [['Total', pod.disk, pod.diskSeries], [container, pod.disk, pod.diskSeries]],
+      rows: p => [['Total', p.disk, p.diskSeries], [container, p.disk, p.diskSeries]],
     },
   ]
   return (
@@ -803,8 +934,7 @@ function K8sContainerDetail({ pod, container }) {
           <LegendLineChart
             key={c.title}
             title={c.title}
-            eps={c.rows.map(([name, value]) => ({ name, value }))}
-            epSeries={c.rows.map(([name, , series]) => ({ name, series }))}
+            {...legendCard(p => legendRows(c.rows(p)))}
             dataKey="value"
             labelKey="name"
             fmtFn={c.fmtFn}
@@ -819,8 +949,8 @@ function K8sContainerDetail({ pod, container }) {
         ))}
       </div>
       <div className="infra-card-grid">
-        <InfraCard title="Container Restarts" allowDecimals={false} fmt={fmtCount} series={one(container, pod.restartsSeries)} />
-        <InfraCard title="Network Traffic (bytes/s)" area fmt={fmtBytes} series={netSeries(pod)} />
+        <InfraCard title="Container Restarts" allowDecimals={false} fmt={fmtCount} {...card(p => ({ series: one(container, p.restartsSeries) }))} />
+        <InfraCard title="Network Traffic (bytes/s)" area fmt={fmtBytes} {...card(p => ({ series: netSeries(p) }))} />
       </div>
     </>
   )
@@ -842,6 +972,7 @@ function K8sNodeDetail({ node, nodes, pods, onSelectNode, onSelectPod, reveal })
   )
   const hits = useMemo(() => (ok ? highlightsFor(queryNode) : { pod: [], namespace: [] }), [queryNode, ok])
   const tagHits = useMemo(() => (ok ? tagHighlightsFor(queryNode) : {}), [queryNode, ok])
+  const card = rowCard(node, named(nodesAt, 'name', node.name))
 
   return (
     <div>
@@ -855,10 +986,10 @@ function K8sNodeDetail({ node, nodes, pods, onSelectNode, onSelectPod, reveal })
         />
       </div>
       <div className="infra-card-grid">
-        <InfraCard title="CPU Used %" value={fmtPct1(node.cpu)} span="third" fmt={fmtPct1} series={one(node.name, node.cpuSeries)} />
-        <InfraCard title="Memory Used %" value={fmtPct1(node.mem)} span="third" fmt={fmtPct1} series={one(node.name, node.memSeries)} />
-        <InfraCard title="Disk Used %" value={fmtPct1(node.disk)} span="third" fmt={fmtPct1} series={one(node.name, node.diskSeries)} />
-        <InfraCard title="Network Traffic (bytes/s)" span="full" area fmt={fmtBytes} series={netSeries(node)} />
+        <InfraCard title="CPU Used %" span="third" fmt={fmtPct1} {...card(n => ({ value: fmtPct1(n.cpu), series: one(n.name, n.cpuSeries) }))} />
+        <InfraCard title="Memory Used %" span="third" fmt={fmtPct1} {...card(n => ({ value: fmtPct1(n.mem), series: one(n.name, n.memSeries) }))} />
+        <InfraCard title="Disk Used %" span="third" fmt={fmtPct1} {...card(n => ({ value: fmtPct1(n.disk), series: one(n.name, n.diskSeries) }))} />
+        <InfraCard title="Network Traffic (bytes/s)" span="full" area fmt={fmtBytes} {...card(n => ({ series: netSeries(n) }))} />
       </div>
 
       <div className="panel">
@@ -890,7 +1021,7 @@ function K8sNodeView({ nodes, pods, selectedNode, setSelectedNode, selectedPod, 
   }
   return (
     <>
-      <FleetCards rows={nodes} nameKey="name" noun="nodes" />
+      <FleetCards rows={nodes} rowsAt={nodesAt} nameKey="name" noun="nodes" />
       <div className="panel">
         <div className="panel-head">
           <div className="panel-head-left">Summary</div>
@@ -907,6 +1038,35 @@ function K8sNodeView({ nodes, pods, selectedNode, setSelectedNode, selectedPod, 
 // shows, and filters the page to nothing, as production's does.
 const POD_KINDS = ['CronJob', 'Daemonset', 'Deployment', 'HPA', 'Job', 'Replicaset', 'Statefulset']
 
+// The Pod list's scope, in two steps: a namespace's pods, then those the Filter
+// keeps (a kind, then one workload of it; '' is ALL).
+const inNamespaceOf = (pods, namespace) => pods.filter(p => p.namespace === namespace)
+const scopedBy = (inNamespace, kind, workload) => (
+  kind ? inNamespace.filter(p => p.owners?.[kind] && (!workload || p.owners[kind] === workload)) : inNamespace
+)
+
+/**
+ * What the Pod list's four cards draw of the pods in scope.
+ *
+ * A line per pod on three of them. A pod keeps its colour while the Filter
+ * narrows the page (it is keyed on the pod's place in the namespace), and the
+ * tooltip names every line, so the cards carry no legend. A pod with no memory
+ * limit has nothing remaining to draw, and no Memory Remaining line.
+ *
+ * The fourth is production's Pods chart: how many of the pods shown reported
+ * in each bucket. A bucket none of them has reached yet (past now) stays empty.
+ */
+function podListLines(inNamespace, scoped) {
+  const perPod = key => scoped.filter(p => p[key]).map(p => ({
+    key: p.name, label: p.name, color: infraColor(inNamespace.indexOf(p)), rows: p[key],
+  }))
+  const reporting = (scoped[0]?.cpuSeries ?? []).map((pt, i) => {
+    const n = scoped.filter(p => p.cpuSeries[i]?.value != null).length
+    return { ...pt, value: n || null }
+  })
+  return { cpu: perPod('cpuSeries'), mem: perPod('memRemainingSeries'), disk: perPod('diskSeries'), pods: one('pods', reporting) }
+}
+
 function K8sPodListView({ pods, selectedPod, setSelectedPod, reveal }) {
   const [query, setQuery] = useState('')
   // The list opens on the choice of namespace, as PVC's does. An open pod
@@ -920,17 +1080,14 @@ function K8sPodListView({ pods, selectedPod, setSelectedPod, reveal }) {
   const [workload, setWorkload] = useState('')
   const pickNamespace = ns => { setNamespace(ns); setKind(''); setWorkload('') }
 
-  const inNamespace = useMemo(() => pods.filter(p => p.namespace === namespace), [pods, namespace])
+  const inNamespace = useMemo(() => inNamespaceOf(pods, namespace), [pods, namespace])
   const workloads = useMemo(
     () => (kind ? [...new Set(inNamespace.map(p => p.owners?.[kind]).filter(Boolean))].sort() : []),
     [inNamespace, kind],
   )
   // What the charts and the table both show: the namespace, narrowed by the
   // Filter.
-  const scoped = useMemo(
-    () => (kind ? inNamespace.filter(p => p.owners?.[kind] && (!workload || p.owners[kind] === workload)) : inNamespace),
-    [inNamespace, kind, workload],
-  )
+  const scoped = useMemo(() => scopedBy(inNamespace, kind, workload), [inNamespace, kind, workload])
   const { node: queryNode, ok } = parsePodQuery(query, POD_NODE_FIELDS)
   const shown = useMemo(
     () => (ok ? scoped.filter(p => matchesPod(queryNode, p, POD_NODE_FIELDS)) : scoped),
@@ -942,23 +1099,17 @@ function K8sPodListView({ pods, selectedPod, setSelectedPod, reveal }) {
   )
   const tagHits = useMemo(() => (ok ? tagHighlightsFor(queryNode, POD_NODE_FIELDS) : {}), [queryNode, ok])
 
-  // A line per pod on each card. A pod keeps its colour while the Filter
-  // narrows the page (it is keyed on the pod's place in the namespace), and
-  // the tooltip names every line, so the cards carry no legend. A pod with no
-  // memory limit has nothing remaining to draw, and no Memory Remaining line.
-  const lines = useMemo(() => {
-    const perPod = key => scoped.filter(p => p[key]).map(p => ({
-      key: p.name, label: p.name, color: infraColor(inNamespace.indexOf(p)), rows: p[key],
-    }))
-    return { cpu: perPod('cpuSeries'), mem: perPod('memRemainingSeries'), disk: perPod('diskSeries') }
-  }, [scoped, inNamespace])
-
-  // Production's Pods chart: how many of the pods shown reported in each
-  // bucket. A bucket none of them has reached yet (past now) stays empty.
-  const podCount = useMemo(() => (scoped[0]?.cpuSeries ?? []).map((pt, i) => {
-    const reporting = scoped.filter(p => p.cpuSeries[i]?.value != null).length
-    return { ...pt, value: reporting || null }
-  }), [scoped])
+  const lines = useMemo(() => podListLines(inNamespace, scoped), [inNamespace, scoped])
+  // Each card over another window, for its Compare: the same namespace and
+  // Filter over that window's pods, by the same two steps.
+  const linesFor = useMemo(() => {
+    const at = perWindow(w => {
+      const inNs = inNamespaceOf(podsAt(w), namespace)
+      return podListLines(inNs, scopedBy(inNs, kind, workload))
+    })
+    const card = key => w => ({ series: at(w)[key] })
+    return { cpu: card('cpu'), mem: card('mem'), disk: card('disk'), pods: card('pods') }
+  }, [namespace, kind, workload])
 
   if (selectedPod) return <K8sPodDetail pod={selectedPod} pods={pods} onSelectPod={setSelectedPod} reveal={reveal} />
   if (!namespace) return <NamespacePicker onPick={pickNamespace} />
@@ -988,10 +1139,10 @@ function K8sPodListView({ pods, selectedPod, setSelectedPod, reveal }) {
         )}
       </div>
       <div className="infra-card-grid">
-        <InfraCard title="CPU Used (cores)" legend={false} fmt={fmtCoresTick} tipFmt={fmtCompact} series={lines.cpu} />
-        <InfraCard title="Memory Remaining (bytes)" legend={false} fmt={fmtBytes} series={lines.mem} />
-        <InfraCard title="Disk Used %" legend={false} fmt={fmtPct1} series={lines.disk} />
-        <InfraCard title="Pods" allowDecimals={false} fmt={fmtCount} series={one('pods', podCount)} />
+        <InfraCard title="CPU Used (cores)" legend={false} fmt={fmtCoresTick} tipFmt={fmtCompact} series={lines.cpu} forWindow={linesFor.cpu} />
+        <InfraCard title="Memory Remaining (bytes)" legend={false} fmt={fmtBytes} series={lines.mem} forWindow={linesFor.mem} />
+        <InfraCard title="Disk Used %" legend={false} fmt={fmtPct1} series={lines.disk} forWindow={linesFor.disk} />
+        <InfraCard title="Pods" allowDecimals={false} fmt={fmtCount} series={lines.pods} forWindow={linesFor.pods} />
       </div>
       <div className="panel">
         <div className="panel-head is-stacked">
@@ -1083,8 +1234,8 @@ function K8sNamespaceGateView({ resourceLabel }) {
  * the last seven days has to say seven days - but it carries no Tooltip, so it
  * is the one chart on the page that cannot be brushed, and it leaves out the
  * drag's handlers and crosshair rather than offer a gesture that cannot finish.
- * It carries no ⋮ menu either: there is nothing in it to alert on, compare or
- * explore.
+ * It carries no ⋮ menu either, and no Expand: there is nothing in it to alert
+ * on, compare, explore or look at closer.
  */
 function NoDataChart({ title }) {
   const { win } = useContext(InfraTime)
@@ -1124,16 +1275,22 @@ function InfraEmptyView({ columns }) {
 
 /* ============ MySQL / Redis dedicated dashboards ============ */
 
+// The figure beside most of these cards' titles is the summary's reading, the
+// one the table under them prints, not the window's: it stays put while the
+// range moves. So it is the card's own prop and not part of what the card
+// draws per window, and a Compare prints none beside its earlier chart rather
+// than today's figure over another day's line. A figure read off the window
+// (Redis's evictions) goes with it.
 function MySQLView() {
   const { win } = useContext(InfraTime)
-  const series = useMemo(() => mysqlSeriesForWindow(win), [win])
+  const card = windowCard(win)
   const s = mysqlSummary
   return (
     <>
       <div className="infra-card-grid">
-        <InfraCard title="Operations per Minute" value={s.opsPerMin} span="third" allowDecimals={false} fmt={fmtCount} series={one(s.host, series.opsPerMin)} />
-        <InfraCard title="Connection Errors per Minute" value={s.connErrPerMin} span="third" allowDecimals={false} fmt={fmtCount} series={one(s.host, series.connErrors)} />
-        <InfraCard title="Slow Queries per Minute" value={s.slowQueriesPerMin} span="third" allowDecimals={false} fmt={fmtCount} series={one(s.host, series.slowQueries)} />
+        <InfraCard title="Operations per Minute" value={s.opsPerMin} span="third" allowDecimals={false} fmt={fmtCount} {...card(w => ({ series: one(s.host, mysqlAt(w).opsPerMin) }))} />
+        <InfraCard title="Connection Errors per Minute" value={s.connErrPerMin} span="third" allowDecimals={false} fmt={fmtCount} {...card(w => ({ series: one(s.host, mysqlAt(w).connErrors) }))} />
+        <InfraCard title="Slow Queries per Minute" value={s.slowQueriesPerMin} span="third" allowDecimals={false} fmt={fmtCount} {...card(w => ({ series: one(s.host, mysqlAt(w).slowQueries) }))} />
       </div>
       <div className="panel">
         <div className="panel-head">
@@ -1148,14 +1305,17 @@ function MySQLView() {
 
 function RedisView() {
   const { win } = useContext(InfraTime)
-  const series = useMemo(() => redisSeriesForWindow(win), [win])
+  const card = windowCard(win)
   const s = redisSummary
   return (
     <>
       <div className="infra-card-grid">
-        <InfraCard title="Memory Used (bytes)" value={fmtBytes(s.memUsedBytes)} span="third" fmt={fmtBytes} series={one(s.host, series.memUsed)} />
-        <InfraCard title="Commands per Minute" value={s.cmdPerMin} span="third" allowDecimals={false} fmt={fmtCount} series={one(s.host, series.cmdPerMin)} />
-        <InfraCard title="Evictions per Minute" value={lastReading(series.evictionsPerMin)} span="third" allowDecimals={false} fmt={fmtCount} series={one(s.host, series.evictionsPerMin)} />
+        <InfraCard title="Memory Used (bytes)" value={fmtBytes(s.memUsedBytes)} span="third" fmt={fmtBytes} {...card(w => ({ series: one(s.host, redisAt(w).memUsed) }))} />
+        <InfraCard title="Commands per Minute" value={s.cmdPerMin} span="third" allowDecimals={false} fmt={fmtCount} {...card(w => ({ series: one(s.host, redisAt(w).cmdPerMin) }))} />
+        <InfraCard title="Evictions per Minute" span="third" allowDecimals={false} fmt={fmtCount} {...card(w => {
+          const evictions = redisAt(w).evictionsPerMin
+          return { value: lastReading(evictions), series: one(s.host, evictions) }
+        })} />
       </div>
       <div className="panel">
         <div className="panel-head">
@@ -1185,9 +1345,9 @@ export default function InfraView({ goHome, source, resource, selectedHost, setS
 
   // Every row on this page is "what the selected window held", so the lists are
   // rebuilt from the window rather than read off the module's reference hour.
-  const hosts = useMemo(() => infraHostsForWindow(win), [win])
-  const nodes = useMemo(() => k8sNodesForWindow(win), [win])
-  const pods = useMemo(() => k8sPodsForWindow(win), [win])
+  const hosts = useMemo(() => hostsAt(win), [win])
+  const nodes = useMemo(() => nodesAt(win), [win])
+  const pods = useMemo(() => podsAt(win), [win])
 
   // Seeded from the incoming link, so /infra?tab=k8s-cluster&section=kube-system
   // arrives already scoped. App remounts on a resource change, so this only has
@@ -1233,9 +1393,10 @@ export default function InfraView({ goHome, source, resource, selectedHost, setS
   const hasStrip = Boolean(host || k8sNode || k8sPod) || source === 'k8s-pod'
 
   // The chart cards carry the service page's ⋮ menu, and offer what it offers.
-  // None of the screens behind it - the alert builder, the comparison window,
-  // Explore over host metrics - is wired to this page yet, so the menu says so
-  // rather than doing nothing, as the service page's does for its own gaps.
+  // A chart's Compare never reaches here: its corner opens the comparison
+  // itself (ChartActions). Of the rest, only a host's CPU alert is wired to
+  // this page; for every other item the menu says so rather than doing
+  // nothing, as the service page's does for its own gaps.
   const onCardAction = useCallback((action, title) => {
     // A host's CPU chart can be alerted on: Explore's metrics store carries
     // the same CPU per host (docs/alerts/DESIGN.md D13). Other charts wait for
@@ -1253,7 +1414,7 @@ export default function InfraView({ goHome, source, resource, selectedHost, setS
   } else if (source === 'host') {
     body = (
       <>
-        <FleetCards rows={hosts} nameKey="host" noun="hosts" />
+        <FleetCards rows={hosts} rowsAt={hostsAt} nameKey="host" noun="hosts" />
 
         <HostTable hosts={hosts} onSelect={setSelectedHost} />
       </>

@@ -19,7 +19,12 @@ const ICONS = {
 // `total` names the aggregate series a stacked chart also carries, so the menu
 // can offer the breakdown and the total separately - the drilldown's total
 // latency is a different thing to alert on than any one of its layers.
-function itemsFor({ kind, columns, total }) {
+//
+// A chart's Compare is set apart from the actions that leave the page by a
+// divider, as production's is (docs/alerts/reference/production.md §15.3).
+// `compare: false` leaves it out: the chart inside the Compare modal, which is
+// already being compared, and a chart that owns a comparison of its own.
+function itemsFor({ kind, columns, total, compare = true }) {
   if (kind === 'metric') {
     return [
       { icon: 'alert', label: 'Create Alert' },
@@ -28,7 +33,7 @@ function itemsFor({ kind, columns, total }) {
   }
   if (kind === 'chart') {
     const base = [
-      { icon: 'compare', label: 'Compare' },
+      ...(compare ? [{ icon: 'compare', label: 'Compare' }, { sep: true }] : []),
       { icon: 'alert', label: 'Create Alert' },
       { icon: 'explore', label: 'Explore' },
     ]
@@ -56,7 +61,7 @@ function itemsFor({ kind, columns, total }) {
   ]
 }
 
-export default function CardMenu({ kind = 'chart', title, columns, total, onAction }) {
+export default function CardMenu({ kind = 'chart', title, columns, total, compare = true, onAction }) {
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState(null)
   const [hl, setHl] = useState(-1)
@@ -65,7 +70,7 @@ export default function CardMenu({ kind = 'chart', title, columns, total, onActi
   const fromContext = useContext(CardActionContext)
   const act = onAction ?? fromContext
 
-  const items = itemsFor({ kind, columns, total })
+  const items = itemsFor({ kind, columns, total, compare })
   const options = items.filter(i => !i.sep)
 
   const close = useCallback(({ refocus } = {}) => {

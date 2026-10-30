@@ -5,7 +5,7 @@ import { withX } from '@/components/charts/timeAxis'
 import { useSeriesHover } from '@/components/charts/useTimeFocus'
 import ChartTooltip from '@/components/charts/ChartTooltip'
 import { TimeChart, rowInstant } from '@/components/charts/TimeChart'
-import CardMenu from '@/components/CardMenu'
+import ChartActions from '@/components/charts/ChartActions'
 import { useSeriesBudget } from '@/components/charts/useSeriesBudget'
 import SeriesBudgetFooter from '@/components/charts/SeriesBudgetFooter'
 import { fixesAxis } from '@/components/charts/seriesBudget'
@@ -101,8 +101,52 @@ function CardTooltip({ active, payload, series, fmt, nowMs, hoverKey, suppressed
  *                           Show all"), in these words. `series` must then come
  *                           in the order to draw them. Left out, every series
  *                           is drawn, as on Runtime.
+ * @param {Function} [forWindow] w → { series, value } — the card over another
+ *                           window, by the same derivation that gave `series`
+ *                           and `value` for `win`. It is what the card's
+ *                           Compare draws ("1 day ago", ChartModal); `value`
+ *                           may be left out of what it returns. Left out, the
+ *                           card can be expanded but offers no Compare.
  */
-export default function CardChart({ title, value, series, fmt, tipFmt, area = false, span = 'half', allowDecimals = true, legend = true, tooltipLimit, budgetNoun, syncId, win, onFocus }) {
+export default function CardChart({ title, value, series, fmt, tipFmt, area = false, span = 'half', allowDecimals = true, legend = true, tooltipLimit, budgetNoun, syncId, win, onFocus, forWindow }) {
+  const plot = { fmt, tipFmt, area, allowDecimals, legend, tooltipLimit, budgetNoun, syncId, onFocus }
+  // The card over any window: its own props for the page's window, the
+  // caller's derivation for any other. Each window's figures are worked out
+  // once, however often the modal asks for them.
+  const view = useMemo(() => {
+    const other = new WeakMap()
+    const at = w => {
+      if (w === win) return { series, value }
+      if (!other.has(w)) other.set(w, forWindow(w) ?? {})
+      return other.get(w)
+    }
+    return {
+      win,
+      comparable: typeof forWindow === 'function',
+      value: w => at(w).value,
+      render: w => <CardChartBody {...plot} series={at(w).series ?? []} win={w} />,
+    }
+    // `plot` is rebuilt every render from the props listed here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [win, series, value, forWindow, fmt, tipFmt, area, allowDecimals, legend, tooltipLimit, budgetNoun, syncId, onFocus])
+
+  return (
+    <div className={`runtime-chart-card rt-${span}`}>
+      <div className="clbl">
+        <span className="clbl-text">{title}{value != null && <span className="cval">{value}</span>}</span>
+        <ChartActions title={title} view={view} />
+      </div>
+      <CardChartBody {...plot} series={series} win={win} />
+    </div>
+  )
+}
+
+/**
+ * Everything under the card's header: the plot, its legend and its series
+ * budget. The card draws it once over the page's window, and its Expand and
+ * Compare draw it again in the modal, over whichever window they show.
+ */
+function CardChartBody({ series, fmt, tipFmt, area, allowDecimals, legend, tooltipLimit, budgetNoun, syncId, win, onFocus }) {
   const [hoverKey, hoverProps] = useSeriesHover()
   // The budget runs on the plot's own width, which only the chart can measure.
   // A card with no budgetNoun never reports one, and draws every series.
@@ -127,11 +171,7 @@ export default function CardChart({ title, value, series, fmt, tipFmt, area = fa
   const Chart = area ? AreaChart : LineChart
 
   return (
-    <div className={`runtime-chart-card rt-${span}`}>
-      <div className="clbl">
-        <span className="clbl-text">{title}{value != null && <span className="cval">{value}</span>}</span>
-        <CardMenu kind="chart" title={title} />
-      </div>
+    <>
       <TimeChart className="chart-host" win={win} onFocus={onFocus} onWidth={budgetNoun ? setPlotWidth : undefined}>
         {(axis, focus) => (
           <Chart data={data} margin={{ top: 6, right: 4, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
@@ -182,6 +222,6 @@ export default function CardChart({ title, value, series, fmt, tipFmt, area = fa
         </div>
       )}
       {budgetNoun && <SeriesBudgetFooter budget={budget} noun={budgetNoun} />}
-    </div>
+    </>
   )
 }

@@ -73,6 +73,17 @@ export default function AjaxCallsTab({ app, win, timeRange, syncId, onFocus, vie
     selected: isolated, onSelect: setIsolated,
   }
 
+  // A card or chart over another window, for its Compare, as on Page Views:
+  // the same reader called with that window, the same field picked off it.
+  const cardAt = key => w => {
+    const s = ajaxSummaryForWindow(w, app.id)
+    return { value: s?.[key] ?? null, series: s?.series[key] ?? [] }
+  }
+  const chartAt = key => w => {
+    const d = ajaxCallsForWindow(w, app.id)
+    return { eps: d.rows, epSeries: d.series[key] }
+  }
+
   return (
     <>
       {summary && (
@@ -80,17 +91,17 @@ export default function AjaxCallsTab({ app, win, timeRange, syncId, onFocus, vie
           <SummaryCard
             title="Calls / min"
             info="XHR and fetch calls per minute made by the app's pages, every endpoint together, averaged over the selected time range."
-            value={summary.rpm} prev={summary.prev.rpm} fmt={fmtRpm2} series={summary.series.rpm} {...card}
+            value={summary.rpm} prev={summary.prev.rpm} fmt={fmtRpm2} series={summary.series.rpm} forWindow={cardAt('rpm')} {...card}
           />
           <SummaryCard
             title="Response time (avg)"
             info="The mean time a call waited for its answer, as the browser measured it: network included, every endpoint's calls together."
-            value={summary.avg} prev={summary.prev.avg} fmt={fmtLoadTime} axisFormat={fmtLoadTimeTick} series={summary.series.avg} {...card}
+            value={summary.avg} prev={summary.prev.avg} fmt={fmtLoadTime} axisFormat={fmtLoadTimeTick} series={summary.series.avg} forWindow={cardAt('avg')} {...card}
           />
           <SummaryCard
             title="Error %"
             info="Calls answered with an HTTP 4xx or 5xx status, as a share of every call the app made. Weighted by calls, not an average of the endpoints' rates."
-            value={summary.errPct} prev={summary.prev.errPct} fmt={fmtPct} axisFormat={fmtPctTick} series={summary.series.errPct} {...card}
+            value={summary.errPct} prev={summary.prev.errPct} fmt={fmtPct} axisFormat={fmtPctTick} series={summary.series.errPct} forWindow={cardAt('errPct')} {...card}
           />
         </div>
       )}
@@ -104,9 +115,9 @@ export default function AjaxCallsTab({ app, win, timeRange, syncId, onFocus, vie
         onSearch={setSearch}
         graph={(
           <>
-            <LegendLineChart title="RPM" epSeries={data.series.rpm} dataKey="rpm" fmtFn={fmtRpm2} axisFormat={fmtRateTick} {...chart} />
-            <LegendLineChart title="Response Time (avg)" epSeries={data.series.avg} dataKey="avg" fmtFn={fmtLoadTime} axisFormat={fmtLoadTimeTick} {...chart} />
-            <LegendLineChart title="Error %" epSeries={data.series.errPct} dataKey="errPct" fmtFn={fmtPct} axisFormat={fmtPctTick} {...chart} />
+            <LegendLineChart title="RPM" epSeries={data.series.rpm} dataKey="rpm" fmtFn={fmtRpm2} axisFormat={fmtRateTick} forWindow={chartAt('rpm')} {...chart} />
+            <LegendLineChart title="Response Time (avg)" epSeries={data.series.avg} dataKey="avg" fmtFn={fmtLoadTime} axisFormat={fmtLoadTimeTick} forWindow={chartAt('avg')} {...chart} />
+            <LegendLineChart title="Error %" epSeries={data.series.errPct} dataKey="errPct" fmtFn={fmtPct} axisFormat={fmtPctTick} forWindow={chartAt('errPct')} {...chart} />
           </>
         )}
         table={(
