@@ -22,9 +22,13 @@ import SaveQueryPopover from '@/components/SaveQueryPopover'
 import MyQueriesDrawer from '@/components/MyQueriesDrawer'
 import { useSavedQueries } from '@/hooks/useSavedQueries'
 import { useHeaderScrollSync } from '@/hooks/useHeaderScrollSync'
-import { Sigma, Network, ArrowUpDown, Hash, Calculator, AlertCircle, Bookmark, BookmarkPlus, BookmarkCheck, List } from 'lucide-react'
+import { Sigma, Network, ArrowUpDown, Hash, Calculator, AlertCircle, Bookmark, BookmarkPlus, BookmarkCheck, List, ExternalLink } from 'lucide-react'
 import { ALIASES } from '@/utils/logFields'
 import { LogRecordDrawer } from '@/components/LogRecordDrawer'
+import SpanTraceTab from '@/components/trace/SpanTraceTab'
+import SpanExceptionModal from '@/components/errors/SpanExceptionModal'
+import { traceInRows } from '@/data/traceDetail'
+import { resolveTrace } from '@/data/traceResolvers'
 import QueryHistoryDrawer from '@/components/explorer/QueryHistoryDrawer'
 import { alertPayloadForQuery } from '@/utils/alerts/editorPayloads'
 import { GRID_PROPS, valueAxisProps, fmtCount } from '@/components/charts/chartDefaults'
@@ -137,7 +141,7 @@ const isBlank = (v) => v == null || v === ''
  * One cell of the table. Only duration, status_code and the columns marked as
  * links are more than their text.
  */
-function SpanCell({ col, row, source, onOpenTrace, onFilter }) {
+function SpanCell({ col, row, source, onShowTrace, onFilter }) {
   const raw = row.tags[col.key]
   if (col.key === 'duration') {
     // A record with no duration has not "taken 0 ns" — it was never timed — so
@@ -164,9 +168,10 @@ function SpanCell({ col, row, source, onOpenTrace, onFilter }) {
   }
   if (col.link === 'trace' || col.link === 'filter') {
     // The values on the row that lead somewhere else: a trace id opens the
-    // waterfall for the whole request, a filter link narrows the results to
-    // its value. A record without the value has nowhere to lead, so it gets
-    // the blank rather than a link to nothing.
+    // waterfall for the whole request (the row's drawer, on its Waterfall
+    // tab), a filter link narrows the results to its value. A record without
+    // the value has nowhere to lead, so it gets the blank rather than a link
+    // to nothing.
     const cls = `span-cell${col.mono ? ' mono' : ''}${col.grow ? ' grow' : ''}`
     if (isBlank(raw)) {
       return <span className={cls} style={{ width: col.width }}><span className="span-empty">—</span></span>
@@ -175,21 +180,27 @@ function SpanCell({ col, row, source, onOpenTrace, onFilter }) {
     // A filter link's values are long and the column cuts them off, so the
     // full value leads the tooltip and the action follows it.
     const title = isTrace
-      ? (col.linkTitle ?? `Open trace ${raw}`)
+      ? (col.linkTitle ?? `Open trace ${raw} in the Waterfall tab`)
       : (col.linkTitle ? `${raw}\n${col.linkTitle}` : `Filter to ${raw}`)
     return (
       <span className={cls} style={{ width: col.width }}>
         <button
           type="button"
           className="span-trace-link"
+          data-link={isTrace ? 'trace' : undefined}
           title={title}
           onClick={(e) => {
             e.stopPropagation()
-            if (isTrace) onOpenTrace(raw)
+            if (isTrace) onShowTrace(row, raw)
             else onFilter({ field: col.key, op: 'eq', value: String(raw) })
           }}
         >
-          {raw}
+          {isTrace ? (
+            <>
+              <span className="span-trace-id">{raw}</span>
+              <ExternalLink size={12} strokeWidth={2} aria-hidden="true" />
+            </>
+          ) : raw}
         </button>
       </span>
     )
@@ -764,6 +775,43 @@ export default function TracesView({ source = TRACES_SOURCE, goHome, timeRange, 
     else onOpenLink?.({ view: 'traces', traceId: id })
   }, [onOpenTrace, onOpenLink])
 
+  // The drawer's Waterfall tab: the trace a record ran in, read for the window
+  // on screen. Backend spans come from the stream's own rows (traceInRows says
+  // why the id alone is not enough off the reference hour); a device's
+  // request decodes from its id, in its own datasource. A dataset with no
+  // trace datasource offers no tab.
+  const traceDatasource = source.traceDatasource ?? null
+  const traceFor = useCallback((id) => (
+    traceDatasource === 'traces' ? traceInRows(id, spanRows) : resolveTrace(id, traceDatasource)
+  ), [traceDatasource, spanRows])
+  // A failed span's stack, drawn here rather than inside the drawer, so the
+  // modal's clicks never reach the drawer's handlers (BrowserTracesTab's rule).
+  const [stackSpan, setStackSpan] = useState(null)
+  const openException = useCallback((span) => setStackSpan(span), [])
+  // A row's trace_id opens that row's drawer on its Waterfall tab, rather than
+  // leaving for the trace page, which the tab links to. The request is a new
+  // object per click, so the drawer applies it even when already open, and a
+  // plain click on a row (null) leaves whatever tab the reader is on. A
+  // dataset with no Waterfall tab still opens the trace page.
+  const [drawerRequest, setDrawerRequest] = useState(null)
+  const showTrace = useCallback((row, traceId) => {
+    if (!traceDatasource) { openTrace(traceId); return }
+    setSelectedId(row.id)
+    setDrawerRequest({ view: 'waterfall' })
+  }, [traceDatasource, openTrace])
+  const drawerTabs = useMemo(() => (traceDatasource ? [{
+    id: 'waterfall',
+    label: 'Waterfall',
+    render: (record) => (
+      <SpanTraceTab
+        record={record}
+        traceFor={traceFor}
+        onOpenTrace={openTrace}
+        onOpenException={openException}
+      />
+    ),
+  }] : undefined), [traceDatasource, traceFor, openTrace, openException])
+
   return (
     <>
       <PageBar
@@ -1244,7 +1292,9 @@ export default function TracesView({ source = TRACES_SOURCE, goHome, timeRange, 
                       <div
                         key={row.id}
                         className={`log-row span-row${selectedId === row.id ? ' selected' : ''}`}
-                        onClick={() => { if (window.getSelection()?.isCollapsed !== false) setSelectedId(row.id) }}
+                        onClick={() => {
+                          if (window.getSelection()?.isCollapsed !== false) { setSelectedId(row.id); setDrawerRequest(null) }
+                        }}
                       >
                         <div className="log-fixed-cols">
                           <span className={`log-lvl-bar span-bar-${source.statusForRow(row)}`} />
@@ -1254,7 +1304,7 @@ export default function TracesView({ source = TRACES_SOURCE, goHome, timeRange, 
                           </span>
                         </div>
                         {columns.map(c => (
-                          <SpanCell key={c.key} col={c} row={row} source={source} onOpenTrace={openTrace} onFilter={filterTo} />
+                          <SpanCell key={c.key} col={c} row={row} source={source} onShowTrace={showTrace} onFilter={filterTo} />
                         ))}
                       </div>
                     ))}
@@ -1281,6 +1331,9 @@ export default function TracesView({ source = TRACES_SOURCE, goHome, timeRange, 
               onTogglePin={togglePinnedField}
               badge={source.badgeFor(selected)}
               traceList={source.title}
+              tabs={drawerTabs}
+              viewRequest={drawerRequest}
+              className="trace-drawer"
             />
           )}
         </div>
@@ -1294,6 +1347,7 @@ export default function TracesView({ source = TRACES_SOURCE, goHome, timeRange, 
           onApply={applyHistoryQuery}
         />
       )}
+      {stackSpan && <SpanExceptionModal span={stackSpan} onClose={() => setStackSpan(null)} />}
       {myQueriesOpen && (
         <MyQueriesDrawer
           onClose={() => setMyQueriesOpen(false)}

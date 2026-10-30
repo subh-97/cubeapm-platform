@@ -10,8 +10,10 @@ import assert from 'node:assert/strict'
 import { renderToStaticMarkup } from 'react-dom/server.browser'
 import { createElement } from 'react'
 import { resolveTrace, traceViewFor, TRACE_VIEWS, TRACE_TABS } from './traceResolvers.js'
-import { buildTrace, assembleTrace, traceSummary } from './traceDetail.js'
-import { spanRows } from './tracesExplorer.js'
+import { buildTrace, assembleTrace, traceSummary, traceInRows } from './traceDetail.js'
+import { spanRows, spanRowsForWindow } from './tracesExplorer.js'
+import { resolveWindow } from './timeWindow.js'
+import { endpointModel, requestSample } from './requestLatency.js'
 import { parseRoute, routeUrl, traceUrl } from '@/utils/route'
 import TraceDetail from '@/pages/TraceDetail.jsx'
 
@@ -124,4 +126,46 @@ test('an id the mobile datasource does not hold is a real not-found page', () =>
   assert.match(html, /Back to Mobile Traces/)
   assert.doesNotMatch(html, /Check Logs/)
   assert.doesNotMatch(html, /Waterfall/)
+})
+
+// The Traces explorer draws its rows for the range picked, and a seeded
+// trace's id repeats across ranges over different spans, so the id alone
+// (buildTrace, read against the reference hour) names another request, or a
+// borrowed one, off that hour. traceInRows reads the row's own trace from the
+// rows on screen; these hold it to that in every range, and to buildTrace's
+// decoding for the ids that carry their request.
+test('every explorer row\'s span is in the trace traceInRows reads for it, in every range', () => {
+  for (const value of ['5m', '15m', '1h', '3h', '24h', '7d']) {
+    const rows = spanRowsForWindow(resolveWindow({ kind: 'preset', value }))
+    const cache = new Map()
+    let missing = 0
+    let offRef = 0
+    for (const r of rows) {
+      if (!cache.has(r.traceId)) cache.set(r.traceId, traceInRows(r.traceId, rows))
+      const t = cache.get(r.traceId)
+      const sp = t?.byId[r.spanId]
+      if (!sp) { missing++; continue }
+      // A span row is its span: same start, same duration, at the row's own time.
+      if (r.tags['event.domain'] === 'span') {
+        assert.equal(sp.startTime.getTime(), r.time.getTime(), `${value} ${r.id}`)
+        assert.equal(sp.duration, r.durationNs / 1e6, `${value} ${r.id}`)
+      }
+      if (!buildTrace(r.traceId)?.byId[r.spanId]) offRef++
+    }
+    assert.equal(missing, 0, `${value}: rows whose span is not in their trace`)
+    // The case it exists for: off the reference hour, the id alone misses.
+    if (value !== '1h') assert.ok(offRef > 0, `${value}: buildTrace alone found every span, so traceInRows is not needed here`)
+  }
+})
+
+test('an id that carries its request still decodes whole, whatever the rows hold', () => {
+  const win = resolveWindow({ kind: 'preset', value: '1h' })
+  const [req] = requestSample(endpointModel('payment-service', 'POST /v1/payments'), win, {}, 1)
+  assert.ok(req, 'a modelled request')
+  const whole = buildTrace(req.traceId)
+  assert.ok(whole.spans.length > 1)
+  // The stream holds only the sampled span; the trace is still the request.
+  const stray = { traceId: req.traceId, spanId: whole.root.id, tags: { 'event.domain': 'span' } }
+  assert.deepEqual(traceInRows(req.traceId, [stray]), whole)
+  assert.equal(traceInRows('', []), null)
 })

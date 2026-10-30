@@ -2404,6 +2404,12 @@ tbody tr:hover { background: var(--panel-2); }
 }
 .span-trace-link:hover { color: var(--brand); border-bottom-color: var(--brand); }
 .span-trace-link:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 2px; }
+/* A trace id opens its waterfall, in the row's drawer: the id, then the
+   arrow out of a box. The id gives way to the column's width; the arrow, the
+   part that says it leads somewhere, never does. */
+.span-trace-link[data-link="trace"] { display: inline-flex; align-items: center; gap: 4px; }
+.span-trace-link[data-link="trace"] .span-trace-id { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.span-trace-link[data-link="trace"] svg { flex-shrink: 0; }
 
 /* Severity gutter. UNSET is "nothing went wrong", not "healthy service", so it
    sits at the same low weight the info bar has on the log stream rather than
