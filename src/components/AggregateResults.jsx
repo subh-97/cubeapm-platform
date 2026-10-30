@@ -1,8 +1,9 @@
-import { useMemo } from 'react'
+import { useContext, useMemo } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts'
 import { TrendingDown, TrendingUp } from 'lucide-react'
 import { paletteColor as palette } from '@/utils/chartPalette'
 import { GRID_PROPS, LINE_PROPS, valueAxisProps } from '@/components/charts/chartDefaults'
+import { ChartFrameContext } from '@/components/charts/chartView'
 
 function formatValue(n) {
   if (n == null || !Number.isFinite(n)) return '—'
@@ -34,9 +35,26 @@ function ChartTooltip({ active, payload, label }) {
   )
 }
 
+// Whether a result draws its line chart: not when it is empty, and not when
+// it is one number (one function, no group-by, no math), which is a KPI with
+// a sparkline. It is what decides whether the page offers Expand graph.
+// eslint-disable-next-line react-refresh/only-export-components
+export function drawsAggregateChart(result) {
+  if (!result) return false
+  const { kind, series = [], statsPipe } = result
+  if (kind === 'empty' && series.length === 0) return false
+  const groupCount = statsPipe?.groupBy?.length || 0
+  const fnCount = statsPipe?.functions?.length || 0
+  return !(groupCount === 0 && fnCount === 1 && (result.mathPipes || []).length === 0 && series.length === 1)
+}
+
 // ---------- Renderer ----------
 
-export default function AggregateResults({ result, graphVisible = true }) {
+// `chartOnly` draws the line chart and its legend without the table under
+// them: the result expanded (ChartExpandButton), at the height the modal
+// gives it (ChartFrameContext).
+export default function AggregateResults({ result, graphVisible = true, chartOnly = false }) {
+  const frame = useContext(ChartFrameContext)
   const { kind, series, buckets, statsPipe, filteredCount, sortPipe, limitPipe } = result
   const groupCount = statsPipe?.groupBy?.length || 0
   const fnCount = statsPipe?.functions?.length || 0
@@ -142,7 +160,10 @@ export default function AggregateResults({ result, graphVisible = true }) {
 
   // ---- Branch: line chart + table ----
   return (
-    <div className="agg-panel">
+    <div
+      className={`agg-panel${chartOnly ? ' is-chart-only' : ''}`}
+      style={chartOnly && frame?.height != null ? { gridTemplateRows: typeof frame.height === 'number' ? `${frame.height}px` : frame.height } : undefined}
+    >
       {graphVisible && <div className="agg-chart">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={chartData} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
@@ -195,7 +216,7 @@ export default function AggregateResults({ result, graphVisible = true }) {
         </div>
       </div>}
 
-      <div className="agg-table-wrap">
+      {!chartOnly && <div className="agg-table-wrap">
         <table className="agg-table">
           <thead>
             <tr>
@@ -221,7 +242,7 @@ export default function AggregateResults({ result, graphVisible = true }) {
           {limitPipe && <> · showing first {limitPipe.n}</>}
           {sortPipe && <> · sorted by <span className="mono">{sortPipe.field}</span> {sortPipe.dir === 'asc' ? '↑' : '↓'}</>}
         </div>
-      </div>
+      </div>}
     </div>
   )
 }

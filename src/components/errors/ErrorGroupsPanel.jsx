@@ -1,8 +1,10 @@
 import { useRef, useState } from 'react'
+import { ArrowUpRight } from 'lucide-react'
 import ErrorSpark from './ErrorSpark'
+import ChartExpandButton from '@/components/charts/ChartExpandButton'
 import SeriesBudgetFooter from '@/components/charts/SeriesBudgetFooter'
 import SearchGlyph from '@/components/shared/SearchGlyph'
-import { deltaChip } from '@/utils/errorsPage'
+import { deltaChip, exceptionParts } from '@/utils/errorsPage'
 // errors.css for .errp-delta, each row's comparison chip, and the
 // `.err-row .err-count` rule that stacks it under the count. Said here rather
 // than left to the page having loaded it: the APM service page happens to, the
@@ -61,6 +63,10 @@ function BreakAtDots({ text }) {
  * TypeError"). The row is not a role=button, because a row-sized button would
  * swallow the exception button inside it — ARIA reads a button's children as
  * flat text, and that one control would never be announced.
+ *
+ * Each row ends in two boxed icons: its chart expanded (ChartExpandButton) —
+ * the same chart, larger, in a modal, named for its group ("TypeError at
+ * /checkout") — and its traces, the row's own action as an explicit button.
  */
 export default function ErrorGroupsPanel({
   sides = APM_SIDES, side: sideProp, onSide,
@@ -148,10 +154,19 @@ export default function ErrorGroupsPanel({
         </div>
       </div>
       <div className="err-head">
-        <span>Endpoint</span><span>Error</span><span className="err-count-head">Count</span><span />
+        <span>Endpoint</span><span>Error</span><span className="err-count-head">Count</span><span /><span />
       </div>
       {shown.map(e => {
         const delta = prevText != null ? deltaChip(e.count, e.prevCount, prevText) : null
+        // The row's chart, larger. The modal's copy joins no crosshair group
+        // of the page's (the modal gives it its own), and takes the modal's
+        // height rather than the row's.
+        const chartTitle = `${exceptionParts(e.exception).short} at ${where(e)}`
+        const chartView = {
+          win,
+          render: () => <ErrorSpark series={e.series} win={win} onFocus={onFocus} />,
+          value: () => `${e.count.toLocaleString()} error${e.count === 1 ? '' : 's'}`,
+        }
         return (
           <div
             key={e.id}
@@ -189,6 +204,24 @@ export default function ErrorGroupsPanel({
             </div>
             <div className="err-spark" onClick={ev => ev.stopPropagation()}>
               <ErrorSpark series={e.series} win={win} onFocus={onFocus} syncId={syncId} height={sparkHeight} />
+            </div>
+            {/* The row's chart larger, then its traces (what a click on the row
+                does), as boxed icons. Each stops its own click. The chart
+                modal is portalled to <body>, but React still bubbles its
+                events through here to the row: its backdrop stops the click,
+                and the row's mousedown finds no .err-spark around a press in
+                the modal, which only clears the guard; nothing opens. */}
+            <div className="err-actions">
+              <ChartExpandButton title={chartTitle} view={chartView} className="row-icon-btn" />
+              <button
+                type="button"
+                className="row-icon-btn"
+                title="View these errors in Traces"
+                aria-label={`View these errors in Traces: ${chartTitle}`}
+                onClick={ev => { ev.stopPropagation(); openRow(e) }}
+              >
+                <ArrowUpRight strokeWidth={2} aria-hidden="true" />
+              </button>
             </div>
           </div>
         )

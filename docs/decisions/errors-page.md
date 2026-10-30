@@ -128,6 +128,19 @@ requests than the Server side and the RED table say exist. Calls that do fail
 the request (the stripe timeout, downstream calls) are mirrored on both sides
 and count the same on each.
 
+## Expand
+
+The volume graph and every group's chart can be read larger:
+- **Volume graph:** "Expand graph" beside "Hide graph" in the toolbar.
+- **A group's chart:** a boxed ⤢ at the end of its row, beside Traces, which is now the
+  same boxed icon (↗) with no text. Neither click opens the row.
+
+Both open the platform's chart modal with no ⋮ (`docs/decisions/chart-compare-expand.md`,
+"Expand without a ⋮"). A drag in the modal zooms the page, as it does on the page.
+
+A row's modal closes if that zoom takes its group off the page: a span in which the group
+has no errors.
+
 ## Where it deliberately differs from the original
 
 Results load without a click (rule 5); every count carries a delta against the

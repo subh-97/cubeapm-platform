@@ -202,14 +202,18 @@ function ErrorsTabOnPanel({ win, timeRange, serviceId, onFocus, syncId, onOpenLi
 // The extraction's deliberate changes to the markup, undone so the rest can be
 // compared: the side toggle can be reached and pressed from the keyboard, and
 // a row is opened by the button on its Endpoint text instead of being a
-// role=button itself. Then the later ones: the Count header's class, and the
-// break opportunities in the exception class (BreakAtDots).
+// role=button itself. Then the later ones: the Count header's class, the
+// break opportunities in the exception class (BreakAtDots), and each row's
+// actions, Expand and Traces, in a column of their own (checked on their own
+// below).
 const withoutSegA11y = h => h
   .replace(/(<div class="seg(?: active)?") role="button" tabindex="0" aria-pressed="(?:true|false)"/g, '$1')
   .replace(/<button type="button" class="err-open" aria-label="[^"]*">(.*?)<\/button>/g, '$1')
   .replace(/(<span class="err-exc-msg") title="[^"]*"/g, '$1')
   .replace(/<span class="err-count-head">/g, '<span>')
   .replace(/<span><wbr\/>([^<]*)<\/span>/g, '$1')
+  .replace(/<div class="err-actions">.*?<\/button><\/div>/g, '')
+  .replace(/(<div class="err-head">.*?)<span><\/span><\/div>/g, '$1</div>')
 const withoutRowButton = h => h.replace(/(<div class="err-row is-clickable") role="button" tabindex="0"/g, '$1')
 const rowCount = h => (h.match(/class="err-row is-clickable"/g) ?? []).length
 
@@ -341,4 +345,41 @@ test('an exception class can break after each dot, and still reads as itself', (
   const [, cls] = h.match(/<button type="button" class="err-exc-cls"[^>]*>(.*?)<\/button>/)
   assert.equal((cls.match(/<wbr\/>/g) ?? []).length, g.exception.split('.').length - 1)
   assert.equal(cls.replace(/<[^>]+>/g, ''), g.exception)
+})
+
+/* ── Each row's chart, expanded ── */
+
+const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#x27;')
+// Each row's actions cell: its two boxed icons.
+const actionCells = h => [...h.matchAll(/<div class="err-actions">(.*?<\/button>)<\/div>/g)].map(m => m[1])
+
+test('every row ends in its chart\'s Expand and its Traces, boxed icons named for its group as the row names it', () => {
+  const cases = [
+    // The service page: the route on Server, the call on Client.
+    { side: 'server', groups: GROUPS, where: e => e.endpoint },
+    { side: 'client', groups: errorGroupsForWindow(WIN, { side: 'client', service: 'payment-service', by: CLIENT_ERRORS_BY }), where: e => e.spanName },
+    // The Browser page's own Endpoint column, and an Ajax "exception" that is
+    // a status code with no package to cut.
+    { side: 'client', groups: [{ ...GROUPS[0], id: 'ajax', exception: '404', endpoint: 'GET shop.example:443/api/cart' }], where: e => e.endpoint, whereOf: e => e.endpoint },
+  ]
+  for (const { side, groups, where, whereOf } of cases) {
+    assert.ok(groups.length > 0, side)
+    const h = html(<ErrorGroupsPanel side={side} groups={groups} win={WIN} whereOf={whereOf} onOpenRow={noop} />)
+    const cells = actionCells(h)
+    assert.equal(cells.length, groups.length)
+    // The chart cell holds the chart alone now.
+    assert.doesNotMatch(h, /<div class="err-spark">(?:(?!<div class="err-actions">).)*<button/)
+    cells.forEach((cell, i) => {
+      const g = groups[i]
+      const short = g.exception.slice(g.exception.lastIndexOf('.') + 1)
+      const group = `${short} at ${where(g)}`
+      const [expand, traces, ...more] = [...cell.matchAll(/<button type="button" class="row-icon-btn" ([^>]*)>/g)].map(m => m[1])
+      assert.equal(more.length, 0, `${side} row ${i}: two actions`)
+      assert.equal(expand, `title="${esc(`Expand ${group}`)}" aria-label="${esc(`Expand ${group}`)}" aria-haspopup="dialog"`)
+      assert.equal(traces, `title="View these errors in Traces" aria-label="${esc(`View these errors in Traces: ${group}`)}"`)
+      // Icons, not text: nothing but the glyphs inside either button.
+      assert.equal(cell.replace(/<svg.*?<\/svg>/g, '').replace(/<[^>]+>/g, ''), '')
+    })
+  }
+  assert.ok(html(<ErrorGroupsPanel side="client" groups={cases[2].groups} win={WIN} whereOf={cases[2].whereOf} />).includes('title="Expand 404 at GET shop.example:443/api/cart"'))
 })

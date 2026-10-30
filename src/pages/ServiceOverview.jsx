@@ -32,7 +32,7 @@ import SlowRequestsPanel from '@/components/trace/SlowRequestsPanel'
 import ErrorGroupsPanel from '@/components/errors/ErrorGroupsPanel'
 import BreakAtSlashes from '@/components/browser/BreakAtSlashes'
 import { errorGroupsForWindow, tracesFiltersFor } from '@/data/errors'
-import { Gauge, Crosshair, ChartLine, Globe, Database, TriangleAlert, Cpu } from 'lucide-react'
+import { Gauge, Crosshair, ChartLine, Globe, Database, TriangleAlert, Cpu, Maximize2 } from 'lucide-react'
 import { GRID_PROPS, NO_ANIM, AREA_PROPS, LINE_PROPS, LIMIT_DASH, valueAxisProps, maxOf, niceAxis, formatDecimals, fmtCompact, fmtBytes, fmtCount, fmtPct1, fmtRedMs, fmtRedRpm, fmtRedPct } from '@/components/charts/chartDefaults'
 import { buildTimeAxis, withX } from '@/components/charts/timeAxis'
 import { useMeasuredWidth } from '@/components/charts/useTimeFocus'
@@ -42,6 +42,7 @@ import LegendLineChart from '@/components/charts/LegendLineChart'
 import MiniChart from '@/components/charts/MiniChart'
 import CardChart from '@/components/charts/CardChart'
 import ChartActions from '@/components/charts/ChartActions'
+import ChartModal from '@/components/charts/ChartModal'
 // For .errp-delta, the Errors page's count chip, so the Errors tab's counts
 // read the same as the page its "Open in Errors" button lands on. Imported
 // here rather than relied on through ErrorsView; every rule in it is
@@ -74,8 +75,11 @@ const SERVICE_VIEWS = SERVICE_TABS.map(id => ({ id, ...VIEW_META[id] }))
 // `series` is sampled over the page's window and drawn on that window's time
 // axis, so the chart covers the same range as the figure it was opened from.
 // It does not take part in drag-to-focus: it closes as soon as the pointer
-// leaves it, which is no place to start a drag.
-function HoverChartPopover({ anchor, title, series, win, color = '#3B82F6', formatVal = v => Math.round(v), unit = '', onEnter, onLeave }) {
+// leaves it, which is no place to start a drag. `onExpand` puts an Expand
+// button in its title, for reading the chart larger (and dragging it) in the
+// chart modal; the modal is the parent's, since this closes as the pointer
+// goes.
+function HoverChartPopover({ anchor, title, series, win, color = '#3B82F6', formatVal = v => Math.round(v), unit = '', onEnter, onLeave, onExpand }) {
   // Before the early return, not after it: a hook that runs on only some
   // renders shifts every later hook in this component by one the next time
   // round. The parent only mounts this when a cell is hovered, so `anchor` is
@@ -96,7 +100,21 @@ function HoverChartPopover({ anchor, title, series, win, color = '#3B82F6', form
       onMouseEnter={onEnter}
       onMouseLeave={onLeave}
     >
-      <div className="hover-chart-pop-title">{title}</div>
+      <div className="hover-chart-pop-head">
+        <div className="hover-chart-pop-title">{title}</div>
+        {onExpand && (
+          <button
+            type="button"
+            className="card-expand-btn"
+            title={`Expand ${title}`}
+            aria-label={`Expand ${title}`}
+            aria-haspopup="dialog"
+            onClick={onExpand}
+          >
+            <Maximize2 aria-hidden="true" />
+          </button>
+        )}
+      </div>
       <div ref={wrapRef} style={{ width: '100%', height: H - 32 }}>
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={data} margin={{ top: 6, right: 6, left: 0, bottom: 0 }}>
@@ -267,7 +285,7 @@ function EndpointTab({ data, serviceId, endpoint, onOpenUpstream, onOpenTrace, o
         setTimeRange={onFocus}
       />
       <RequestTraceSplit onOpenTrace={onOpenTrace} data={data.errors} title="Requests with Errors" initialSort="none" />
-      <InfraCorrelation hosts={data.infra} win={win} />
+      <InfraCorrelation hosts={data.infra} win={win} onFocus={onFocus} />
     </>
   )
 }
@@ -739,7 +757,7 @@ function InfraCell({ host, metric, value, onEnter, onLeave }) {
   )
 }
 
-function InfraCorrelation({ hosts, win }) {
+function InfraCorrelation({ hosts, win, onFocus }) {
   const rowsWithAvg = useMemo(
     () => hosts.map(h => ({ ...h, latencyAvg: h.latencyAvg ?? Math.round(h.latencyP90 * INFRA_AVG_OF_P90) })),
     [hosts]
@@ -769,6 +787,39 @@ function InfraCorrelation({ hosts, win }) {
     () => (hover ? infraSeriesForWindow(win, hover.host, hover.metric) : null),
     [hover, win]
   )
+
+  // The popover's chart, expanded: held here rather than in the popover, which
+  // closes the moment the pointer leaves it — and closed as the modal opens,
+  // since it floats above the page and would sit over the modal. In the modal
+  // the chart is a page chart like any other, so a drag there zooms the page,
+  // and the chart follows the range it sets.
+  const [expanded, setExpanded] = useState(null)
+  const expand = useCallback(() => {
+    cancelClose()
+    setExpanded(hover && { host: hover.host, metric: hover.metric })
+    setHover(null)
+  }, [hover, cancelClose])
+  const expandedView = useMemo(() => {
+    if (!expanded) return null
+    const m = INFRA_METRICS[expanded.metric]
+    const row = rows.find(r => r.host === expanded.host)
+    return {
+      win,
+      comparable: false,
+      value: () => (row ? `${m.fmt(row[expanded.metric])}${m.unit}` : null),
+      render: () => (
+        <MiniChart
+          series={infraSeriesForWindow(win, expanded.host, expanded.metric)}
+          color={m.color}
+          unit={m.unit}
+          formatVal={m.fmt}
+          axisFormat={v => `${m.fmt(v)}${m.unit}`}
+          win={win}
+          onFocus={onFocus}
+        />
+      ),
+    }
+  }, [expanded, rows, win, onFocus])
 
   return (
     <div className="panel">
@@ -813,6 +864,17 @@ function InfraCorrelation({ hosts, win }) {
           formatVal={INFRA_METRICS[hover.metric].fmt}
           onEnter={cancelClose}
           onLeave={scheduleClose}
+          onExpand={expand}
+        />
+      )}
+      {expandedView && (
+        <ChartModal
+          mode="expand"
+          onMode={() => {}}
+          onClose={() => setExpanded(null)}
+          title={`${INFRA_METRICS[expanded.metric].label} · ${expanded.host}`}
+          view={expandedView}
+          menu={false}
         />
       )}
     </div>
@@ -1558,7 +1620,7 @@ function OverviewTab({ svc, data, win, syncId, onFocus, onOpenTrace, onOpenUpstr
         </>
       )}
       <RequestTraceSplit onOpenTrace={onOpenTrace} data={data.slow} />
-      <InfraCorrelation hosts={data.infra} win={win} />
+      <InfraCorrelation hosts={data.infra} win={win} onFocus={onFocus} />
     </>
   )
 }

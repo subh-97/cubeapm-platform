@@ -150,9 +150,45 @@ baseline. That contrast is what Compare is for.
   window, not on the one drawn.
 - Loading skeletons render `<ChartActions title>` with no view. Expand is drawn disabled so
   the header does not shift at reveal, and the ⋮ keeps its old behaviour.
-- Charts without a ⋮ get neither control: the Logs, Traces and Errors volume strips, stats
-  results, Explore, error sparks, Infra's no-data charts, and the Slow Requests latency
-  distribution (a list panel, not a time series).
+- Charts without a ⋮ get Expand only, through `ChartExpandButton`: the same modal with
+  no ⋮ and nothing to compare. See below for which charts.
+
+## Expand without a ⋮
+
+Some charts have no card header and so no ⋮, but are worth reading larger. They get
+`ChartExpandButton`, which opens the modal in Expand mode with `menu={false}`:
+
+- **The Logs, Traces (and MTraces) and Errors histograms.**
+  - The button is a labelled "Expand graph" beside "Hide graph" in the results toolbar,
+    shown while a graph is drawn.
+  - It expands whichever graph is showing: the volume histogram, or a stats query's line
+    chart (`AggregateResults` with `chartOnly`: chart and legend, no table).
+  - A single-number stats result is a KPI with a sparkline, and gets no Expand
+    (`drawsAggregateChart`).
+  - These histograms are not drawn through `TimeChart`, so their strip reads the frame's
+    height itself. A drag in the modal still zooms the page.
+- **An error group's chart**, in its row on the Errors page and on the service page's and
+  Browser page's Errors tabs.
+  - The button is a boxed ⤢ (`.row-icon-btn`) at the end of the row, beside the row's
+    Traces, which is the same boxed icon (↗) with no text.
+  - It is not in the chart: a button there covered the newest readings, the ones a row
+    is read for.
+  - On the service page's and Browser page's tabs, the pair sits in an action column of
+    its own. The Traces icon there does what a click on the row does.
+  - Neither click opens the row.
+- **The Infrastructure Correlation popover** on the service page (the chart a hovered
+  cell opens).
+  - The button is a ⤢ at the right end of the popover's title.
+  - The popover closes the moment the pointer leaves it, so the modal is the table's
+    (`InfraCorrelation`), not the popover's.
+  - The popover closes as the modal opens: it floats above the page, and would sit over
+    the modal.
+  - Expanded, the chart is a `MiniChart` like the service page's other area charts, so
+    it can be dragged to zoom the page, which the popover itself never allowed.
+
+Still without either control: Explore (it owns its own Compare and fills the page), the
+alert timeline, Infra's no-data charts, the KPI tiles' sparklines, and the Slow Requests
+latency distribution (a list panel's chart, not a time series).
 
 ## Where we differ from production, and the gaps we left
 

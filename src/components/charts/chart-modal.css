@@ -68,3 +68,11 @@
   .chart-modal-compare { justify-content: flex-start; }
   .filter-select.chart-modal-compare-select { min-width: 0; }
 }
+
+/* A stats query's result, expanded: its chart and legend, no table, the row
+   as tall as the modal gives it (AggregateResults' chartOnly). */
+.chart-modal .agg-panel.is-chart-only { border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); }
+
+/* The Logs, Traces and Errors histograms, expanded: the strip without the
+   inset and the rule it keeps above the stream on the page. */
+.chart-modal .logs-volume { padding: 0; border-bottom: none; }
