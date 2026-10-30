@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useCallback, useEffect } from 'react'
+import { useState, useMemo, useRef, useCallback, useEffect, useContext } from 'react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { resolveWindow } from '@/data/timeWindow'
 import { TRACES_SOURCE, filterVolume } from '@/utils/explorerSources'
@@ -9,7 +9,7 @@ import FieldsDropdown from '@/components/explorer/FieldsDropdown'
 import { newGroup } from '@/utils/queryTree'
 import { toExploreLogsQuery } from '@/utils/explore/builders'
 import { aggregate } from '@/utils/aggregator'
-import AggregateResults from '@/components/AggregateResults'
+import AggregateResults, { drawsAggregateChart } from '@/components/AggregateResults'
 import { serializePipes, composeQuery, parsePipes, withImpliedCount, newStatsPipe, newSortPipe, newLimitPipe, newMathPipe, namesInScopeBefore } from '@/utils/pipes'
 import { tryParseConditions, splitQuery } from '@/utils/rawQuery'
 import PipePill, { PipePillChip } from '@/components/PipePill'
@@ -35,6 +35,8 @@ import { GRID_PROPS, valueAxisProps, fmtCount } from '@/components/charts/chartD
 import { buildTimeAxis } from '@/components/charts/timeAxis'
 import ChartTooltip from '@/components/charts/ChartTooltip'
 import { useTimeFocus, useMeasuredWidth, useSeriesHover } from '@/components/charts/useTimeFocus'
+import { ChartFrameContext } from '@/components/charts/chartView'
+import ChartExpandButton from '@/components/charts/ChartExpandButton'
 
 const FILTERS_MIN_W = 232
 const FILTERS_MAX_W = Math.round(FILTERS_MIN_W * 1.6)
@@ -99,6 +101,94 @@ function compactCount(n) {
   return n.toLocaleString()
 }
 
+/**
+ * The volume histogram and its legend: the strip over the table, and the same
+ * strip expanded (Expand graph, in the chart modal). Each drawing owns its
+ * drag, its measured tick ladder and its band hover — a modal copy that shared
+ * the page's would size its axis for the strip behind the overlay. The data
+ * and the handlers are the page's: a drag on either drawing sets the page's
+ * range through the same `onFocus`, so Reset goes back from both, and the
+ * modal, drawn from the page's live data, follows the new window.
+ *
+ * Not drawn through TimeChart, so it reads the modal's frame
+ * (ChartFrameContext) itself: the frame's height over the strip's 112px, its
+ * crosshair group, and whether a drag may zoom. Outside a modal there is no
+ * frame, and the strip draws as it always has.
+ */
+export function VolumeStrip({ win, data, series, legendSeries, totals, zoomed, onClearZoom, onFocus }) {
+  const frame = useContext(ChartFrameContext)
+  const brush = frame?.brush !== false
+
+  // The gesture itself is the shared one — see `useTimeFocus`. 'category'
+  // because this is a stacked BarChart and needs the band scale.
+  const focus = useTimeFocus(win, { onFocus, kind: 'category', brush })
+  const chartProps = frame
+    ? { ...focus.chartProps, syncId: frame.syncId, syncMethod: frame.syncMethod }
+    : focus.chartProps
+  const [bandHover, bandHoverProps] = useSeriesHover()
+  const [wrapRef, wrapWidth] = useMeasuredWidth()
+
+  // Tallest stacked bucket on screen - the axis gutter is sized from it.
+  const max = useMemo(() => data.reduce((m, d) => (d.total > m ? d.total : m), 0), [data])
+  const yAxis = useMemo(
+    () => valueAxisProps({ format: fmtCount, allowDecimals: false, maxValue: max }),
+    [max],
+  )
+
+  // The ladder is budgeted against the PLOT rather than the card, so the value
+  // gutter and the right margin come off the measured width before the tick
+  // interval is chosen.
+  const axis = useMemo(
+    () => buildTimeAxis(win, {
+      width: Math.max(0, wrapWidth - yAxis.width - VOLUME_MARGIN.right),
+      kind: 'category',
+    }),
+    [win, wrapWidth, yAxis.width],
+  )
+
+  return (
+    <div className="logs-volume">
+      <div className="logs-volume-chart" style={frame ? { height: frame.height } : undefined}>
+        {zoomed && (
+          <button className="volume-reset-btn" onClick={onClearZoom} title="Clear time selection">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+            Reset zoom
+          </button>
+        )}
+        {!zoomed && brush && <div className="volume-brush-hint">Click &amp; drag on chart to zoom in</div>}
+        <div ref={wrapRef} style={{ width: '100%', height: '100%' }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart
+              data={data}
+              margin={VOLUME_MARGIN}
+              {...chartProps}
+            >
+              <CartesianGrid {...GRID_PROPS} />
+              <XAxis {...axis.props} />
+              <YAxis {...yAxis} />
+              <Tooltip content={p => <VolumeTooltip {...p} series={legendSeries} nowMs={win.end * 1000} hoverKey={bandHover} suppressed={!focus.hovered} />} cursor={{ fill: 'rgba(255,255,255,0.02)' }} isAnimationActive={false} />
+              {series.map(s => (
+                <Bar key={s.key} dataKey={s.key} stackId="v" fill={s.color} fillOpacity={s.opacity} isAnimationActive={false} {...bandHoverProps(s.key)} />
+              ))}
+              {focus.overlay}
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+      <div className="logs-volume-legend">
+        <div className="lvl-row"><span className="lvl-key">Total</span><span className="lvl-val">{compactCount(totals.total)}</span></div>
+        {legendSeries.map(s => (
+          <div key={s.key} className="lvl-row" title={s.desc}>
+            <span className="lvl-swatch" style={{ background: s.color }} />
+            <span className="lvl-key">{s.label}</span>
+            <span className={`lvl-val${BAND_VALUE_CLASS[s.status] ?? ''}`}>{compactCount(totals[s.key])}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function summarizeFn(f) {
   if (f.as) return f.as
   if (f.fn === 'quantile') return `q${Math.round((Number(f.p) || 0.9) * 100)}(${f.field || '·'})`
@@ -112,6 +202,17 @@ function fullFn(f) {
   if (f.field) args.push(f.field)
   const call = `${f.fn}(${args.join(', ')})`
   return f.as ? `${f.as} = ${call}` : call
+}
+
+// A stats result's name when it is expanded: what its lines plot, spelled the
+// way the pipe toolbar's chips spell it ("count() by service").
+function statsTitle({ statsPipe, mathPipes = [] }) {
+  const plotted = [
+    ...(statsPipe?.functions ?? []).map(summarizeFn),
+    ...mathPipes.map(mp => mp.as || mp.expression || 'expr'),
+  ]
+  const by = statsPipe?.groupBy?.length ? ` by ${statsPipe.groupBy.join(', ')}` : ''
+  return `${plotted.join(', ')}${by}`
 }
 
 function truncate(text, max) {
@@ -493,7 +594,6 @@ export default function TracesView({ source = TRACES_SOURCE, goHome, timeRange, 
   // A drag on the histogram sets the app-wide range rather than keeping a
   // private zoom beside it; `zoomedFrom` is only what Reset goes back to.
   const [zoomedFrom, setZoomedFrom] = useState(null)
-  const [bandHover, bandHoverProps] = useSeriesHover()
   const dragRef = useRef(null)
 
   const addChipToQuery = useCallback((chip) => {
@@ -577,10 +677,6 @@ export default function TracesView({ source = TRACES_SOURCE, goHome, timeRange, 
     setZoomedFrom(cur => cur ?? timeRange)
     setTimeRange(next)
   }, [timeRange, setTimeRange])
-
-  // The gesture itself is the shared one — see `useTimeFocus`. 'category'
-  // because this is a stacked BarChart and needs the band scale.
-  const focus = useTimeFocus(win, { onFocus: focusTimeRange, kind: 'category' })
 
   const startResize = useCallback((e) => {
     e.preventDefault()
@@ -734,36 +830,59 @@ export default function TracesView({ source = TRACES_SOURCE, goHome, timeRange, 
   const filtered = chipFilteredRows
   const visibleVolume = filteredVolume
 
-  // Tallest stacked bucket on screen - the axis gutter is sized from it.
-  const volumeMax = useMemo(
-    () => visibleVolume.reduce((max, d) => (d.total > max ? d.total : max), 0),
-    [visibleVolume],
-  )
-
-  const [volumeWrapRef, volumeWrapWidth] = useMeasuredWidth()
   const streamScroll = useHeaderScrollSync()
-
-  const volumeYAxis = useMemo(
-    () => valueAxisProps({ format: fmtCount, allowDecimals: false, maxValue: volumeMax }),
-    [volumeMax],
-  )
-
-  // The ladder is budgeted against the PLOT rather than the card, so the value
-  // gutter and the right margin come off the measured width before the tick
-  // interval is chosen.
-  const volumeAxis = useMemo(
-    () => buildTimeAxis(win, {
-      width: Math.max(0, volumeWrapWidth - volumeYAxis.width - VOLUME_MARGIN.right),
-      kind: 'category',
-    }),
-    [win, volumeWrapWidth, volumeYAxis.width],
-  )
 
   const visibleTotals = useMemo(() => {
     const totals = { total: visibleVolume.reduce((a, b) => a + b.total, 0) }
     for (const { key } of source.bands) totals[key] = visibleVolume.reduce((a, b) => a + b[key], 0)
     return totals
   }, [source, visibleVolume])
+
+  // The results draw the volume strip until a stats or group-by pipe has been
+  // run; then they draw the aggregation instead.
+  const showsVolume = appliedStatsFunctions.length === 0 && appliedGroupBy.length === 0
+
+  // One strip, drawn on the page and again by Expand graph, each drawing with
+  // hooks of its own (VolumeStrip).
+  const drawVolume = () => (
+    <VolumeStrip
+      win={win}
+      data={visibleVolume}
+      series={volumeSeries}
+      legendSeries={legendSeries}
+      totals={visibleTotals}
+      zoomed={!!zoomedFrom}
+      onClearZoom={clearZoom}
+      onFocus={focusTimeRange}
+    />
+  )
+
+  // Expand graph: whichever graph the results draw, larger, in the chart
+  // modal, with no ⋮ and nothing to compare. The volume strip is named for
+  // what it counts in the page's own noun — spans on Traces, events on Mobile
+  // Traces, as the count over the table says — with the legend's total beside
+  // it. A stats result expands its chart and legend without the table, named
+  // for what it plots; one that is a single number (a KPI) or empty has no
+  // chart to expand, and a hidden graph has nothing to expand at all. The
+  // modal is only ever handed the page's window, and re-renders with the page,
+  // so it draws the page's data as it stands.
+  let graphExpand = null
+  if (graphVisible && showsVolume) {
+    const { one, many } = source.noun
+    graphExpand = {
+      title: `${one.charAt(0).toUpperCase()}${one.slice(1)} volume`,
+      view: {
+        win,
+        render: drawVolume,
+        value: () => `${compactCount(visibleTotals.total)} ${visibleTotals.total === 1 ? one : many}`,
+      },
+    }
+  } else if (graphVisible && drawsAggregateChart(aggregateResult)) {
+    graphExpand = {
+      title: statsTitle(aggregateResult),
+      view: { win, render: () => <AggregateResults result={aggregateResult} chartOnly /> },
+    }
+  }
 
   const selected = selectedId ? filtered.find(r => r.id === selectedId) : null
   const selectedIndex = selectedId ? filtered.findIndex(r => r.id === selectedId) : -1
@@ -1155,6 +1274,9 @@ export default function TracesView({ source = TRACES_SOURCE, goHome, timeRange, 
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="13" width="4" height="8" rx="1"/><rect x="10" y="8" width="4" height="13" rx="1"/><rect x="18" y="3" width="4" height="18" rx="1"/></svg>
                   {graphVisible ? 'Hide graph' : 'Show graph'}
                 </button>
+                {graphExpand && (
+                  <ChartExpandButton title={graphExpand.title} label="Expand graph" className="hbtn small" view={graphExpand.view} />
+                )}
                 <FieldsDropdown fields={source.allFields} activeFields={activeFields} setActiveFields={setActiveFields} />
                 <div className="live-toggle">
                   <button
@@ -1221,46 +1343,8 @@ export default function TracesView({ source = TRACES_SOURCE, goHome, timeRange, 
             )}
 
             <div className={`logs-results${isRunning ? ' is-stale' : ''}`} aria-busy={isRunning}>
-              {appliedStatsFunctions.length === 0 && appliedGroupBy.length === 0 ? (<>
-                {graphVisible && <div className="logs-volume">
-                  <div className="logs-volume-chart">
-                    {zoomedFrom && (
-                      <button className="volume-reset-btn" onClick={clearZoom} title="Clear time selection">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
-                        Reset zoom
-                      </button>
-                    )}
-                    {!zoomedFrom && <div className="volume-brush-hint">Click &amp; drag on chart to zoom in</div>}
-                    <div ref={volumeWrapRef} style={{ width: '100%', height: '100%' }}>
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart
-                          data={visibleVolume}
-                          margin={VOLUME_MARGIN}
-                          {...focus.chartProps}
-                        >
-                          <CartesianGrid {...GRID_PROPS} />
-                          <XAxis {...volumeAxis.props} />
-                          <YAxis {...volumeYAxis} />
-                          <Tooltip content={p => <VolumeTooltip {...p} series={legendSeries} nowMs={win.end * 1000} hoverKey={bandHover} suppressed={!focus.hovered} />} cursor={{ fill: 'rgba(255,255,255,0.02)' }} isAnimationActive={false} />
-                          {volumeSeries.map(s => (
-                            <Bar key={s.key} dataKey={s.key} stackId="v" fill={s.color} fillOpacity={s.opacity} isAnimationActive={false} {...bandHoverProps(s.key)} />
-                          ))}
-                          {focus.overlay}
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-                  <div className="logs-volume-legend">
-                    <div className="lvl-row"><span className="lvl-key">Total</span><span className="lvl-val">{compactCount(visibleTotals.total)}</span></div>
-                    {legendSeries.map(s => (
-                      <div key={s.key} className="lvl-row" title={s.desc}>
-                        <span className="lvl-swatch" style={{ background: s.color }} />
-                        <span className="lvl-key">{s.label}</span>
-                        <span className={`lvl-val${BAND_VALUE_CLASS[s.status] ?? ''}`}>{compactCount(visibleTotals[s.key])}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>}
+              {showsVolume ? (<>
+                {graphVisible && drawVolume()}
 
                 <div className="logs-stream-head-scroll" ref={streamScroll.headRef} onWheel={streamScroll.onHeadWheel}>
                   <div className="logs-stream-head span-head">

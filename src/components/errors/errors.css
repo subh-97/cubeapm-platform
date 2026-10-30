@@ -87,7 +87,7 @@
 .errp-row {
   --col-gap: 14px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr) 92px minmax(260px, 2.2fr) 84px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr) 92px minmax(260px, 2.2fr) 52px;
   gap: var(--col-gap);
 }
 
@@ -216,21 +216,8 @@
 .errp-spark { min-width: 0; height: 104px; cursor: default; }
 .errp-spark-ph { height: 100%; border-bottom: 1px solid var(--border-subtle); opacity: .6; }
 
-.errp-actions { display: flex; align-items: center; justify-content: flex-end; }
-.errp-traces-link {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 3px 6px; margin-right: -6px;
-  border: 0; border-radius: var(--radius-sm); background: none;
-  font: inherit; font-size: 12.5px;
-  color: var(--text-muted);
-  white-space: nowrap; cursor: pointer;
-}
-.errp-traces-link svg { width: 12px; height: 12px; opacity: .6; }
-.errp-traces-link:hover,
-.errp-traces-link:focus-visible { color: var(--brand); background: var(--panel); }
-.errp-traces-link:hover svg,
-.errp-traces-link:focus-visible svg { opacity: 1; }
-.errp-traces-link:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+/* The row's actions, Expand then Traces, as boxed icons (.row-icon-btn). */
+.errp-actions { display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
 
 /* ── Empty states ──────────────────────────────────────────────────────── */
 

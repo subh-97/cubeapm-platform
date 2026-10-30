@@ -31,6 +31,10 @@
 .errg-foot { position: relative; }
 .errg-foot > .series-budget { margin: 0; padding: 7px 16px 8px; }
 
+/* The row's actions, Expand then Traces, as boxed icons (.row-icon-btn), at
+   the end of the row in a column of their own. */
+.err-actions { display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
+
 /* With no exception destination the class is text, not a link: the critical
    colour stays (the thing IS the failure), the underline and pointer go. */
 .err-exc-cls.is-static { cursor: default; text-decoration: none; }

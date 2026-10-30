@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useCallback, useEffect, useLayoutEffect } from 'react'
+import { useState, useMemo, useRef, useCallback, useContext, useEffect, useLayoutEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { resolveWindow } from '@/data/timeWindow'
@@ -24,6 +24,8 @@ import { rangeLabel } from '@/utils/timeRange'
 import { GRID_PROPS, valueAxisProps, fmtCount } from '@/components/charts/chartDefaults'
 import { buildTimeAxis } from '@/components/charts/timeAxis'
 import ChartTooltip from '@/components/charts/ChartTooltip'
+import ChartExpandButton from '@/components/charts/ChartExpandButton'
+import { ChartFrameContext } from '@/components/charts/chartView'
 import { useTimeFocus, useMeasuredWidth } from '@/components/charts/useTimeFocus'
 import '@/components/errors/errors.css'
 
@@ -83,6 +85,101 @@ function VolumeTooltip({ active, payload, nowMs, suppressed }) {
       suppressed={suppressed}
       items={[{ key: 'value', label: 'errors', value: rec.value?.toLocaleString(), color: ERROR_SERIES_COLOR }]}
     />
+  )
+}
+
+// What the volume strip is called where it has a name: the expanded modal's
+// title, and the toolbar button's tooltip ("Expand Error volume"), as Logs and
+// Traces name theirs.
+const VOLUME_TITLE = 'Error volume'
+
+/**
+ * The volume strip: the errors the filters keep, bucket by bucket, and beside
+ * them the count against the previous period, the groups and the services.
+ *
+ * Its own component, holding its own drag, measured width and hover, because
+ * it is drawn twice: on the page, and in the chart modal the toolbar's Expand
+ * graph opens. A copy drawn off the page's hooks would share the page's drag
+ * and size its ticks for the page's plot. Both copies drag into the same
+ * `onFocus`, so a drag in the modal zooms the page, and the modal, drawn from
+ * the page's live data, follows; Reset zoom works from either.
+ *
+ * Not drawn through TimeChart, so it reads the modal's frame
+ * (ChartFrameContext) itself, for the one thing the frame changes here: the
+ * plot's height. The page draws it with no frame, exactly as before.
+ */
+export function ErrorsVolume({ win, volume, totals, totalDelta, prevText, groupCount, zoomedFrom, onFocus, onClearZoom }) {
+  const frame = useContext(ChartFrameContext)
+  const focus = useTimeFocus(win, { onFocus, kind: 'category' })
+  const max = useMemo(() => volume.reduce((m, d) => (d.value > m ? d.value : m), 0), [volume])
+  const [wrapRef, wrapWidth] = useMeasuredWidth()
+  const yAxis = useMemo(
+    () => valueAxisProps({ format: fmtCount, allowDecimals: false, maxValue: max }),
+    [max],
+  )
+  // The tick ladder is budgeted against the plot, not the card: the value
+  // gutter and the right margin are not room a label can be drawn in.
+  const axis = useMemo(
+    () => buildTimeAxis(win, {
+      width: Math.max(0, wrapWidth - yAxis.width - VOLUME_MARGIN.right),
+      kind: 'category',
+    }),
+    [win, wrapWidth, yAxis.width],
+  )
+
+  return (
+    <div className="logs-volume">
+      <div className="logs-volume-chart" style={frame?.height != null ? { height: frame.height } : undefined}>
+        {zoomedFrom ? (
+          <button className="volume-reset-btn" onClick={onClearZoom} title="Clear time selection">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+            Reset zoom
+          </button>
+        ) : (
+          <div className="volume-brush-hint">Click &amp; drag on chart to zoom in</div>
+        )}
+        <div ref={wrapRef} style={{ width: '100%', height: '100%' }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={volume} margin={VOLUME_MARGIN} {...focus.chartProps}>
+              <CartesianGrid {...GRID_PROPS} />
+              <XAxis {...axis.props} />
+              <YAxis {...yAxis} />
+              <Tooltip
+                content={p => <VolumeTooltip {...p} nowMs={win.end * 1000} suppressed={!focus.hovered} />}
+                cursor={{ fill: 'var(--overlay-hover)' }}
+                isAnimationActive={false}
+              />
+              {/* One series, the error count, so red here is the
+                  severity it stands for — see ERROR_SERIES_COLOR. */}
+              <Bar dataKey="value" fill={ERROR_SERIES_COLOR} fillOpacity={0.85} isAnimationActive={false} />
+              {focus.overlay}
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+      <div className="logs-volume-legend errp-legend">
+        <div className="lvl-row">
+          <span className="lvl-swatch" style={{ background: ERROR_SERIES_COLOR }} />
+          <span className="lvl-key">Errors</span>
+          <span className="lvl-val">{totals.count.toLocaleString()}</span>
+        </div>
+        <div className="errp-legend-delta">
+          <span className="errp-delta" data-dir={totalDelta.dir} title={totalDelta.title}>{totalDelta.label}</span>
+          <span>vs {prevText.replace(/^the /, '')}</span>
+        </div>
+        <div className="lvl-row">
+          <span className="lvl-key">Groups</span>
+          <span className="lvl-val">
+            {groupCount.toLocaleString()}
+            {totals.newGroups > 0 && <span className="errp-legend-new">({totals.newGroups} new)</span>}
+          </span>
+        </div>
+        <div className="lvl-row">
+          <span className="lvl-key">Services</span>
+          <span className="lvl-val">{totals.services}</span>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -367,8 +464,6 @@ export default function ErrorsView({
     setTimeRange(next)
   }, [timeRange, setTimeRange])
 
-  const focus = useTimeFocus(win, { onFocus: focusTimeRange, kind: 'category' })
-
   // ---- refresh ----
 
   const refreshTimer = useRef(null)
@@ -487,21 +582,28 @@ export default function ErrorsView({
 
   // ---- the volume chart ----
 
-  const volumeMax = useMemo(() => volume.reduce((m, d) => (d.value > m ? d.value : m), 0), [volume])
-  const [volumeWrapRef, volumeWrapWidth] = useMeasuredWidth()
-  const volumeYAxis = useMemo(
-    () => valueAxisProps({ format: fmtCount, allowDecimals: false, maxValue: volumeMax }),
-    [volumeMax],
+  // One element, mounted twice: on the page, and in the modal the toolbar's
+  // Expand graph opens, where it is a second strip with hooks of its own (see
+  // ErrorsVolume). The modal only ever draws the page's window, and draws it
+  // from this render's data, so a drag in either copy redraws both.
+  const volumeStrip = (
+    <ErrorsVolume
+      win={win}
+      volume={volume}
+      totals={totals}
+      totalDelta={totalDelta}
+      prevText={prevText}
+      groupCount={groups.length}
+      zoomedFrom={zoomedFrom}
+      onFocus={focusTimeRange}
+      onClearZoom={clearZoom}
+    />
   )
-  // The tick ladder is budgeted against the plot, not the card: the value
-  // gutter and the right margin are not room a label can be drawn in.
-  const volumeAxis = useMemo(
-    () => buildTimeAxis(win, {
-      width: Math.max(0, volumeWrapWidth - volumeYAxis.width - VOLUME_MARGIN.right),
-      kind: 'category',
-    }),
-    [win, volumeWrapWidth, volumeYAxis.width],
-  )
+  const volumeView = {
+    win,
+    render: () => volumeStrip,
+    value: () => `${totals.count.toLocaleString()} error${totals.count === 1 ? '' : 's'}`,
+  }
 
   const anySelection = hasFacetSelection(facets)
   const empty = sortedGroups.length ? null : explainEmpty({
@@ -589,6 +691,11 @@ export default function ErrorsView({
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="2" y="13" width="4" height="8" rx="1"/><rect x="10" y="8" width="4" height="13" rx="1"/><rect x="18" y="3" width="4" height="18" rx="1"/></svg>
                   {graphVisible ? 'Hide graph' : 'Show graph'}
                 </button>
+                {/* The graph, larger. Only while it is drawn: a hidden graph
+                    is not one to expand. */}
+                {graphVisible && (
+                  <ChartExpandButton title={VOLUME_TITLE} label="Expand graph" className="hbtn small" view={volumeView} />
+                )}
                 {/* A row's spark still zooms with the graph hidden, and the
                     graph's Reset is hidden with it — so it is offered here,
                     and only then, never in both places at once. */}
@@ -616,60 +723,7 @@ export default function ErrorsView({
             </div>
 
             <div className={`logs-results${refreshing ? ' is-stale' : ''}`} aria-busy={refreshing}>
-              {graphVisible && (
-                <div className="logs-volume">
-                  <div className="logs-volume-chart">
-                    {zoomedFrom ? (
-                      <button className="volume-reset-btn" onClick={clearZoom} title="Clear time selection">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
-                        Reset zoom
-                      </button>
-                    ) : (
-                      <div className="volume-brush-hint">Click &amp; drag on chart to zoom in</div>
-                    )}
-                    <div ref={volumeWrapRef} style={{ width: '100%', height: '100%' }}>
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={volume} margin={VOLUME_MARGIN} {...focus.chartProps}>
-                          <CartesianGrid {...GRID_PROPS} />
-                          <XAxis {...volumeAxis.props} />
-                          <YAxis {...volumeYAxis} />
-                          <Tooltip
-                            content={p => <VolumeTooltip {...p} nowMs={win.end * 1000} suppressed={!focus.hovered} />}
-                            cursor={{ fill: 'var(--overlay-hover)' }}
-                            isAnimationActive={false}
-                          />
-                          {/* One series, the error count, so red here is the
-                              severity it stands for — see ERROR_SERIES_COLOR. */}
-                          <Bar dataKey="value" fill={ERROR_SERIES_COLOR} fillOpacity={0.85} isAnimationActive={false} />
-                          {focus.overlay}
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-                  <div className="logs-volume-legend errp-legend">
-                    <div className="lvl-row">
-                      <span className="lvl-swatch" style={{ background: ERROR_SERIES_COLOR }} />
-                      <span className="lvl-key">Errors</span>
-                      <span className="lvl-val">{totals.count.toLocaleString()}</span>
-                    </div>
-                    <div className="errp-legend-delta">
-                      <span className="errp-delta" data-dir={totalDelta.dir} title={totalDelta.title}>{totalDelta.label}</span>
-                      <span>vs {prevText.replace(/^the /, '')}</span>
-                    </div>
-                    <div className="lvl-row">
-                      <span className="lvl-key">Groups</span>
-                      <span className="lvl-val">
-                        {groups.length.toLocaleString()}
-                        {totals.newGroups > 0 && <span className="errp-legend-new">({totals.newGroups} new)</span>}
-                      </span>
-                    </div>
-                    <div className="lvl-row">
-                      <span className="lvl-key">Services</span>
-                      <span className="lvl-val">{totals.services}</span>
-                    </div>
-                  </div>
-                </div>
-              )}
+              {graphVisible && volumeStrip}
 
               {empty ? (
                 <EmptyState empty={empty} onClear={clearFilters} onSwitch={switchKind} />

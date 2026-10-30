@@ -22,7 +22,7 @@
    script error's message is cut no shorter than before. */
 .brw-errors .err-endpoint { white-space: normal; overflow-wrap: break-word; text-overflow: clip; }
 .brw-errors :is(.err-head, .err-row) {
-  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) 68px minmax(260px, 1.6fr);
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) 68px minmax(260px, 1.6fr) 52px;
 }
 .brw-errors .err-spark { height: 88px; }
 

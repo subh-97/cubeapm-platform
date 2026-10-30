@@ -42,9 +42,11 @@ const portal = node => (typeof document === 'undefined' ? node : createPortal(no
  * click on the backdrop close it.
  *
  * `mode` is 'expand' or 'compare'; the expanded chart's ⋮ offers Compare,
- * which turns this modal into the comparison (`onMode`).
+ * which turns this modal into the comparison (`onMode`). `menu: false` draws
+ * no ⋮ at all, for a chart that has no card menu to carry into the modal (the
+ * Logs, Traces and Errors histograms, an error group's chart).
  */
-export default function ChartModal({ mode, onMode, onClose, title, total, view }) {
+export default function ChartModal({ mode, onMode, onClose, title, total, view, menu = true }) {
   const boxRef = useRef(null)
   const closeRef = useRef(null)
   const titleId = useId()
@@ -101,7 +103,9 @@ export default function ChartModal({ mode, onMode, onClose, title, total, view }
   useEffect(() => {
     const onKey = e => {
       if (e.defaultPrevented) return
-      if (e.key === 'Escape') { onCloseRef.current(); return }
+      // Answered here, so a drawer under the modal (the Errors page's
+      // details) leaves the same press alone.
+      if (e.key === 'Escape') { e.preventDefault(); onCloseRef.current(); return }
       const at = document.activeElement
       if (e.key !== 'Tab' || (at && at !== document.body)) return
       const items = [...(boxRef.current?.querySelectorAll(TABBABLE) ?? [])]
@@ -203,7 +207,7 @@ export default function ChartModal({ mode, onMode, onClose, title, total, view }
             </span>
           )}
           <span className="chart-modal-acts">
-            {!isCompare && (
+            {!isCompare && menu && (
               <CardMenu kind="chart" title={title} total={total} compare={view.comparable !== false} onAction={onMenu} />
             )}
             <button ref={closeRef} type="button" className="tw-modal-close" onClick={onClose} aria-label="Close" title="Close">

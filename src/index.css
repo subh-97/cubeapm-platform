@@ -822,6 +822,10 @@ tbody tr:hover { background: var(--panel-2); }
   border-radius: var(--radius-md); box-shadow: var(--card-shadow); padding: 10px 12px; }
 .hover-chart-pop-title { font-size: 11.5px; font-weight: 600; color: var(--text-primary);
   margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The title, and the Expand that opens the chart larger, at its right end. */
+.hover-chart-pop-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.hover-chart-pop-head .hover-chart-pop-title { min-width: 0; }
+.hover-chart-pop-head .card-expand-btn { margin: -3px -4px 0 0; }
 
 /* Numeric cells in service tables used to pick a severity color per threshold.
  * The mock data makes that call noisier than useful (every value lights up red),
@@ -1137,7 +1141,7 @@ tbody tr:hover { background: var(--panel-2); }
  * columns go below their longest unbroken path; those cells ellipsize instead,
  * except on the service page's tab, where they wrap (.svc-errors, below). The
  * Browser page's panel sets its own columns (browser-traces.css). */
-.err-row { --row-py: 12px; --col-gap: 14px; display: grid; grid-template-columns: minmax(0, .6fr) minmax(0, .875fr) 68px minmax(240px, 1.31fr); gap: var(--col-gap); align-items: center; padding: var(--row-py) 16px; border-top: 1px solid var(--border-subtle); font-size: 12.5px; }
+.err-row { --row-py: 12px; --col-gap: 14px; display: grid; grid-template-columns: minmax(0, .6fr) minmax(0, .875fr) 68px minmax(240px, 1.31fr) 52px; gap: var(--col-gap); align-items: center; padding: var(--row-py) 16px; border-top: 1px solid var(--border-subtle); font-size: 12.5px; }
 /* Clickable row opens the Traces page scoped to the error. The hover affordance
  * is a brand-tinted left bar so the sparkline column keeps a stable chart
  * background underneath. */
@@ -1166,7 +1170,7 @@ tbody tr:hover { background: var(--panel-2); }
  * column rule instead of floating against the sparkline's. */
 .err-count { font-weight: 400; font-size: 12.5px; color: var(--text-primary); }
 .err-spark { height: 132px; }
-.err-head { --row-py: 8px; --col-gap: 14px; display: grid; grid-template-columns: minmax(0, .6fr) minmax(0, .875fr) 68px minmax(240px, 1.31fr); gap: var(--col-gap); padding: var(--row-py) 16px; font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
+.err-head { --row-py: 8px; --col-gap: 14px; display: grid; grid-template-columns: minmax(0, .6fr) minmax(0, .875fr) 68px minmax(240px, 1.31fr) 52px; gap: var(--col-gap); padding: var(--row-py) 16px; font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
 .err-empty { padding: 60px 20px; text-align: center; color: var(--text-muted); font-size: 12px; }
 /* The APM service page's Errors tab (ErrorsTab wraps its panel in .svc-errors).
  * Nothing in it is cut: the endpoint, the exception class and its message wrap
@@ -3881,6 +3885,16 @@ button.pipe-pill-chip-body:hover { color: var(--brand); }
 .card-expand-btn svg { width: 13px; height: 13px; }
 /* Disabled only on a loading skeleton, where it holds the header's shape. */
 .card-actions .card-expand-btn:disabled { cursor: default; opacity: .3; }
+/* A row's action as a boxed icon: an error group's Expand and Traces, at the
+   end of its row (ErrorGroupTable, ErrorGroupsPanel). Named by title and
+   aria-label, as every icon control is. */
+.row-icon-btn { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  width: 24px; height: 24px; padding: 0;
+  border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--card);
+  color: var(--text-muted); cursor: pointer; transition: color .12s, background .12s, border-color .12s; }
+.row-icon-btn svg { width: 13px; height: 13px; }
+.row-icon-btn:hover { color: var(--text-primary); background: var(--panel-2); border-color: var(--border-strong); }
+.row-icon-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
 
 .card-menu-panel { min-width: 178px; padding: 4px 0; background: var(--raised);
   border: 1px solid var(--border-panel); border-radius: var(--radius-md);

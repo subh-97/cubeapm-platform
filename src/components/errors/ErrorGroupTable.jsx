@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef, useState } from 'react'
 import { ArrowUpRight } from 'lucide-react'
 import ErrorSpark from '@/components/errors/ErrorSpark'
+import ChartExpandButton from '@/components/charts/ChartExpandButton'
 import { STATUS_LABELS } from '@/utils/status'
 import { exceptionParts, httpReason, httpCodeClass, deltaChip } from '@/utils/errorsPage'
 import './errors.css'
@@ -109,13 +110,23 @@ const ErrorGroupRow = memo(function ErrorGroupRow({
   // SETEX on the same Redis key), so the call is what tells those rows apart
   // for someone hearing the row rather than seeing it.
   const where = side === 'client' ? `${group.endpoint}, calling ${group.spanName}` : group.endpoint
+  const exception = group.exceptionShort || short
+  // The row's chart, larger (ChartExpandButton), named as the row names its
+  // group. The modal's copy is drawn whole, never lazily, and in no crosshair
+  // group of the page's: the modal gives it its own.
+  const chartTitle = `${exception} in ${group.service} at ${where}`
+  const chartView = {
+    win,
+    render: () => <ErrorSpark series={group.series} win={win} onFocus={onFocus} />,
+    value: () => `${group.count.toLocaleString()} error${group.count === 1 ? '' : 's'}`,
+  }
 
   return (
     <div
       className={`errp-row${selected ? ' is-selected' : ''}`}
       role="button"
       tabIndex={0}
-      aria-label={`${group.service}, ${where}: ${group.exceptionShort || short}, ${group.count.toLocaleString()} errors. Open error details`}
+      aria-label={`${group.service}, ${where}: ${exception}, ${group.count.toLocaleString()} errors. Open error details`}
       onMouseDown={(e) => { pressedInSpark.current = !!e.target.closest?.('.errp-spark') }}
       onClick={() => {
         if (pressedInSpark.current) return
@@ -172,14 +183,23 @@ const ErrorGroupRow = memo(function ErrorGroupRow({
         </LazySpark>
       </div>
 
+      {/* The row's two ways out, as boxed icons: its chart larger, then its
+          spans in Traces. Each stops its own click, so neither opens the row.
+          The chart modal is portalled to <body>, but React still bubbles its
+          events through here to the row: its backdrop stops the click and the
+          dialog the keydown, and the row's mousedown finds no .errp-spark
+          around a press in the modal, so it only clears the guard. Expand is
+          out here rather than in the chart, so a row whose chart has not
+          mounted yet (LazySpark) has it too. */}
       <div className="errp-actions">
+        <ChartExpandButton title={chartTitle} view={chartView} className="row-icon-btn" />
         <button
           type="button"
-          className="errp-traces-link"
+          className="row-icon-btn"
           title="View these errors in Traces"
+          aria-label={`View these errors in Traces: ${chartTitle}`}
           onClick={(e) => { e.stopPropagation(); onOpenTraces(group) }}
         >
-          Traces
           <ArrowUpRight strokeWidth={2} aria-hidden="true" />
         </button>
       </div>
