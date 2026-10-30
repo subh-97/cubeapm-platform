@@ -56,8 +56,12 @@ function bucketFrom(win, activeLabel) {
  *        called once, on release, with the range the reader selected
  * @param {'time'|'category'} [opts.kind] which axis the chart plots on
  * @param {boolean} [opts.enabled] false for a chart that should not be brushed
+ *        — and that has no tooltip either: `hovered` never turns true
+ * @param {boolean} [opts.brush] false keeps the hover (and so the tooltip) but
+ *        takes the drag away: the earlier chart of a Compare, where a drag
+ *        would zoom the page into the past
  */
-export function useTimeFocus(win, { onFocus, kind = 'time', enabled = true } = {}) {
+export function useTimeFocus(win, { onFocus, kind = 'time', enabled = true, brush = true } = {}) {
   const [sel, setSel] = useState(null) // { fromMs, toMs, x1, x2 } while dragging
   // Which chart the pointer is actually in. Charts that share a syncId all go
   // active together — that is the point of syncing — but only one of them is
@@ -72,13 +76,21 @@ export function useTimeFocus(win, { onFocus, kind = 'time', enabled = true } = {
   // or when the panel scrolls underneath the pointer — on a scrolling page the
   // chart would otherwise slide under a stationary cursor and the selection
   // would grow on its own.
+  //
+  // The Escape is heard first (the capture phase) and marked as answered, so
+  // whatever holds the chart and also closes on Escape — the chart modal —
+  // leaves it to the drag: one press undoes one thing.
   useEffect(() => {
     if (!sel) return undefined
-    const onKey = e => { if (e.key === 'Escape') cancel() }
-    document.addEventListener('keydown', onKey)
+    const onKey = e => {
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      cancel()
+    }
+    document.addEventListener('keydown', onKey, true)
     document.addEventListener('scroll', cancel, true)
     return () => {
-      document.removeEventListener('keydown', onKey)
+      document.removeEventListener('keydown', onKey, true)
       document.removeEventListener('scroll', cancel, true)
     }
   }, [sel, cancel])
@@ -114,14 +126,14 @@ export function useTimeFocus(win, { onFocus, kind = 'time', enabled = true } = {
   }, [enabled, sel, win, onFocus])
 
   const onMouseDown = useCallback((state, ev) => {
-    if (!enabled) return
+    if (!enabled || !brush) return
     // Left button only. A Touch object has no `button`, so this is also what
     // makes the gesture a no-op on touch rather than a drag that cannot commit.
     if (!ev || ev.button !== 0) return
     const b = bucketFrom(win, state?.activeLabel)
     if (!b) return
     anchor.current = { bucket: b, chartX: state?.chartX ?? 0, moved: false }
-  }, [enabled, win])
+  }, [enabled, brush, win])
 
   const onMouseMove = useCallback((state) => {
     const a = anchor.current
@@ -165,7 +177,7 @@ export function useTimeFocus(win, { onFocus, kind = 'time', enabled = true } = {
         onMouseMove,
         onMouseEnter: () => setHovered(true),
         onMouseLeave: () => setHovered(false),
-        style: { cursor: sel ? 'ew-resize' : 'crosshair', userSelect: 'none' },
+        style: brush ? { cursor: sel ? 'ew-resize' : 'crosshair', userSelect: 'none' } : { cursor: 'default' },
       }
       : {},
   }

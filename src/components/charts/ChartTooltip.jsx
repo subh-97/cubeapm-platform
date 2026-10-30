@@ -1,4 +1,6 @@
+import { useContext } from 'react'
 import { formatLocal } from '@/utils/timeRange'
+import { ChartFrameContext } from '@/components/charts/chartView'
 
 // One tooltip for every time-series chart on the platform.
 //
@@ -65,6 +67,16 @@ export function timeAgo(ms, nowMs) {
  *                                   Drawn only when there is no `tMs`: a time
  *                                   chart's heading is always its full instant.
  */
+// The "… ago" line. Every chart dates its tooltip from the end of the window it
+// draws, and inside a Compare that is the EARLIER window's end for the earlier
+// chart — so the modal's frame says what now is, and a point a day back reads
+// "1 day ago". A component of its own, so ChartTooltip stays a plain function
+// of its props (its tests call it as one).
+function TimeAgo({ tMs, nowMs }) {
+  const frame = useContext(ChartFrameContext)
+  return timeAgo(tMs, frame?.nowMs ?? nowMs)
+}
+
 export default function ChartTooltip({ tMs, nowMs, items, hoverKey, footer, limit, minWidth = 200, suppressed, heading }) {
   // Charts that share a syncId all go active at once, so without this every
   // chart on the page opens a panel when any one of them is hovered — six
@@ -110,7 +122,7 @@ export default function ChartTooltip({ tMs, nowMs, items, hoverKey, footer, limi
             {fullInstant(tMs)}
           </div>
           <div style={{ color: 'var(--text-muted)', fontSize: 10, marginBottom: 5 }}>
-            {timeAgo(tMs, nowMs)}
+            <TimeAgo tMs={tMs} nowMs={nowMs} />
           </div>
         </>
       )}

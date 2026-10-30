@@ -41,6 +41,7 @@ import { TimeChart, SvcTooltip, rowInstant } from '@/components/charts/TimeChart
 import LegendLineChart from '@/components/charts/LegendLineChart'
 import MiniChart from '@/components/charts/MiniChart'
 import CardChart from '@/components/charts/CardChart'
+import ChartActions from '@/components/charts/ChartActions'
 // For .errp-delta, the Errors page's count chip, so the Errors tab's counts
 // read the same as the page its "Open in Errors" button lands on. Imported
 // here rather than relied on through ErrorsView; every rule in it is
@@ -229,6 +230,7 @@ function EndpointTab({ data, serviceId, endpoint, onOpenUpstream, onOpenTrace, o
         layers={data.drilldown}
         layerSeries={data.drilldownSeries}
         callerTotal={data.drilldownTotal}
+        forWindow={endpointDrilldownForWindow}
         onOpenUpstream={onOpenUpstream}
         p90Series={data.series.latencyP90}
         p90EndpointLabel={ep.endpoint}
@@ -270,13 +272,38 @@ function EndpointTab({ data, serviceId, endpoint, onOpenUpstream, onOpenTrace, o
   )
 }
 
-function LatencyDrilldown({ layers, layerSeries, callerTotal, onOpenUpstream, p90Series, p90EndpointLabel, syncId, win, onFocus }) {
-  // Two different totals, on purpose. `consumed` is what the layers add up to —
-  // the time spent across every call, which is the top of the stacked chart.
-  // `callerTotal` is the latency the caller actually waited, measured on its own:
-  // calls that overlap count once there and twice in `consumed`, which is why
-  // the Total line runs below the top of the stack.
-  const consumed = layers.reduce((a, b) => a + b.ms, 0)
+// A card's figures over any window, for its Expand and Compare
+// (docs/decisions/chart-compare-expand.md): `own`, what the card already
+// holds, for the page's window, and `build(w)` — the card's own derivation run
+// for that window — for any other, worked out once however often the modal
+// redraws. Keyed on the window object, as the data modules key their rows:
+// shiftWindow hands back one object per window and shift.
+function perWindow(win, own, build) {
+  const other = new WeakMap()
+  return w => {
+    if (w === win) return own
+    if (!other.has(w)) other.set(w, build(w))
+    return other.get(w)
+  }
+}
+
+// The drilldown's figures over any window, by the derivation the page's data
+// memo runs for its own (`data.drilldown`, `drilldownSeries`, `drilldownTotal`):
+// what the card's Compare draws for an earlier window. Module functions, so a
+// card's per-window cache lasts as long as its window does.
+const drilldownForWindow = w => ({
+  layers: latencyDrilldownForWindow(w),
+  layerSeries: latencyDrilldownSeriesForWindow(w),
+  callerTotal: latencyDrilldownTotalForWindow(w),
+})
+// The Detail tab's card has its p90 view too: the page's `data.series.latencyP90`.
+const endpointDrilldownForWindow = w => ({ ...drilldownForWindow(w), p90Series: seriesForWindow(w).latencyP90 })
+
+function LatencyDrilldown({ layers, layerSeries, callerTotal, forWindow, onOpenUpstream, p90Series, p90EndpointLabel, syncId, win, onFocus }) {
+  // The search and the isolated upstream belong to the card rather than to its
+  // plot: Expand and Compare draw the plot again in the modal, and open on what
+  // the card shows. One state behind every copy, so an upstream isolated in
+  // either chart of a Compare is the one drawn in both.
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState(null)
   // The Detail tab wants the same chart to also render a single p90 line for the
@@ -286,38 +313,36 @@ function LatencyDrilldown({ layers, layerSeries, callerTotal, onOpenUpstream, p9
   const hasP90Toggle = !!p90Series
   const isP90 = hasP90Toggle && view === 'p90'
 
-  const q = search.trim().toLowerCase()
-  const shown = q ? layers.filter(l => l.label.toLowerCase().includes(q)) : layers
+  // The card over any window: its own props for the page's, the caller's
+  // derivation for any other.
+  const at = useMemo(
+    () => perWindow(win, { layers, layerSeries, callerTotal, p90Series }, forWindow),
+    [win, layers, layerSeries, callerTotal, p90Series, forWindow],
+  )
 
-  const chartLayers = selected && shown.some(l => l.label === selected)
-    ? shown.filter(l => l.label === selected)
-    : shown
-
-  // The composite row keeps each source point's `t`, which `withX` turns into
-  // the instant the row plots at. Without it the stack would have a time axis
-  // and nothing to hang on it.
-  const data = useMemo(() => withX((layerSeries[0]?.series ?? []).map((pt, i) => {
-    const entry = { t: pt.t, label: pt.label, exactTime: pt.exactTime }
-    layerSeries.forEach((layer) => {
-      entry[layer.label] = layer.series[i]?.value ?? 0
-    })
-    entry.Total = callerTotal?.series[i]?.value ?? null
-    return entry
-  }), win), [layerSeries, callerTotal, win])
-
-  // Hover-dim: when the pointer is on one legend row, the other rows and the
-  // areas they draw fade out, so the one in focus reads as the only series.
-  const [hoverKey, setHoverKey] = useState(null)
-  const dimOpacityFor = (key) => (hoverKey == null || hoverKey === key ? 1 : 0.22)
-
-  // The swatch colour per stacked key. The Total line draws with no fill, so its
-  // tag has to come from here rather than off the payload.
-  const drillColors = useMemo(() => ({
-    ...Object.fromEntries(chartLayers.map(l => [l.label, l.color])),
-    Total: 'var(--text-primary)',
-  }), [chartLayers])
-
-  const p90Data = useMemo(() => p90Series ? withX(p90Series, win) : null, [p90Series, win])
+  // Whichever view is showing, over window `w`. The modal draws the same one,
+  // so the card's ⋮ and its Expand and Compare always name and open one chart.
+  const plot = w => {
+    const d = at(w)
+    return isP90 ? (
+      <LatencyP90Plot series={d.p90Series} endpointLabel={p90EndpointLabel} syncId={syncId} win={w} onFocus={onFocus} />
+    ) : (
+      <LatencyDrilldownPlot
+        layers={d.layers}
+        layerSeries={d.layerSeries}
+        callerTotal={d.callerTotal}
+        search={search}
+        setSearch={setSearch}
+        selected={selected}
+        setSelected={setSelected}
+        onOpenUpstream={onOpenUpstream}
+        syncId={syncId}
+        win={w}
+        onFocus={onFocus}
+      />
+    )
+  }
+  const chartView = { win, comparable: typeof forWindow === 'function', render: plot }
 
   const info = (
     <InfoTip label="About Latency Drilldown">
@@ -359,123 +384,181 @@ function LatencyDrilldown({ layers, layerSeries, callerTotal, onOpenUpstream, p9
             </>
           )}
         </div>
-        {isP90
-          ? <CardMenu kind="chart" title="p90 Latency" />
-          : <CardMenu kind="chart" title="Latency Drilldown" total="Total" />}
+        {/* The title, and with it the ⋮'s actions, follow the view: the
+            stacked layers carry a Total to alert on and explore apart, the
+            p90 line does not. */}
+        <ChartActions
+          title={isP90 ? 'p90 Latency' : 'Latency Drilldown'}
+          total={isP90 ? undefined : 'Total'}
+          view={chartView}
+        />
       </div>
-      {isP90 ? (
-        <div className="drill2 drill2-single">
-          <div className="drill2-chart" style={{ width: '100%' }}>
-            <TimeChart win={win} onFocus={onFocus} height={260}>
-              {(axis, focus) => (
-                <LineChart data={p90Data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
-                  <CartesianGrid {...GRID_PROPS} />
-                  <XAxis {...axis.props} />
-                  <YAxis {...valueAxisProps({ format: v => `${Math.round(v)} ms`, maxValue: maxOf(p90Data, 'value') })} />
-                  <Tooltip content={p => <SvcTooltip {...p} color="#F472B6" unit=" ms" formatVal={v => Math.round(v)} nowMs={win.end * 1000} suppressed={!focus.hovered} />} {...NO_ANIM} />
-                  <Line {...LINE_PROPS} dataKey="value" stroke="#F472B6" strokeWidth={1.6} dot={false} activeDot={{ r: 3, strokeWidth: 0 }} />
-                  {focus.overlay}
-                </LineChart>
-              )}
-            </TimeChart>
-            {p90EndpointLabel && (
-              <div className="drill2-single-legend">
-                <span className="drill2-swatch" style={{ background: '#F472B6' }} />
-                <span className="mono">{p90EndpointLabel}</span>
-              </div>
-            )}
-          </div>
-        </div>
-      ) : (
-      <div className="drill2">
-        <div className="drill2-chart">
-          <TimeChart win={win} onFocus={onFocus} height={260}>
-            {(axis, focus) => (
-              <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
-                <CartesianGrid {...GRID_PROPS} />
-                <XAxis {...axis.props} />
-                <YAxis {...valueAxisProps({ maxValue: selected ? maxOf(data, [selected]) : consumed })} />
-                <Tooltip content={p => <DrilldownTooltip {...p} nowMs={win.end * 1000} hoverKey={hoverKey} colors={drillColors} suppressed={!focus.hovered} />} {...NO_ANIM} />
-                {chartLayers.map(layer => (
-                  <Area key={layer.label} {...AREA_PROPS} dataKey={layer.label} stackId="stack"
-                    stroke={layer.color} fill={layer.color}
-                    fillOpacity={0.18 * dimOpacityFor(layer.label)}
-                    strokeOpacity={dimOpacityFor(layer.label)}
-                    strokeWidth={1.5}
-                    dot={false} activeDot={{ r: 3, strokeWidth: 0 }}
-                    onMouseEnter={() => setHoverKey(layer.label)}
-                    onMouseLeave={() => setHoverKey(null)} />
-                ))}
-                {/* Not stacked: Total plots at the caller's own latency, inside
-                    the stack rather than on its top edge. Dashed and in the text
-                    colour so it reads as a measure laid over the layers, not as
-                    one more of them. Drawn last so it sits over every layer. */}
-                {!selected && (
-                  <Area {...AREA_PROPS} dataKey="Total" stroke="var(--text-primary)" fill="none"
-                    strokeOpacity={dimOpacityFor('Total')}
-                    strokeWidth={2} strokeDasharray="6 4" dot={false} activeDot={{ r: 3.5, strokeWidth: 0 }}
-                    onMouseEnter={() => setHoverKey('Total')}
-                    onMouseLeave={() => setHoverKey(null)} />
-                )}
-                {focus.overlay}
-              </AreaChart>
-            )}
-          </TimeChart>
-        </div>
-        <div className="drill2-legend">
-          <div className="drill2-search">
-            <SearchGlyph />
-            <input
-              type="search"
-              aria-label="Search upstreams"
-              placeholder="Search upstreams…"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-            />
-          </div>
-          {shown.map(d => {
-            const dimmed = selected && selected !== d.label
-            return (
-              <div
-                className={`drill2-item${dimmed ? ' dimmed' : ''}`}
-                key={d.label}
-                onClick={() => setSelected(s => s === d.label ? null : d.label)}
-                onMouseEnter={() => setHoverKey(d.label)}
-                onMouseLeave={() => setHoverKey(null)}
-              >
-                <div className="drill2-row">
-                  <span className="drill2-swatch" style={{ background: d.color }} />
-                  <span className="drill2-label">{d.label}</span>
-                  <span className="drill2-val">{d.ms}<span className="drill2-unit"> ms</span></span>
-                  <button
-                    type="button"
-                    className="drill2-go-btn"
-                    onClick={e => { e.stopPropagation(); onOpenUpstream?.(d.label) }}
-                    title={`${d.label} - open the External view`}
-                  >
-                    <svg className="drill2-go" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="M14 4h6v6M20 4l-8 8M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5" />
-                    </svg>
-                  </button>
-                </div>
-              </div>
-            )
-          })}
-          {shown.length === 0 && (
-            <div className="drill2-empty">No upstream matches "{search.trim()}"</div>
+      {plot(win)}
+    </div>
+  )
+}
+
+// The Detail tab's p90 view under the card's header: one line for the open
+// endpoint, and its name under it.
+function LatencyP90Plot({ series, endpointLabel, syncId, win, onFocus }) {
+  const data = useMemo(() => withX(series, win), [series, win])
+  return (
+    <div className="drill2 drill2-single">
+      <div className="drill2-chart" style={{ width: '100%' }}>
+        <TimeChart win={win} onFocus={onFocus} height={260}>
+          {(axis, focus) => (
+            <LineChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
+              <CartesianGrid {...GRID_PROPS} />
+              <XAxis {...axis.props} />
+              <YAxis {...valueAxisProps({ format: v => `${Math.round(v)} ms`, maxValue: maxOf(data, 'value') })} />
+              <Tooltip content={p => <SvcTooltip {...p} color="#F472B6" unit=" ms" formatVal={v => Math.round(v)} nowMs={win.end * 1000} suppressed={!focus.hovered} />} {...NO_ANIM} />
+              <Line {...LINE_PROPS} dataKey="value" stroke="#F472B6" strokeWidth={1.6} dot={false} activeDot={{ r: 3, strokeWidth: 0 }} />
+              {focus.overlay}
+            </LineChart>
           )}
-          <div
-            className="drill2-total"
-            onMouseEnter={() => setHoverKey('Total')}
-            onMouseLeave={() => setHoverKey(null)}
-          >
-            <span className="drill2-total-swatch" aria-hidden="true" />
-            <span className="drill2-total-lbl">Total</span>
-            <span className="drill2-total-val">{callerTotal?.ms ?? consumed} ms</span>
+        </TimeChart>
+        {endpointLabel && (
+          <div className="drill2-single-legend">
+            <span className="drill2-swatch" style={{ background: '#F472B6' }} />
+            <span className="mono">{endpointLabel}</span>
           </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// The stacked view under the card's header: the layers' plot and the upstream
+// legend beside it. Each copy — the card's, and the modal's over any window —
+// keeps its own hover; the search and the isolated upstream are the card's
+// (LatencyDrilldown), so every copy draws the same layers.
+function LatencyDrilldownPlot({ layers, layerSeries, callerTotal, search, setSearch, selected, setSelected, onOpenUpstream, syncId, win, onFocus }) {
+  // Two different totals, on purpose. `consumed` is what the layers add up to —
+  // the time spent across every call, which is the top of the stacked chart.
+  // `callerTotal` is the latency the caller actually waited, measured on its own:
+  // calls that overlap count once there and twice in `consumed`, which is why
+  // the Total line runs below the top of the stack.
+  const consumed = layers.reduce((a, b) => a + b.ms, 0)
+
+  const q = search.trim().toLowerCase()
+  const shown = q ? layers.filter(l => l.label.toLowerCase().includes(q)) : layers
+
+  const chartLayers = selected && shown.some(l => l.label === selected)
+    ? shown.filter(l => l.label === selected)
+    : shown
+
+  // The composite row keeps each source point's `t`, which `withX` turns into
+  // the instant the row plots at. Without it the stack would have a time axis
+  // and nothing to hang on it.
+  const data = useMemo(() => withX((layerSeries[0]?.series ?? []).map((pt, i) => {
+    const entry = { t: pt.t, label: pt.label, exactTime: pt.exactTime }
+    layerSeries.forEach((layer) => {
+      entry[layer.label] = layer.series[i]?.value ?? 0
+    })
+    entry.Total = callerTotal?.series[i]?.value ?? null
+    return entry
+  }), win), [layerSeries, callerTotal, win])
+
+  // Hover-dim: when the pointer is on one legend row, the other rows and the
+  // areas they draw fade out, so the one in focus reads as the only series.
+  const [hoverKey, setHoverKey] = useState(null)
+  const dimOpacityFor = (key) => (hoverKey == null || hoverKey === key ? 1 : 0.22)
+
+  // The swatch colour per stacked key. The Total line draws with no fill, so its
+  // tag has to come from here rather than off the payload.
+  const drillColors = useMemo(() => ({
+    ...Object.fromEntries(chartLayers.map(l => [l.label, l.color])),
+    Total: 'var(--text-primary)',
+  }), [chartLayers])
+
+  return (
+    <div className="drill2">
+      <div className="drill2-chart">
+        <TimeChart win={win} onFocus={onFocus} height={260}>
+          {(axis, focus) => (
+            <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
+              <CartesianGrid {...GRID_PROPS} />
+              <XAxis {...axis.props} />
+              <YAxis {...valueAxisProps({ maxValue: selected ? maxOf(data, [selected]) : consumed })} />
+              <Tooltip content={p => <DrilldownTooltip {...p} nowMs={win.end * 1000} hoverKey={hoverKey} colors={drillColors} suppressed={!focus.hovered} />} {...NO_ANIM} />
+              {chartLayers.map(layer => (
+                <Area key={layer.label} {...AREA_PROPS} dataKey={layer.label} stackId="stack"
+                  stroke={layer.color} fill={layer.color}
+                  fillOpacity={0.18 * dimOpacityFor(layer.label)}
+                  strokeOpacity={dimOpacityFor(layer.label)}
+                  strokeWidth={1.5}
+                  dot={false} activeDot={{ r: 3, strokeWidth: 0 }}
+                  onMouseEnter={() => setHoverKey(layer.label)}
+                  onMouseLeave={() => setHoverKey(null)} />
+              ))}
+              {/* Not stacked: Total plots at the caller's own latency, inside
+                  the stack rather than on its top edge. Dashed and in the text
+                  colour so it reads as a measure laid over the layers, not as
+                  one more of them. Drawn last so it sits over every layer. */}
+              {!selected && (
+                <Area {...AREA_PROPS} dataKey="Total" stroke="var(--text-primary)" fill="none"
+                  strokeOpacity={dimOpacityFor('Total')}
+                  strokeWidth={2} strokeDasharray="6 4" dot={false} activeDot={{ r: 3.5, strokeWidth: 0 }}
+                  onMouseEnter={() => setHoverKey('Total')}
+                  onMouseLeave={() => setHoverKey(null)} />
+              )}
+              {focus.overlay}
+            </AreaChart>
+          )}
+        </TimeChart>
+      </div>
+      <div className="drill2-legend">
+        <div className="drill2-search">
+          <SearchGlyph />
+          <input
+            type="search"
+            aria-label="Search upstreams"
+            placeholder="Search upstreams…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+        </div>
+        {shown.map(d => {
+          const dimmed = selected && selected !== d.label
+          return (
+            <div
+              className={`drill2-item${dimmed ? ' dimmed' : ''}`}
+              key={d.label}
+              onClick={() => setSelected(s => s === d.label ? null : d.label)}
+              onMouseEnter={() => setHoverKey(d.label)}
+              onMouseLeave={() => setHoverKey(null)}
+            >
+              <div className="drill2-row">
+                <span className="drill2-swatch" style={{ background: d.color }} />
+                <span className="drill2-label">{d.label}</span>
+                <span className="drill2-val">{d.ms}<span className="drill2-unit"> ms</span></span>
+                <button
+                  type="button"
+                  className="drill2-go-btn"
+                  onClick={e => { e.stopPropagation(); onOpenUpstream?.(d.label) }}
+                  title={`${d.label} - open the External view`}
+                >
+                  <svg className="drill2-go" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M14 4h6v6M20 4l-8 8M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          )
+        })}
+        {shown.length === 0 && (
+          <div className="drill2-empty">No upstream matches "{search.trim()}"</div>
+        )}
+        <div
+          className="drill2-total"
+          onMouseEnter={() => setHoverKey('Total')}
+          onMouseLeave={() => setHoverKey(null)}
+        >
+          <span className="drill2-total-swatch" aria-hidden="true" />
+          <span className="drill2-total-lbl">Total</span>
+          <span className="drill2-total-val">{callerTotal?.ms ?? consumed} ms</span>
         </div>
       </div>
-      )}
     </div>
   )
 }
@@ -507,7 +590,28 @@ function VersionTooltip({ active, payload, unit, formatVal, nowMs, colors, suppr
   )
 }
 
-function TrendChart({ title, members, stack = false, domain, unit = '', formatVal, syncId, win, onFocus }) {
+function TrendChart({ title, members, forWindow, stack = false, domain, unit = '', formatVal, syncId, win, onFocus }) {
+  // The card over any window: its own bands for the page's, the caller's
+  // derivation for any other.
+  const at = useMemo(() => perWindow(win, members, forWindow), [win, members, forWindow])
+  const plot = { stack, domain, unit, formatVal, syncId, onFocus }
+  const view = {
+    win,
+    comparable: typeof forWindow === 'function',
+    render: w => <TrendPlot {...plot} members={at(w)} win={w} />,
+  }
+
+  return (
+    <div className="chart-card">
+      <div className="clbl"><span className="clbl-text">{title}</span><ChartActions title={title} view={view} /></div>
+      <TrendPlot {...plot} members={members} win={win} />
+    </div>
+  )
+}
+
+// A trend card's chart under its header, one band per deploy. The card draws
+// it over the page's window, and its Expand and Compare again in the modal.
+function TrendPlot({ members, stack, domain, unit, formatVal, syncId, win, onFocus }) {
   const data = useMemo(() => withX(members[0].series.map((d, i) => {
     const entry = { t: d.t, label: d.label, exactTime: d.exactTime }
     members.forEach(mem => { entry[mem.label] = mem.series[i]?.value })
@@ -545,42 +649,46 @@ function TrendChart({ title, members, stack = false, domain, unit = '', formatVa
   )
 
   return (
-    <div className="chart-card">
-      <div className="clbl"><span className="clbl-text">{title}</span><CardMenu kind="chart" title={title} /></div>
-      <TimeChart className="chart-host" win={win} onFocus={onFocus}>
-        {(timeAxis, focus) => (stack ? (
-          <AreaChart data={data} margin={{ top: 4, right: 4, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
-            <CartesianGrid {...GRID_PROPS} />
-            <XAxis {...timeAxis.props} />
-            <YAxis {...axis} />
-            {tipFor(focus)}
-            {keys.map((k, i) => (
-              <Area key={k} {...AREA_PROPS} dataKey={k} stackId="s"
-                stroke={VERSION_COLORS[i % VERSION_COLORS.length]}
-                fill={VERSION_COLORS[i % VERSION_COLORS.length]}
-                fillOpacity={0.3} strokeWidth={1.3}
-                dot={false} activeDot={{ r: 3, strokeWidth: 0 }} />
-            ))}
-            {focus.overlay}
-          </AreaChart>
-        ) : (
-          <LineChart data={data} margin={{ top: 4, right: 4, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
-            <CartesianGrid {...GRID_PROPS} />
-            <XAxis {...timeAxis.props} />
-            <YAxis {...axis} />
-            {tipFor(focus)}
-            {keys.map((k, i) => (
-              <Line key={k} {...LINE_PROPS} dataKey={k} connectNulls={false}
-                stroke={VERSION_COLORS[i % VERSION_COLORS.length]}
-                strokeWidth={1.3} dot={false} activeDot={{ r: 3, strokeWidth: 0 }} />
-            ))}
-            {focus.overlay}
-          </LineChart>
-        ))}
-      </TimeChart>
-    </div>
+    <TimeChart className="chart-host" win={win} onFocus={onFocus}>
+      {(timeAxis, focus) => (stack ? (
+        <AreaChart data={data} margin={{ top: 4, right: 4, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
+          <CartesianGrid {...GRID_PROPS} />
+          <XAxis {...timeAxis.props} />
+          <YAxis {...axis} />
+          {tipFor(focus)}
+          {keys.map((k, i) => (
+            <Area key={k} {...AREA_PROPS} dataKey={k} stackId="s"
+              stroke={VERSION_COLORS[i % VERSION_COLORS.length]}
+              fill={VERSION_COLORS[i % VERSION_COLORS.length]}
+              fillOpacity={0.3} strokeWidth={1.3}
+              dot={false} activeDot={{ r: 3, strokeWidth: 0 }} />
+          ))}
+          {focus.overlay}
+        </AreaChart>
+      ) : (
+        <LineChart data={data} margin={{ top: 4, right: 4, left: 0, bottom: 0 }} syncId={syncId} syncMethod="value" {...focus.chartProps}>
+          <CartesianGrid {...GRID_PROPS} />
+          <XAxis {...timeAxis.props} />
+          <YAxis {...axis} />
+          {tipFor(focus)}
+          {keys.map((k, i) => (
+            <Line key={k} {...LINE_PROPS} dataKey={k} connectNulls={false}
+              stroke={VERSION_COLORS[i % VERSION_COLORS.length]}
+              strokeWidth={1.3} dot={false} activeDot={{ r: 3, strokeWidth: 0 }} />
+          ))}
+          {focus.overlay}
+        </LineChart>
+      ))}
+    </TimeChart>
   )
 }
+
+// Each card's bands over another window, by the derivation that gave the page
+// its `bands` (versionBandsForWindow). Module functions, so a card's
+// per-window cache lasts as long as its window does.
+const rpmBandsFor = w => versionBandsForWindow(w).rpm
+const errorBandsFor = w => versionBandsForWindow(w).errorRatePct
+const apdexBandsFor = w => versionBandsForWindow(w).apdex
 
 // Three across by default. An `aside` makes it a fourth tile and the row a 2×2
 // grid — the Detail tab puts its Hits per request table there, beside Apdex,
@@ -588,11 +696,11 @@ function TrendChart({ title, members, stack = false, domain, unit = '', formatVa
 function TrendCharts({ bands, syncId, win, onFocus, aside }) {
   return (
     <div className={`charts-row${aside ? ' charts-row-2x2' : ''}`}>
-      <TrendChart title="RPM" members={bands.rpm} stack unit=" rpm"
+      <TrendChart title="RPM" members={bands.rpm} forWindow={rpmBandsFor} stack unit=" rpm"
         formatVal={v => (v == null ? '' : Math.round(v))} syncId={syncId} win={win} onFocus={onFocus} />
-      <TrendChart title="Error %" members={bands.errorRatePct} unit="%"
+      <TrendChart title="Error %" members={bands.errorRatePct} forWindow={errorBandsFor} unit="%"
         formatVal={v => (v == null ? '' : v.toFixed(2))} syncId={syncId} win={win} onFocus={onFocus} />
-      <TrendChart title="Apdex" members={bands.apdex} domain={[0, 1]}
+      <TrendChart title="Apdex" members={bands.apdex} forWindow={apdexBandsFor} domain={[0, 1]}
         formatVal={v => (v == null ? '' : v.toFixed(2))} syncId={syncId} win={win} onFocus={onFocus} />
       {aside}
     </div>
@@ -726,6 +834,18 @@ const SLOW_QUERY_ROWS = slowQueries.map(q => ({
 
 const RED_COLUMNS = ['Total Requests', 'Time Consumed %', 'RPM', 'Response Time (p90)', 'Response Time (avg)', 'Error %']
 
+// A RED chart over another window, by the derivation that gave the page its
+// rows (`data.red`, the legend's figures) and the tab its series: what the
+// chart's Compare draws. Both come out of one derived table in one order, so a
+// row keeps its index in every window, and with it its colour.
+const redChartFor = key => w => ({ eps: redEndpointsForWindow(w), epSeries: redEndpointSeriesForWindow(w, key) })
+const RED_FOR_WINDOW = {
+  rpm: redChartFor('rpm'),
+  p90: redChartFor('p90'),
+  avg: redChartFor('avg'),
+  errPct: redChartFor('errPct'),
+}
+
 // Table and graph are two readings of one set of endpoints, so they share a
 // container. The table has its own search box; in graph view each chart carries
 // its own search and legend instead.
@@ -778,10 +898,10 @@ function RedTab({ win, endpoints, syncId, onFocus }) {
       )}
       {isGraph ? (
         <>
-          <LegendLineChart title="RPM" eps={eps} epSeries={series.rpm} dataKey="rpm" fmtFn={fmtRedRpm} syncId={syncId} win={win} onFocus={onFocus} />
-          <LegendLineChart title="Response Time (p90)" eps={eps} epSeries={series.p90} dataKey="p90" fmtFn={fmtRedMs} syncId={syncId} win={win} onFocus={onFocus} />
-          <LegendLineChart title="Response Time (avg)" eps={eps} epSeries={series.avg} dataKey="avg" fmtFn={fmtRedMs} syncId={syncId} win={win} onFocus={onFocus} />
-          <LegendLineChart title="Error %" eps={eps} epSeries={series.errPct} dataKey="errPct" fmtFn={fmtRedPct} syncId={syncId} win={win} onFocus={onFocus} />
+          <LegendLineChart title="RPM" eps={eps} epSeries={series.rpm} dataKey="rpm" forWindow={RED_FOR_WINDOW.rpm} fmtFn={fmtRedRpm} syncId={syncId} win={win} onFocus={onFocus} />
+          <LegendLineChart title="Response Time (p90)" eps={eps} epSeries={series.p90} dataKey="p90" forWindow={RED_FOR_WINDOW.p90} fmtFn={fmtRedMs} syncId={syncId} win={win} onFocus={onFocus} />
+          <LegendLineChart title="Response Time (avg)" eps={eps} epSeries={series.avg} dataKey="avg" forWindow={RED_FOR_WINDOW.avg} fmtFn={fmtRedMs} syncId={syncId} win={win} onFocus={onFocus} />
+          <LegendLineChart title="Error %" eps={eps} epSeries={series.errPct} dataKey="errPct" forWindow={RED_FOR_WINDOW.errPct} fmtFn={fmtRedPct} syncId={syncId} win={win} onFocus={onFocus} />
         </>
       ) : (
         <RedEndpointsTable rows={filtered} />
@@ -997,21 +1117,152 @@ function externalShortLabel(endpoint) {
   const host = rest.split('/')[0] || rest
   return `HTTP ${host}`
 }
+const externalRowLabel = e => externalShortLabel(e.endpoint)
 
 // Every row's own sampled series for one window, by endpoint name: { avg, rpm,
 // errPct }. `sampleFor` is a data-layer sampler (externalEndpointSeriesForWindow
 // or dbEndpointSeriesForWindow) — module functions, so their identity is stable.
-function useRowSeries(win, sampleFor) {
-  return useMemo(() => {
-    const byEndpoint = new Map()
-    for (const key of ['avg', 'rpm', 'errPct']) {
-      for (const { endpoint, series } of sampleFor(win, key)) {
-        if (!byEndpoint.has(endpoint)) byEndpoint.set(endpoint, {})
-        byEndpoint.get(endpoint)[key] = series
-      }
+function rowSeriesFor(win, sampleFor) {
+  const byEndpoint = new Map()
+  for (const key of ['avg', 'rpm', 'errPct']) {
+    for (const { endpoint, series } of sampleFor(win, key)) {
+      if (!byEndpoint.has(endpoint)) byEndpoint.set(endpoint, {})
+      byEndpoint.get(endpoint)[key] = series
     }
-    return byEndpoint
-  }, [win, sampleFor])
+  }
+  return byEndpoint
+}
+
+function useRowSeries(win, sampleFor) {
+  return useMemo(() => rowSeriesFor(win, sampleFor), [win, sampleFor])
+}
+
+// A line per row of the tab's list, keyed and coloured by the row's place in
+// it, carrying the row's own series for the window. Pure, so the tab's cards
+// draw an earlier window's lines by exactly the derivation that drew the page's.
+function splitLines(endpoints, rowSeries, labelOf) {
+  return endpoints.map((e, i) => {
+    const r = rowSeries.get(e.endpoint) ?? {}
+    return { key: `ep${i}`, label: labelOf(e), color: epColor(i), avg: r.avg ?? [], rpm: r.rpm ?? [], errPct: r.errPct ?? [] }
+  })
+}
+
+// Each chart's seriesList out of the lines: one metric of every line.
+function splitMulti(lines) {
+  const of = metric => lines.map(s => ({ key: s.key, label: s.label, color: s.color, data: s[metric] }))
+  return { avg: of('avg'), rpm: of('rpm'), errPct: of('errPct') }
+}
+
+// The three charts beside the External and DB lists: which of a row's series
+// each plots, and how. `color` is the one-row chart's; with every row drawn,
+// each line takes its row's colour (epColor) instead.
+const SPLIT_CHARTS = [
+  { title: 'Response Time (avg)', metric: 'avg', color: '#3B82F6', unit: ' ms', formatVal: v => Math.round(v) },
+  { title: 'RPM', metric: 'rpm', color: '#A78BFA', unit: ' rpm', formatVal: v => Math.round(v) },
+  { title: 'Error %', metric: 'errPct', color: '#F472B6', unit: '%', formatVal: v => v.toFixed(2) },
+]
+
+/**
+ * One chart card beside the External or DB list.
+ *
+ * On the page it is one of the tab's three: the selected row's area, or a
+ * line per row drawn under the tab's one budget and hover (`group`), whose
+ * legend sits under all three cards. Its Expand and Compare draw it alone,
+ * over any window `at` holds, so there it keeps a budget, a hover and a
+ * legend of its own (SplitLinesChart): the page's are shared by three cards,
+ * and none of them is in the modal.
+ *
+ * The selected row's area is named on the page by the highlighted row of the
+ * list beside it, which is not in the modal either, so there it carries the
+ * row's name under it, as the Detail tab's p90 view does (LatencyP90Plot).
+ * Without it a Compare of one operation's Error % reads like any other's.
+ */
+function SplitChartCard({ chart, ep, at, group, noun, syncId, win, onFocus }) {
+  const { title, metric, color, unit, formatVal } = chart
+  // The selected row by name, so an earlier window's chart is the same row's.
+  const single = (w, rowSeries) => (
+    <MiniChart syncId={syncId} win={w} onFocus={onFocus} series={(rowSeries.get(ep.endpoint) ?? {})[metric] ?? []} color={color} unit={unit} formatVal={formatVal} />
+  )
+  const view = {
+    win,
+    render: w => {
+      const d = at(w)
+      return ep
+        ? (
+          <>
+            {single(w, d.rowSeries)}
+            <div className="drill2-single-legend">
+              <span className="drill2-swatch" style={{ background: color }} />
+              <span className="mono">{ep.endpoint}</span>
+            </div>
+          </>
+        )
+        : <SplitLinesChart lines={d.multi[metric]} noun={noun} unit={unit} formatVal={formatVal} syncId={syncId} win={w} onFocus={onFocus} />
+    },
+  }
+  const own = at(win)
+  return (
+    <div className="split-chart-card">
+      <div className="clbl"><span className="clbl-text">{title}</span><ChartActions title={title} view={view} /></div>
+      <div className="chart-host">
+        {ep
+          ? single(win, own.rowSeries)
+          : <MultiLineChart {...group} syncId={syncId} win={win} onFocus={onFocus} seriesList={own.multi[metric]} unit={unit} formatVal={formatVal} />}
+      </div>
+    </div>
+  )
+}
+
+// A tab's line chart alone, in its card's modal: a budget sized by the modal's
+// own plot (the page's, handed a wider width, would change the cap on the
+// page), a hover that dims only its own lines, and a legend of the lines it
+// draws, since the page's legend under the three cards is not in the modal.
+function SplitLinesChart({ lines, noun, unit, formatVal, syncId, win, onFocus }) {
+  const [hoverKey, setHoverKey] = useState(null)
+  const [plotWidth, setPlotWidth] = useState(0)
+  const budget = useSeriesBudget(lines.length, plotWidth)
+  return (
+    <>
+      <MultiLineChart
+        seriesList={lines}
+        drawCount={budget.count}
+        fixAxis={fixesAxis(budget.status)}
+        onWidth={setPlotWidth}
+        unit={unit}
+        formatVal={formatVal}
+        hoverKey={hoverKey}
+        setHoverKey={setHoverKey}
+        syncId={syncId}
+        win={win}
+        onFocus={onFocus}
+      />
+      <SplitChartLegend lines={lines.slice(0, budget.count)} hoverKey={hoverKey} setHoverKey={setHoverKey} />
+      <SeriesBudgetFooter budget={budget} noun={noun} />
+    </>
+  )
+}
+
+// The legend under a tab's line charts: a swatch per line drawn, and hovering
+// one dims the rest, in the legend and in the charts alike.
+function SplitChartLegend({ lines, hoverKey, setHoverKey }) {
+  return (
+    <div className="split-chart-legend">
+      {lines.map(s => {
+        const dim = hoverKey != null && hoverKey !== s.key
+        return (
+          <span
+            key={s.key}
+            className={`split-chart-legend-item${dim ? ' dim' : ''}`}
+            onMouseEnter={() => setHoverKey(s.key)}
+            onMouseLeave={() => setHoverKey(null)}
+          >
+            <span className="split-chart-legend-swatch" style={{ background: s.color }} />
+            <span>{s.label}</span>
+          </span>
+        )
+      })}
+    </div>
+  )
 }
 
 function ExternalTab({ svc, data, syncId, win, onFocus }) {
@@ -1023,27 +1274,24 @@ function ExternalTab({ svc, data, syncId, win, onFocus }) {
   // Each call's own series, sampled from the profile its table row is reduced
   // from (see externalEndpointSeriesForWindow), so a line and its row agree.
   const rowSeries = useRowSeries(win, externalEndpointSeriesForWindow)
-  const perEp = useMemo(() => endpoints.map((e, i) => {
-    const r = rowSeries.get(e.endpoint) ?? {}
-    return { key: `ep${i}`, label: externalShortLabel(e.endpoint), color: epColor(i), lat: r.avg ?? [], rpm: r.rpm ?? [], err: r.errPct ?? [] }
-  }), [endpoints, rowSeries])
+  const perEp = useMemo(() => splitLines(endpoints, rowSeries, externalRowLabel), [endpoints, rowSeries])
+  const multi = useMemo(() => splitMulti(perEp), [perEp])
+
+  // Every chart over any window, for the cards' Expand and Compare: the tab's
+  // own for the page's window, and for any other the same two calls (the
+  // window's rows and their series) laid out the same way.
+  const at = useMemo(() => perWindow(win, { rowSeries, multi }, w => {
+    const rs = rowSeriesFor(w, externalEndpointSeriesForWindow)
+    return { rowSeries: rs, multi: splitMulti(splitLines(externalEndpointsForWindow(w), rs, externalRowLabel)) }
+  }), [win, rowSeries, multi])
 
   // One budget for the three charts and the legend under them, so they always
   // agree on which endpoints are drawn. The charts report their (shared) width.
+  // With an endpoint selected, each chart is that endpoint's area instead
+  // (SplitChartCard), and the legend gives way to its callers.
   const [plotWidth, setPlotWidth] = useState(0)
   const budget = useSeriesBudget(perEp.length, plotWidth)
-  const multiProps = { drawCount: budget.count, fixAxis: fixesAxis(budget.status), onWidth: setPlotWidth }
-
-  // Single-endpoint mode re-uses MiniChart's single area; multi mode shows a
-  // line per endpoint with a shared legend under the three charts.
-  const epRow = ep ? rowSeries.get(ep.endpoint) ?? {} : null
-  const latSeries = epRow ? epRow.avg ?? [] : null
-  const rpmSeries = epRow ? epRow.rpm ?? [] : null
-  const errSeries = epRow ? epRow.errPct ?? [] : null
-
-  const latMulti = useMemo(() => perEp.map(s => ({ key: s.key, label: s.label, color: s.color, data: s.lat })), [perEp])
-  const rpmMulti = useMemo(() => perEp.map(s => ({ key: s.key, label: s.label, color: s.color, data: s.rpm })), [perEp])
-  const errMulti = useMemo(() => perEp.map(s => ({ key: s.key, label: s.label, color: s.color, data: s.err })), [perEp])
+  const group = { drawCount: budget.count, fixAxis: fixesAxis(budget.status), onWidth: setPlotWidth, hoverKey, setHoverKey }
 
   const callers = ep ? (externalEndpointCallers[ep.endpoint] || []) : []
 
@@ -1059,51 +1307,10 @@ function ExternalTab({ svc, data, syncId, win, onFocus }) {
           onClear={() => setSel(null)}
         />
         <div className="split-charts">
-          <div className="split-chart-card">
-            <div className="clbl">
-              <span className="clbl-text">Response Time (avg)</span>
-              <CardMenu kind="chart" title="Response Time (avg)" />
-            </div>
-            <div className="chart-host">
-              {ep
-                ? <MiniChart syncId={syncId} win={win} onFocus={onFocus} series={latSeries} color="#3B82F6" unit=" ms" formatVal={v => Math.round(v)} />
-                : <MultiLineChart {...multiProps} syncId={syncId} win={win} onFocus={onFocus} seriesList={latMulti} unit=" ms" formatVal={v => Math.round(v)} hoverKey={hoverKey} setHoverKey={setHoverKey} />}
-            </div>
-          </div>
-          <div className="split-chart-card">
-            <div className="clbl"><span className="clbl-text">RPM</span><CardMenu kind="chart" title="RPM" /></div>
-            <div className="chart-host">
-              {ep
-                ? <MiniChart syncId={syncId} win={win} onFocus={onFocus} series={rpmSeries} color="#A78BFA" unit=" rpm" formatVal={v => Math.round(v)} />
-                : <MultiLineChart {...multiProps} syncId={syncId} win={win} onFocus={onFocus} seriesList={rpmMulti} unit=" rpm" formatVal={v => Math.round(v)} hoverKey={hoverKey} setHoverKey={setHoverKey} />}
-            </div>
-          </div>
-          <div className="split-chart-card">
-            <div className="clbl"><span className="clbl-text">Error %</span><CardMenu kind="chart" title="Error %" /></div>
-            <div className="chart-host">
-              {ep
-                ? <MiniChart syncId={syncId} win={win} onFocus={onFocus} series={errSeries} color="#F472B6" unit="%" formatVal={v => v.toFixed(2)} />
-                : <MultiLineChart {...multiProps} syncId={syncId} win={win} onFocus={onFocus} seriesList={errMulti} unit="%" formatVal={v => v.toFixed(2)} hoverKey={hoverKey} setHoverKey={setHoverKey} />}
-            </div>
-          </div>
-          {!ep && (
-            <div className="split-chart-legend">
-              {perEp.slice(0, budget.count).map(s => {
-                const dim = hoverKey != null && hoverKey !== s.key
-                return (
-                  <span
-                    key={s.key}
-                    className={`split-chart-legend-item${dim ? ' dim' : ''}`}
-                    onMouseEnter={() => setHoverKey(s.key)}
-                    onMouseLeave={() => setHoverKey(null)}
-                  >
-                    <span className="split-chart-legend-swatch" style={{ background: s.color }} />
-                    <span>{s.label}</span>
-                  </span>
-                )
-              })}
-            </div>
-          )}
+          {SPLIT_CHARTS.map(c => (
+            <SplitChartCard key={c.title} chart={c} ep={ep} at={at} group={group} noun="endpoints" syncId={syncId} win={win} onFocus={onFocus} />
+          ))}
+          {!ep && <SplitChartLegend lines={perEp.slice(0, budget.count)} hoverKey={hoverKey} setHoverKey={setHoverKey} />}
           {!ep && <SeriesBudgetFooter budget={budget} noun="endpoints" />}
           {ep && <EndpointBreakdownRows rows={callers} />}
         </div>
@@ -1171,6 +1378,12 @@ function EndpointBreakdownRows({ rows }) {
 const DB_FILTER_OPTIONS = ['All Database Calls', 'MySQL', 'Redis']
 const DB_KIND_FOR_FILTER = { 'MySQL': 'mysql', 'Redis': 'redis' }
 
+// The operations the kind filter leaves, in the list's own order.
+function dbOfKind(all, filter) {
+  const kind = DB_KIND_FOR_FILTER[filter]
+  return kind ? all.filter(e => e.kind === kind) : all
+}
+
 function DbTab({ svc, data, syncId, win, onFocus, onOpenTrace }) {
   const [sel, setSel] = useState(null)
   const [hoverKey, setHoverKey] = useState(null)
@@ -1181,36 +1394,29 @@ function DbTab({ svc, data, syncId, win, onFocus, onOpenTrace }) {
   // selection could leave `sel` pointing past the end - the ep? pattern below
   // falls back cleanly, and we also reset the selection on filter change.
   const allEndpoints = data.db
-  const endpoints = useMemo(() => {
-    const kind = DB_KIND_FOR_FILTER[filter]
-    return kind ? allEndpoints.filter(e => e.kind === kind) : allEndpoints
-  }, [allEndpoints, filter])
+  const endpoints = useMemo(() => dbOfKind(allEndpoints, filter), [allEndpoints, filter])
   const ep = sel != null ? endpoints[sel] : null
 
   // Each operation's own series, sampled from the profile its row is reduced
   // from (see dbEndpointSeriesForWindow). A MySQL statement with no errors draws
   // a flat zero, and a Redis call's error rate stays a percentage.
   const rowSeries = useRowSeries(win, dbEndpointSeriesForWindow)
-  const perEp = useMemo(() => endpoints.map((e, i) => {
-    const r = rowSeries.get(e.endpoint) ?? {}
-    return { key: `ep${i}`, label: dbShortLabel(e), color: epColor(i), lat: r.avg ?? [], rpm: r.rpm ?? [], err: r.errPct ?? [] }
-  }), [endpoints, rowSeries])
+  const perEp = useMemo(() => splitLines(endpoints, rowSeries, dbShortLabel), [endpoints, rowSeries])
+  const multi = useMemo(() => splitMulti(perEp), [perEp])
+
+  // Every chart over any window, as on the External tab: the window's
+  // operations, narrowed by the kind the list shows now, and their series.
+  const at = useMemo(() => perWindow(win, { rowSeries, multi }, w => {
+    const rs = rowSeriesFor(w, dbEndpointSeriesForWindow)
+    return { rowSeries: rs, multi: splitMulti(splitLines(dbOfKind(dbEndpointsForWindow(w), filter), rs, dbShortLabel)) }
+  }), [win, rowSeries, multi, filter])
 
   // One budget for the three charts and the legend, as on the External tab. It
   // counts the operations the kind filter leaves, so narrowing to MySQL or
   // Redis is itself a way to see everything.
   const [plotWidth, setPlotWidth] = useState(0)
   const budget = useSeriesBudget(perEp.length, plotWidth)
-  const multiProps = { drawCount: budget.count, fixAxis: fixesAxis(budget.status), onWidth: setPlotWidth }
-
-  const epRow = ep ? rowSeries.get(ep.endpoint) ?? {} : null
-  const latSeries = epRow ? epRow.avg ?? [] : null
-  const rpmSeries = epRow ? epRow.rpm ?? [] : null
-  const errSeries = epRow ? epRow.errPct ?? [] : null
-
-  const latMulti = useMemo(() => perEp.map(s => ({ key: s.key, label: s.label, color: s.color, data: s.lat })), [perEp])
-  const rpmMulti = useMemo(() => perEp.map(s => ({ key: s.key, label: s.label, color: s.color, data: s.rpm })), [perEp])
-  const errMulti = useMemo(() => perEp.map(s => ({ key: s.key, label: s.label, color: s.color, data: s.err })), [perEp])
+  const group = { drawCount: budget.count, fixAxis: fixesAxis(budget.status), onWidth: setPlotWidth, hoverKey, setHoverKey }
 
   const callers = ep ? (dbEndpointCallers[ep.endpoint] || []) : []
 
@@ -1234,51 +1440,10 @@ function DbTab({ svc, data, syncId, win, onFocus, onOpenTrace }) {
           onClear={() => setSel(null)}
         />
         <div className="split-charts">
-          <div className="split-chart-card">
-            <div className="clbl">
-              <span className="clbl-text">Response Time (avg)</span>
-              <CardMenu kind="chart" title="Response Time (avg)" />
-            </div>
-            <div className="chart-host">
-              {ep
-                ? <MiniChart syncId={syncId} win={win} onFocus={onFocus} series={latSeries} color="#3B82F6" unit=" ms" formatVal={v => Math.round(v)} />
-                : <MultiLineChart {...multiProps} syncId={syncId} win={win} onFocus={onFocus} seriesList={latMulti} unit=" ms" formatVal={v => Math.round(v)} hoverKey={hoverKey} setHoverKey={setHoverKey} />}
-            </div>
-          </div>
-          <div className="split-chart-card">
-            <div className="clbl"><span className="clbl-text">RPM</span><CardMenu kind="chart" title="RPM" /></div>
-            <div className="chart-host">
-              {ep
-                ? <MiniChart syncId={syncId} win={win} onFocus={onFocus} series={rpmSeries} color="#A78BFA" unit=" rpm" formatVal={v => Math.round(v)} />
-                : <MultiLineChart {...multiProps} syncId={syncId} win={win} onFocus={onFocus} seriesList={rpmMulti} unit=" rpm" formatVal={v => Math.round(v)} hoverKey={hoverKey} setHoverKey={setHoverKey} />}
-            </div>
-          </div>
-          <div className="split-chart-card">
-            <div className="clbl"><span className="clbl-text">Error %</span><CardMenu kind="chart" title="Error %" /></div>
-            <div className="chart-host">
-              {ep
-                ? <MiniChart syncId={syncId} win={win} onFocus={onFocus} series={errSeries} color="#F472B6" unit="%" formatVal={v => v.toFixed(2)} />
-                : <MultiLineChart {...multiProps} syncId={syncId} win={win} onFocus={onFocus} seriesList={errMulti} unit="%" formatVal={v => v.toFixed(2)} hoverKey={hoverKey} setHoverKey={setHoverKey} />}
-            </div>
-          </div>
-          {!ep && (
-            <div className="split-chart-legend">
-              {perEp.slice(0, budget.count).map(s => {
-                const dim = hoverKey != null && hoverKey !== s.key
-                return (
-                  <span
-                    key={s.key}
-                    className={`split-chart-legend-item${dim ? ' dim' : ''}`}
-                    onMouseEnter={() => setHoverKey(s.key)}
-                    onMouseLeave={() => setHoverKey(null)}
-                  >
-                    <span className="split-chart-legend-swatch" style={{ background: s.color }} />
-                    <span>{s.label}</span>
-                  </span>
-                )
-              })}
-            </div>
-          )}
+          {SPLIT_CHARTS.map(c => (
+            <SplitChartCard key={c.title} chart={c} ep={ep} at={at} group={group} noun="operations" syncId={syncId} win={win} onFocus={onFocus} />
+          ))}
+          {!ep && <SplitChartLegend lines={perEp.slice(0, budget.count)} hoverKey={hoverKey} setHoverKey={setHoverKey} />}
           {!ep && <SeriesBudgetFooter budget={budget} noun="operations" />}
           {/* Under the charts, half the page wide, so the list without the
               waterfall the Slow Requests panel shows beside it: a row opens
@@ -1383,7 +1548,7 @@ function OverviewTab({ svc, data, win, syncId, onFocus, onOpenTrace, onOpenUpstr
         : <KpiCardsSkeleton />}
       {chartsReady ? (
         <div className="svc-reveal">
-          <LatencyDrilldown layers={data.drilldown} layerSeries={data.drilldownSeries} callerTotal={data.drilldownTotal} onOpenUpstream={onOpenUpstream} syncId={syncId} win={win} onFocus={onFocus} />
+          <LatencyDrilldown layers={data.drilldown} layerSeries={data.drilldownSeries} callerTotal={data.drilldownTotal} forWindow={drilldownForWindow} onOpenUpstream={onOpenUpstream} syncId={syncId} win={win} onFocus={onFocus} />
           <TrendCharts bands={data.bands} syncId={syncId} win={win} onFocus={onFocus} />
         </div>
       ) : (
@@ -1523,13 +1688,104 @@ function TracesTab() {
 // same charts. Garbage-collector time is the panel's own.
 const fmtRuntimeMs = v => (v == null || Number.isNaN(v) ? '' : `${v.toFixed(1)} ms`)
 
+/**
+ * The panel, as a list. Order, headers and legend labels are the reference
+ * platform's, down to the wording — "Buffer Memory-direct (bytes)" reads
+ * oddly on its own and is left alone, because an operator who has one of
+ * these screens open beside the other is comparing them line for line.
+ *
+ * Pure in its inputs, one window's sample (runtimeMetricsForWindow) and the
+ * name of the host it was taken from, so a card's Compare draws an earlier
+ * window's chart by the derivation that drew the page's.
+ */
+function runtimeCharts(rt, hostName) {
+  // A single-series chart has no legend, so its one tooltip row is labelled
+  // with the host it was sampled from — the only thing left worth saying.
+  const one = rows => [{ key: 'value', label: hostName, color: RESOURCE_COLORS.used, rows }]
+  const limitRow = rows => ({ key: 'limit', label: 'limit', color: RESOURCE_COLORS.limit, rows, dash: LIMIT_DASH })
+  const committedRow = rows => ({ key: 'committed', label: 'committed', color: RESOURCE_COLORS.committed, rows })
+  const usedRow = rows => ({ key: 'used', label: 'used', color: RESOURCE_COLORS.used, rows })
+
+  return [
+    { title: 'CPU Used %', span: 'half', fmt: fmtPct1, series: one(rt.cpuPct) },
+    { title: 'Memory Used (bytes)', span: 'half', fmt: fmtBytes, series: one(rt.memUsedBytes) },
+    { title: 'Thread Count', span: 'half', fmt: fmtCount, series: one(rt.threadCount) },
+    {
+      title: 'Class Count',
+      span: 'half',
+      fmt: fmtCount,
+      series: [
+        { key: 'count', label: 'count', color: RESOURCE_COLORS.used, rows: rt.classCount.count },
+        { key: 'unloaded', label: 'unloaded', color: RESOURCE_COLORS.alt, rows: rt.classCount.unloaded },
+      ],
+    },
+    {
+      title: 'Heap Memory (bytes)',
+      span: 'third',
+      fmt: fmtBytes,
+      series: [limitRow(rt.heap.limit), committedRow(rt.heap.committed), usedRow(rt.heap.used)],
+    },
+    { title: 'Non-Heap Memory Pool Used (bytes)', span: 'third', fmt: fmtBytes, series: one(rt.nonHeapPoolUsed) },
+    {
+      // The one filled chart in the panel. Collector time is an amount spent
+      // inside each bucket rather than a level the JVM is sitting at, so the
+      // two generations stack into the total the collector cost.
+      title: 'Garbage Collection CPU Time',
+      span: 'third',
+      area: true,
+      fmt: fmtCompact,
+      tipFmt: fmtRuntimeMs,
+      series: [
+        { key: 'g1Old', label: 'G1 Old Generation', color: RESOURCE_COLORS.alt, rows: rt.gcCpuTime.g1Old },
+        { key: 'g1Young', label: 'G1 Young Generation', color: RESOURCE_COLORS.used, rows: rt.gcCpuTime.g1Young },
+      ],
+    },
+    {
+      title: 'G1 Old Gen Heap (bytes)',
+      span: 'third',
+      fmt: fmtBytes,
+      series: [limitRow(rt.g1OldGenHeap.limit), committedRow(rt.g1OldGenHeap.committed), usedRow(rt.g1OldGenHeap.used)],
+    },
+    {
+      title: 'G1 Eden Space Heap (bytes)',
+      span: 'third',
+      fmt: fmtBytes,
+      series: [committedRow(rt.g1EdenHeap.committed), usedRow(rt.g1EdenHeap.used)],
+    },
+    {
+      title: 'G1 Survivor Space Heap (bytes)',
+      span: 'third',
+      fmt: fmtBytes,
+      series: [committedRow(rt.g1SurvivorHeap.committed), usedRow(rt.g1SurvivorHeap.used)],
+    },
+    {
+      title: 'Buffer Memory-direct (bytes)',
+      span: 'half',
+      fmt: fmtBytes,
+      series: [limitRow(rt.bufferDirect.limit), usedRow(rt.bufferDirect.used)],
+    },
+    {
+      title: 'Buffer Memory-mapped (bytes)',
+      span: 'half',
+      fmt: fmtBytes,
+      series: [limitRow(rt.bufferMapped.limit), usedRow(rt.bufferMapped.used)],
+    },
+  ]
+}
+
+// The host a chart was sampled from, by name: the window's roster names it, a
+// host that sent nothing in the window included (as its ghost row).
+function runtimeHostName(roster, host) {
+  return host ? (roster.hosts.find(h => h.id === host)?.name ?? host) : 'All hosts (avg per JVM)'
+}
+
 function RuntimeTab({ syncId, win, onFocus }) {
   // null is every host, averaged per JVM: the default, and what Clear returns
   // to. It survives range changes — a host that sent nothing in the new range
   // stays selected as a ghost row rather than being dropped silently.
   const [host, setHost] = useState(null)
   const roster = useMemo(() => runtimeRoster(win, host), [win, host])
-  const hostName = host ? (roster.hosts.find(h => h.id === host)?.name ?? host) : 'All hosts (avg per JVM)'
+  const hostName = runtimeHostName(roster, host)
   // Sampled here rather than with the rest of the page's data, because this is
   // the one panel whose series depend on something the panel itself owns.
   const runtimeMetrics = useMemo(() => runtimeMetricsForWindow(win, host), [win, host])
@@ -1541,87 +1797,16 @@ function RuntimeTab({ syncId, win, onFocus }) {
   // new service mounts it, and with it the strip, afresh.
   const { reveal: stripReveal, onScroll: onChartsScroll } = useScrollReveal()
 
-  /**
-   * The panel, as a list. Order, headers and legend labels are the reference
-   * platform's, down to the wording — "Buffer Memory-direct (bytes)" reads
-   * oddly on its own and is left alone, because an operator who has one of
-   * these screens open beside the other is comparing them line for line.
-   */
-  const charts = useMemo(() => {
-    const rt = runtimeMetrics
-    // A single-series chart has no legend, so its one tooltip row is labelled
-    // with the host it was sampled from — the only thing left worth saying.
-    const one = rows => [{ key: 'value', label: hostName, color: RESOURCE_COLORS.used, rows }]
-    const limitRow = rows => ({ key: 'limit', label: 'limit', color: RESOURCE_COLORS.limit, rows, dash: LIMIT_DASH })
-    const committedRow = rows => ({ key: 'committed', label: 'committed', color: RESOURCE_COLORS.committed, rows })
-    const usedRow = rows => ({ key: 'used', label: 'used', color: RESOURCE_COLORS.used, rows })
+  const charts = useMemo(() => runtimeCharts(runtimeMetrics, hostName), [runtimeMetrics, hostName])
 
-    return [
-      { title: 'CPU Used %', span: 'half', fmt: fmtPct1, series: one(rt.cpuPct) },
-      { title: 'Memory Used (bytes)', span: 'half', fmt: fmtBytes, series: one(rt.memUsedBytes) },
-      { title: 'Thread Count', span: 'half', fmt: fmtCount, series: one(rt.threadCount) },
-      {
-        title: 'Class Count',
-        span: 'half',
-        fmt: fmtCount,
-        series: [
-          { key: 'count', label: 'count', color: RESOURCE_COLORS.used, rows: rt.classCount.count },
-          { key: 'unloaded', label: 'unloaded', color: RESOURCE_COLORS.alt, rows: rt.classCount.unloaded },
-        ],
-      },
-      {
-        title: 'Heap Memory (bytes)',
-        span: 'third',
-        fmt: fmtBytes,
-        series: [limitRow(rt.heap.limit), committedRow(rt.heap.committed), usedRow(rt.heap.used)],
-      },
-      { title: 'Non-Heap Memory Pool Used (bytes)', span: 'third', fmt: fmtBytes, series: one(rt.nonHeapPoolUsed) },
-      {
-        // The one filled chart in the panel. Collector time is an amount spent
-        // inside each bucket rather than a level the JVM is sitting at, so the
-        // two generations stack into the total the collector cost.
-        title: 'Garbage Collection CPU Time',
-        span: 'third',
-        area: true,
-        fmt: fmtCompact,
-        tipFmt: fmtRuntimeMs,
-        series: [
-          { key: 'g1Old', label: 'G1 Old Generation', color: RESOURCE_COLORS.alt, rows: rt.gcCpuTime.g1Old },
-          { key: 'g1Young', label: 'G1 Young Generation', color: RESOURCE_COLORS.used, rows: rt.gcCpuTime.g1Young },
-        ],
-      },
-      {
-        title: 'G1 Old Gen Heap (bytes)',
-        span: 'third',
-        fmt: fmtBytes,
-        series: [limitRow(rt.g1OldGenHeap.limit), committedRow(rt.g1OldGenHeap.committed), usedRow(rt.g1OldGenHeap.used)],
-      },
-      {
-        title: 'G1 Eden Space Heap (bytes)',
-        span: 'third',
-        fmt: fmtBytes,
-        series: [committedRow(rt.g1EdenHeap.committed), usedRow(rt.g1EdenHeap.used)],
-      },
-      {
-        title: 'G1 Survivor Space Heap (bytes)',
-        span: 'third',
-        fmt: fmtBytes,
-        series: [committedRow(rt.g1SurvivorHeap.committed), usedRow(rt.g1SurvivorHeap.used)],
-      },
-      {
-        title: 'Buffer Memory-direct (bytes)',
-        span: 'half',
-        fmt: fmtBytes,
-        series: [limitRow(rt.bufferDirect.limit), usedRow(rt.bufferDirect.used)],
-      },
-      {
-        title: 'Buffer Memory-mapped (bytes)',
-        span: 'half',
-        fmt: fmtBytes,
-        series: [limitRow(rt.bufferMapped.limit), usedRow(rt.bufferMapped.used)],
-      },
-    ]
-  }, [runtimeMetrics, hostName])
+  // Each card over another window, for its Compare: the window's sample for
+  // the host the rail has selected, named as that window's roster names it.
+  // All twelve come out of one sample, so it is taken once per window and each
+  // card picks its own chart out of it by title.
+  const forWindow = useMemo(() => {
+    const chartsAt = perWindow(win, charts, w => runtimeCharts(runtimeMetricsForWindow(w, host), runtimeHostName(runtimeRoster(w, host), host)))
+    return Object.fromEntries(charts.map(c => [c.title, w => ({ series: chartsAt(w).find(o => o.title === c.title)?.series ?? [] })]))
+  }, [win, charts, host])
 
   return (
     <div className="runtime-layout">
@@ -1636,7 +1821,7 @@ function RuntimeTab({ syncId, win, onFocus }) {
         <RuntimeScope win={win} roster={roster} selectedId={host} onShowAll={() => setHost(null)} reveal={stripReveal} />
         <div className="runtime-grid">
           {charts.map(c => (
-            <CardChart key={c.title} {...c} syncId={syncId} win={win} onFocus={onFocus} />
+            <CardChart key={c.title} {...c} forWindow={forWindow[c.title]} syncId={syncId} win={win} onFocus={onFocus} />
           ))}
         </div>
       </div>
@@ -1682,18 +1867,26 @@ export default function ServiceOverview({ serviceId, onSelectService, onOpenTrac
   const endpoint = serviceEndpoint || data.red[0].endpoint
   const setEndpoint = setServiceEndpoint
 
-  // The card menus offer the actions production offers; none of the screens
-  // behind them - the alert builder, Explore, the comparison window - are part
-  // of this redesign yet, so the menu says so rather than doing nothing.
   // An upstream in the drilldown is a call this service makes, which is what the
   // External view lists - so a row there is a link into it.
   const openExternal = useCallback(() => setServiceSubTab?.('external'), [setServiceSubTab])
 
+  // The card menus offer the actions production offers. A drawn chart's Compare
+  // never reaches this handler: its corner (ChartActions) opens the comparison
+  // itself, and only a loading skeleton's ⋮, with no chart to compare yet, still
+  // sends it here, where it says so rather than calling Compare unbuilt. Explore
+  // and Create Alert open their screens below; anything else (a table's
+  // Download CSV) says it is not built rather than doing nothing.
+  //
   // Explore is built, so the menu's Explore item goes there instead of
   // apologising: the card's title says what it plots, and that is enough to
   // open the query builder on the nearest thing to it (ARCH D13). Only the
   // Detail tab is scoped to one endpoint, so only it carries that filter.
   const onCardAction = useCallback((action, title) => {
+    if (action === 'Compare') {
+      setToast?.(`${title} is still loading - Compare opens once the chart is drawn.`)
+      return
+    }
     const scope = { action, title, serviceId, endpoint: serviceSubTab === 'detail' ? endpoint : '' }
     const payload = explorePayloadForCard(scope)
     if (payload) {

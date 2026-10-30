@@ -1,5 +1,5 @@
 import MiniChart from '@/components/charts/MiniChart'
-import CardMenu from '@/components/CardMenu'
+import ChartActions from '@/components/charts/ChartActions'
 import InfoTip from '@/components/shared/InfoTip'
 import { splitFigure, figureDelta } from './metricLabels'
 import '@/components/errors/errors.css'
@@ -35,16 +35,54 @@ import './browser-metrics.css'
  *   overlays, yTop     drawn behind the chart and the axis floor that keeps
  *                      them in view (thresholdBands / bandAxisTop)
  *   syncId, win, onFocus   as every chart on the tab
+ *   forWindow(w)       the card over another window, by the same derivation
+ *                      that gave `value` and `series` for `win`: { value,
+ *                      series } and whatever else moves with the window (yTop,
+ *                      overlays). It is what the card's Compare draws ("1 day
+ *                      ago", ChartModal). Left out, the card can be expanded
+ *                      but offers no Compare.
  *
  * Single-series, so the area is the brand colour, as the service page's other
  * single-series charts are: a series colour says which thing a line is, and
  * there is only one thing here.
  */
 export default function SummaryCard({
-  title, info, value, prev, fmt, prevText, series, formatVal, axisFormat, rating, overlays, yTop, syncId, win, onFocus,
+  title, info, value, prev, fmt, prevText, series, formatVal, axisFormat, rating, overlays, yTop, syncId, win, onFocus, forWindow,
 }) {
   const figure = splitFigure(fmt(value))
   const delta = value == null ? null : figureDelta(value, prev, prevText, fmt)
+  // The card over any window, for its Expand and Compare: its own props for
+  // the page's window, the caller's derivation laid over them for any other.
+  // In the modal the chart is sized by the modal, and the figure rides in the
+  // panel's head beside the title.
+  const own = { value, series, overlays, yTop }
+  const other = new WeakMap()
+  const at = w => {
+    if (w === win) return own
+    if (!other.has(w)) other.set(w, { ...own, ...(forWindow(w) ?? {}) })
+    return other.get(w)
+  }
+  const chart = (w, { series: s, overlays: o, yTop: y }) => (
+    <MiniChart
+      className="chart-host"
+      height={null}
+      series={s}
+      color="var(--brand)"
+      formatVal={formatVal ?? fmt}
+      axisFormat={axisFormat}
+      overlays={o}
+      yTop={y}
+      syncId={syncId}
+      win={w}
+      onFocus={onFocus}
+    />
+  )
+  const view = {
+    win,
+    comparable: typeof forWindow === 'function',
+    value: w => (at(w).value == null ? null : fmt(at(w).value)),
+    render: w => chart(w, at(w)),
+  }
   return (
     <div className="chart-card brw-sum-card">
       <div className="clbl">
@@ -52,7 +90,7 @@ export default function SummaryCard({
           <span className="brw-sum-title" title={title}>{title}</span>
           {info && <InfoTip label={`About ${title}`}>{info}</InfoTip>}
         </span>
-        <CardMenu kind="chart" title={title} />
+        <ChartActions title={title} view={view} />
       </div>
       {/* The rating sits on the figure's line, at its right end, rather than in
           the head beside the ⋮: it is a verdict on the figure, and in the head
@@ -66,19 +104,7 @@ export default function SummaryCard({
         {delta && <span className="errp-delta" data-dir={delta.dir} title={delta.title}>{delta.label}</span>}
         {rating && <span className={`kpi-chip ${rating.status}`} title={rating.title}>{rating.label}</span>}
       </div>
-      <MiniChart
-        className="chart-host"
-        height={null}
-        series={series}
-        color="var(--brand)"
-        formatVal={formatVal ?? fmt}
-        axisFormat={axisFormat}
-        overlays={overlays}
-        yTop={yTop}
-        syncId={syncId}
-        win={win}
-        onFocus={onFocus}
-      />
+      {chart(win, own)}
     </div>
   )
 }

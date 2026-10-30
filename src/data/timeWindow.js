@@ -252,6 +252,82 @@ export function minuteInstant(tSec, nowMs = BASE_TIME.getTime()) {
 /** The reference window every published figure was measured over. */
 export const REFERENCE_WINDOW = resolveWindow({ kind: 'preset', value: '1h' })
 
+// One shifted copy per (window, shift), so a chart's data module — most cache
+// their rows in a WeakMap keyed on the window OBJECT — builds the earlier
+// window's rows once, not on every render of the chart that asked for them.
+const shiftCache = new WeakMap()
+
+/**
+ * The same window `bySec` earlier, bucket for bucket: what a chart's Compare
+ * draws under the current one ("1 day ago").
+ *
+ * Shifted rather than re-resolved, because re-resolving does not keep the
+ * window's shape: a 2-hour window shifted and resolved again picks a coarser
+ * step (25 buckets where the current one has 61), and the earlier copy of a
+ * trailing window gains a bucket. Bucket for bucket, the two windows have the
+ * same count, step and lengths, so their charts line up point for point and a
+ * crosshair synced by index lands on the same minute of each.
+ *
+ * Each bucket is re-measured at its new distance from now: its incident share
+ * (the hour a day ago never saw the pool fail), whether it is still to come
+ * (yesterday's evening has happened, today's has not), and its label. `nowSec`
+ * stays the data's now. It is the method of rulePage's `shiftedWindow`, made
+ * whole for a chart: pastBuckets, pastMinutes, crossesDay, the window's own
+ * label and exactMs are rebuilt too, where that one keeps the current
+ * window's.
+ *
+ * A shift of 0 (or less) is the window itself.
+ */
+export function shiftWindow(win, bySec) {
+  const by = Math.max(0, Math.round(Number(bySec) || 0))
+  if (!by) return win
+  let byShift = shiftCache.get(win)
+  if (!byShift) shiftCache.set(win, (byShift = new Map()))
+  const hit = byShift.get(by)
+  if (hit) return hit
+
+  const start = win.start - by
+  const end = win.end - by
+  const { step, nowSec } = win
+  // An earlier window never runs up to now, so it labels by the clock with a
+  // date, as any absolute window does (resolveWindow's `withDate`).
+  const clockFmt = `MMM DD HH:mm${step < MIN ? ':ss' : ''}`
+  const buckets = win.buckets.map(b => {
+    const t = b.t - by
+    const m = (nowSec - t) / MIN
+    const clock = formatLocal(t * 1000, clockFmt)
+    return {
+      ...b,
+      t,
+      ms: t * 1000,
+      m,
+      w: incidentWeightOver(m, b.durMin),
+      future: t >= nowSec,
+      label: clock,
+      exactTime: clock,
+    }
+  })
+  const pastBuckets = buckets.filter(b => !b.future)
+  const shifted = {
+    ...win,
+    start,
+    end,
+    relative: false,
+    trailing: false,
+    crossesDay: new Date(start * 1000).toDateString()
+      !== new Date(Math.max(start, end - step) * 1000).toDateString(),
+    buckets,
+    pastBuckets,
+    pastMinutes: pastBuckets.reduce((a, b) => a + b.durMin, 0),
+    label: rangeLabel({ kind: 'absolute', from: start * 1000, to: end * 1000 }),
+    isAbsolute: true,
+    exactMs: [start * 1000, end * 1000],
+    shiftedBy: by,
+  }
+  byShift.set(by, shifted)
+  return shifted
+}
+
 /** Which bucket a timestamp falls in, or -1 when it is outside the window. */
 export function bucketIndexOf(win, ms) {
   const t = Math.floor(ms / 1000)

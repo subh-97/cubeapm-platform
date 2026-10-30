@@ -52,8 +52,10 @@ events for a logs query with no stats pipe. The query comes from
 `rumExploreQuery` in `data/explore/eventsStore.js`, beside the generator, and
 is null for an app the store holds no PageActions for. Today that is
 `cubedemo-admin`, whose Explore items show a toast saying so rather than
-opening an empty chart. Every other menu item shows the same "not part of
-this prototype" toast as on APM.
+opening an empty chart. A chart's Compare, and the Expand beside its ⋮, open
+the chart modal (below). Create Alert shows a toast saying alerts on browser
+metrics come later, and Download CSV the same "not part of this prototype"
+toast as on APM.
 
 The view tabs follow the tablist pattern. Each tab names `.svc-main` as the
 panel it controls, and the panel names the open tab. Only the open tab is a
@@ -88,6 +90,20 @@ which is RedTab's markup with the Table | Graph switch in its head.
   `WEB_VITAL_THRESHOLDS` through `statusForWebVital`: a card's rating chip,
   the bands, and one worst-rating dot on each page's URL cell. The figures
   themselves stay plain text.
+- **Expand and Compare** (`chart-compare-expand.md`). Every card and chart
+  passes `forWindow`: the reader its figures came from
+  (`pageViewsSummaryForWindow`, `ajaxCallsForWindow`, …), called with the
+  modal's window, and the same field picked off it. The readers memoise per
+  window object, so an earlier window's rows are built once.
+  - Rows come in catalog order for every window. A route keeps its colour in
+    both copies of a Compare, and the tab's isolation, a label, is the same
+    row in each. The modal draws the chart's own props, so a row isolated
+    there is isolated on the page too.
+  - A card's delta chip stays on the page. The modal prints each window's
+    figure only, beside its title, and no rating chip.
+  - A vitals card fits its axis to each window's own line (`cardTop`), so
+    its bands stay in view in both copies. A chart's bands and axis floor are
+    the same for every window.
 
 Figures are page-view means, as in the original, so nothing calls them a p75.
 

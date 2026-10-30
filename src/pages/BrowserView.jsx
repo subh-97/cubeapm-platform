@@ -212,9 +212,10 @@ export default function BrowserView({
   // open it on this app's RUM events, the browser's own log stream - the query
   // comes from the events store (rumExploreQuery), which knows whose events it
   // holds. Only the storefront has events there yet; for the back office the
-  // item says so rather than opening an empty chart. The rest - alerts,
-  // comparison, CSV - are screens this prototype does not have yet, and the
-  // toast says so rather than the menu doing nothing.
+  // item says so rather than opening an empty chart. The rest - alerts, CSV -
+  // are screens this prototype does not have yet, and the toast says so rather
+  // than the menu doing nothing. A chart's Compare never reaches here: the
+  // chart's own corner opens it (ChartActions).
   const onCardAction = useCallback((action, title) => {
     if (/^Explore\b/.test(String(action ?? ''))) {
       const query = rumExploreQuery(app.id)

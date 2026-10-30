@@ -51,7 +51,9 @@ const byEndpoint = r => r.endpoint
  *
  * Isolating a route in one chart's legend isolates it in all three: the choice
  * is held here, by route, and handed to each. The page keys the tab by app, so
- * it starts clear on another app.
+ * it starts clear on another app. A chart's Expand and Compare draw it with the
+ * same choice, and a route isolated there is isolated here too: the modal draws
+ * the chart's own props, which carry it.
  */
 export default function PageViewsTab({ app, win, timeRange, syncId, onFocus, view, onView }) {
   const data = useMemo(() => pageViewsForWindow(win, app.id), [win, app.id])
@@ -71,6 +73,20 @@ export default function PageViewsTab({ app, win, timeRange, syncId, onFocus, vie
     selected: isolated, onSelect: setIsolated,
   }
 
+  // A card or chart over another window, for its Compare ("1 day ago";
+  // docs/decisions/chart-compare-expand.md): the reader its own figures came
+  // from, called with that window, and the same field picked off it. The rows
+  // come in catalog order for every window, so a route keeps its colour in
+  // both copies, and the isolated route — a label — is the same route in each.
+  const cardAt = key => w => {
+    const s = pageViewsSummaryForWindow(w, app.id)
+    return { value: s?.[key] ?? null, series: s?.series[key] ?? [] }
+  }
+  const chartAt = key => w => {
+    const d = pageViewsForWindow(w, app.id)
+    return { eps: d.rows, epSeries: d.series[key] }
+  }
+
   return (
     <>
       {summary && (
@@ -78,17 +94,17 @@ export default function PageViewsTab({ app, win, timeRange, syncId, onFocus, vie
           <SummaryCard
             title="Page views / min"
             info="Full page loads per minute across every route of the app, averaged over the selected time range."
-            value={summary.rpm} prev={summary.prev.rpm} fmt={fmtRpm2} series={summary.series.rpm} {...card}
+            value={summary.rpm} prev={summary.prev.rpm} fmt={fmtRpm2} series={summary.series.rpm} forWindow={cardAt('rpm')} {...card}
           />
           <SummaryCard
             title="Load time (median)"
             info="Half of the app's page loads finished faster than this, every route's loads pooled together."
-            value={summary.median} prev={summary.prev.median} fmt={fmtLoadTime} axisFormat={fmtLoadTimeTick} series={summary.series.median} {...card}
+            value={summary.median} prev={summary.prev.median} fmt={fmtLoadTime} axisFormat={fmtLoadTimeTick} series={summary.series.median} forWindow={cardAt('median')} {...card}
           />
           <SummaryCard
             title="Load time (avg)"
             info="The mean load time over every page load in the range. Slow loads pull it above the median."
-            value={summary.avg} prev={summary.prev.avg} fmt={fmtLoadTime} axisFormat={fmtLoadTimeTick} series={summary.series.avg} {...card}
+            value={summary.avg} prev={summary.prev.avg} fmt={fmtLoadTime} axisFormat={fmtLoadTimeTick} series={summary.series.avg} forWindow={cardAt('avg')} {...card}
           />
         </div>
       )}
@@ -102,9 +118,9 @@ export default function PageViewsTab({ app, win, timeRange, syncId, onFocus, vie
         onSearch={setSearch}
         graph={(
           <>
-            <LegendLineChart title="RPM" epSeries={data.series.rpm} dataKey="rpm" fmtFn={fmtRpm2} axisFormat={fmtRateTick} {...chart} />
-            <LegendLineChart title="Response Time (median)" epSeries={data.series.median} dataKey="median" fmtFn={fmtLoadTime} axisFormat={fmtLoadTimeTick} {...chart} />
-            <LegendLineChart title="Response Time (avg)" epSeries={data.series.avg} dataKey="avg" fmtFn={fmtLoadTime} axisFormat={fmtLoadTimeTick} {...chart} />
+            <LegendLineChart title="RPM" epSeries={data.series.rpm} dataKey="rpm" fmtFn={fmtRpm2} axisFormat={fmtRateTick} forWindow={chartAt('rpm')} {...chart} />
+            <LegendLineChart title="Response Time (median)" epSeries={data.series.median} dataKey="median" fmtFn={fmtLoadTime} axisFormat={fmtLoadTimeTick} forWindow={chartAt('median')} {...chart} />
+            <LegendLineChart title="Response Time (avg)" epSeries={data.series.avg} dataKey="avg" fmtFn={fmtLoadTime} axisFormat={fmtLoadTimeTick} forWindow={chartAt('avg')} {...chart} />
           </>
         )}
         table={(

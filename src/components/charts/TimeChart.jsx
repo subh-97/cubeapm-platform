@@ -1,8 +1,9 @@
-import { useMemo, useEffect } from 'react'
+import { useMemo, useEffect, useContext } from 'react'
 import { ResponsiveContainer } from 'recharts'
 import { buildTimeAxis } from '@/components/charts/timeAxis'
 import { useTimeFocus, useMeasuredWidth } from '@/components/charts/useTimeFocus'
 import ChartTooltip from '@/components/charts/ChartTooltip'
+import { ChartFrameContext } from '@/components/charts/chartView'
 
 // The frame, the single-series tooltip and the instant helper the service
 // page's window-derived charts are drawn with. They moved here out of
@@ -67,19 +68,31 @@ export function SvcTooltip({ active, payload, color, unit, formatVal, nowMs, sup
  * two charts that swap places (the service page's drilldown stack and p90
  * line) would go on measuring whichever one left, and the ladder would be
  * sized for a chart that is no longer on screen.
+ *
+ * Inside a chart modal (Expand, Compare) the modal's frame (ChartFrameContext,
+ * chartView.js) outranks the card's: its height, its crosshair group, synced by
+ * index, and whether a drag may zoom. The group rides on `focus.chartProps`,
+ * which every chart spreads after its own `syncId`/`syncMethod`, so a chart
+ * drawn in the modal leaves the page's charts behind the overlay alone without
+ * having been told where it is.
  */
 export function TimeChart({ win, onFocus, height, className, onWidth, children }) {
+  const frame = useContext(ChartFrameContext)
   const [wrapRef, width] = useMeasuredWidth()
   // A series budget sizes its cap from the plot it draws into, and only the
   // frame has measured that. Charts that share one budget all report the same
   // width, so the owner settles on one value.
   useEffect(() => { if (width > 0) onWidth?.(width) }, [width, onWidth])
   const axis = useMemo(() => buildTimeAxis(win, { width }), [win, width])
-  const focus = useTimeFocus(win, { onFocus })
+  const focus = useTimeFocus(win, { onFocus, brush: frame?.brush !== false })
+  const framed = frame
+    ? { ...focus, chartProps: { ...focus.chartProps, syncId: frame.syncId, syncMethod: frame.syncMethod } }
+    : focus
+  const h = frame?.height ?? height
   return (
-    <div ref={wrapRef} className={className} style={{ width: '100%', ...(height == null ? null : { height }) }}>
+    <div ref={wrapRef} className={className} style={{ width: '100%', ...(h == null ? null : { height: h }) }}>
       <ResponsiveContainer width="100%" height="100%">
-        {children(axis, focus)}
+        {children(axis, framed)}
       </ResponsiveContainer>
     </div>
   )
