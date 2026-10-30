@@ -375,10 +375,21 @@ function JsonLine({ line, number, record, onKeyMenu, onOpenLink }) {
   )
 }
 
+const NO_TABS = []
+
 // Every action here already existed somewhere — Include/Exclude in the
 // text-selection menu, columns in the Fields dropdown, grouping in the pipe
 // toolbar. What was missing was reaching any of them from the field you are
 // looking at, instead of memorising its name and retyping it in the bar.
+//
+// `tabs` are a page's own views of the record, after Overview and JSON:
+// `[{ id, label, render(record) }]`, where render draws the whole body under
+// the strip. The Traces pages add the span's Waterfall; Logs adds none.
+// `className` sits beside `log-detail`, for a page that sizes its drawer
+// differently (Traces holds it at a fixed width). `viewRequest` (`{ view }`)
+// is a page asking for a tab as it opens or re-points the drawer: Traces opens
+// a row's trace_id on the Waterfall. Each new object is applied once, so the
+// reader's own choice of tab, and Newer and Older, are left alone after it.
 export function LogRecordDrawer({
   record, onClose, searchTerms,
   onAddChip, onDistribution, onCopy,
@@ -387,8 +398,20 @@ export function LogRecordDrawer({
   initialView = 'fields',
   badge,
   traceList = 'Traces',
+  tabs = NO_TABS,
+  className,
+  viewRequest = null,
 }) {
-  const [view, setView] = useState(initialView)
+  const [chosenView, setView] = useState(viewRequest?.view ?? initialView)
+  const [appliedRequest, setAppliedRequest] = useState(viewRequest)
+  if (viewRequest !== appliedRequest) {
+    setAppliedRequest(viewRequest)
+    if (viewRequest) setView(viewRequest.view)
+  }
+  // A page's tab is only a view while the page offers it; otherwise, and for
+  // an initialView nothing offers, the drawer reads as Overview.
+  const extraTab = tabs.find(t => t.id === chosenView) ?? null
+  const view = chosenView === 'json' || extraTab ? chosenView : 'fields'
   const [menu, setMenu] = useState(null)   // { field, value, x, y }
   const [fieldQuery, setFieldQuery] = useState('')
   // Navigation runs on time, not position: logs are ordered newest-first and
@@ -475,7 +498,7 @@ export function LogRecordDrawer({
 
   return (
     <TraceListContext.Provider value={traceList}>
-      <aside className="log-detail">
+      <aside className={className ? `log-detail ${className}` : 'log-detail'}>
         <div className="log-detail-head">
           <div className="log-detail-heading">
             <div className="log-detail-title-row">
@@ -533,6 +556,11 @@ export function LogRecordDrawer({
           <button role="tab" aria-selected={view === 'json'}
             className={`log-detail-tab${view === 'json' ? ' active' : ''}`}
             onClick={() => setView('json')}>JSON</button>
+          {tabs.map(t => (
+            <button key={t.id} role="tab" aria-selected={view === t.id}
+              className={`log-detail-tab${view === t.id ? ' active' : ''}`}
+              onClick={() => setView(t.id)}>{t.label}</button>
+          ))}
           {view === 'json' && (
             <button className="log-detail-copyjson"
               onClick={() => onCopy(JSON.stringify(json, null, 2), 'Record copied to clipboard as JSON')}>
@@ -655,7 +683,7 @@ export function LogRecordDrawer({
                 )
             ))}
           </div>
-        ) : (
+        ) : extraTab ? extraTab.render(record) : (
           <div className="log-detail-body log-json-body">
             <div className="log-json">
               {jsonLines(json).map((line, i) => (

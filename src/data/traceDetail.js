@@ -197,6 +197,33 @@ export function buildTrace(traceId) {
 }
 
 /**
+ * The trace a row of the Traces explorer belongs to, read from the explorer's
+ * own rows for the window on screen.
+ *
+ * buildTrace looks a seeded id up among the reference hour's spans, and the
+ * explorer draws its rows for whatever range is picked. A seeded trace's id
+ * repeats across windows over different spans: every window restarts the
+ * seed, so trace i has the same ids whatever spans it holds, and the wide
+ * trace's ids follow however many traces come before it. Read through
+ * buildTrace, a row from Last 24 hours can name another request or a borrowed
+ * one, at the reference hour's times. The explorer holds its seeded traces
+ * whole, so the row's own trace is already among `rows`.
+ *
+ * An id that carries its request (an Errors or Slow Requests sample) is merged
+ * into the stream one span at a time, so those still decode through
+ * buildTrace, whole. So does an id with no spans in `rows`. A Browser sample's
+ * id is checked too, though nothing merges one into the stream today.
+ */
+export function traceInRows(traceId, rows) {
+  if (!traceId) return null
+  const decodes = errorTraceRows(traceId)?.length || browserTraceRows(traceId)?.length
+    || requestTraceRows(traceId)?.length
+  const own = decodes ? [] : (rows ?? []).filter(r => r.traceId === traceId && r.tags?.['event.domain'] === 'span')
+  if (own.length === 0) return buildTrace(traceId)
+  return assembleTrace(traceId, buildTree(own).ordered)
+}
+
+/**
  * The trace the inspect view renders, from spans already in view shape.
  *
  * Every dataset ends here, so the view reads one shape whichever store the

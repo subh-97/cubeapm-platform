@@ -99,6 +99,65 @@ export function TraceErrorSummary({ trace, onOpenException }) {
 }
 
 /**
+ * One request's trace as the split previews it: what the request was, over a
+ * link to its trace page; what it threw; then its waterfall. The split draws
+ * it for the row picked, and the Traces explorer's drawer draws it on its
+ * Waterfall tab for the span opened, so the two read as one view of a request.
+ *
+ *   heading                what the request was (the split: its endpoint)
+ *   traceId, onOpenTrace   the link to trace details
+ *   linkLabel              the link's text, "Trace ID · <id>" when not given
+ *   meta                   a line under the heading
+ *   trace                  the resolved trace; null draws "No spans recorded"
+ *   onOpenException        TraceErrorSummary's: given, a failed trace says
+ *                          what it threw above the waterfall
+ *   selected, onSelect, collapsed, onToggle, rowRefs
+ *                          the Waterfall's
+ *   fill                   the waterfall takes the height its rows need, for
+ *                          a caller that scrolls it (the drawer), rather than
+ *                          scrolling inside the split's 236px
+ */
+export function TracePreview({
+  heading, traceId, onOpenTrace, linkLabel, meta, trace, onOpenException,
+  selected, onSelect, collapsed, onToggle, rowRefs, fill = false,
+}) {
+  return (
+    <>
+      <div className="slowreq-preview-head">
+        <span className="slowreq-preview-ep">{heading}</span>
+        <button
+          type="button"
+          className="slowreq-trace-link"
+          onClick={() => onOpenTrace?.(traceId)}
+          title={`Open trace ${traceId} in trace details`}
+        >
+          {linkLabel ?? <>Trace ID · <span className="mono">{traceId}</span></>}
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M14 4h6v6M20 4l-8 8M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5" />
+          </svg>
+        </button>
+      </div>
+      {meta}
+      <TraceErrorSummary trace={trace} onOpenException={onOpenException} />
+      {trace ? (
+        <div className={fill ? 'slowreq-waterfall is-fill' : 'slowreq-waterfall'}>
+          <Waterfall
+            trace={trace}
+            selected={selected}
+            onSelect={onSelect}
+            collapsed={collapsed}
+            onToggle={onToggle}
+            rowRefs={rowRefs}
+          />
+        </div>
+      ) : (
+        <div className="drill2-empty">No spans recorded for this trace.</div>
+      )}
+    </>
+  )
+}
+
+/**
  * A list of requests beside the trace of the one picked: the list picks the
  * trace, the preview shows it, so they share one panel rather than two cards.
  *
@@ -239,36 +298,17 @@ export default function RequestTraceSplit({
           </div>
           <div className="slowreq-preview">
             {row ? (
-              <>
-                <div className="slowreq-preview-head">
-                  <span className="slowreq-preview-ep">{row.endpoint}</span>
-                  <button
-                    type="button"
-                    className="slowreq-trace-link"
-                    onClick={() => onOpenTrace?.(row.traceId)}
-                    title={`Open trace ${row.traceId} in trace details`}
-                  >
-                    Trace ID · <span className="mono">{row.traceId}</span>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="M14 4h6v6M20 4l-8 8M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5" />
-                    </svg>
-                  </button>
-                </div>
-                <TraceErrorSummary trace={trace} onOpenException={onOpenException} />
-                {trace ? (
-                  <div className="slowreq-waterfall">
-                    <Waterfall
-                      trace={trace}
-                      selected={span}
-                      onSelect={pickSpan}
-                      collapsed={collapsed}
-                      onToggle={toggle}
-                    />
-                  </div>
-                ) : (
-                  <div className="drill2-empty">No spans recorded for this trace.</div>
-                )}
-              </>
+              <TracePreview
+                heading={row.endpoint}
+                traceId={row.traceId}
+                onOpenTrace={onOpenTrace}
+                trace={trace}
+                onOpenException={onOpenException}
+                selected={span}
+                onSelect={pickSpan}
+                collapsed={collapsed}
+                onToggle={toggle}
+              />
             ) : (
               <div className="slowreq-empty">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

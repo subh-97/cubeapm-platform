@@ -1,0 +1,59 @@
+/* The Traces explorer's record drawer and its Waterfall tab
+   (src/components/trace/SpanTraceTab.jsx). The drawer is LogRecordDrawer's,
+   and the preview is the Slow Requests one (.slowreq-* in src/index.css,
+   .rts-* in request-trace-split.css); what is here is only what the drawer
+   adds. Every colour is a token, so both themes follow. */
+
+/* A fixed width on the Traces pages. The drawer is 560px but, everywhere
+   else, at most 68% of the results it covers, so on Traces it followed the
+   window, the filter rail's drag and the sidebar's toggle — 421px at a 991px
+   window, 340px at 873 — while a waterfall needs its width, and a drawer that
+   changes size moves every row under the reader. It holds 560px, and gives
+   way only where the results pane itself is narrower than that, covering the
+   pane rather than being cut off by it. Two classes, to outrank index.css. */
+.log-detail.trace-drawer { width: 560px; max-width: 100%; container: trace-drawer / inline-size; }
+/* At that width the timestamp fits on its line; it never breaks mid-date. */
+.log-detail.trace-drawer .log-detail-sub { white-space: nowrap; }
+
+/* Two classes, so the drawer body's own padding (index.css) gives way. The
+   scroll padding keeps a row the keyboard focuses clear of the sticky head
+   below (one line of head, 37px), as the browser's own focus scrolling reads
+   it; SpanTraceTab's scroll to the opened span measures the head itself. */
+.log-detail-body.span-trace-body { padding: 12px 16px 16px; scroll-padding-top: 40px; }
+/* The request and its link to the trace page stay in view while the
+   waterfall scrolls under them: opening a span deep in a large trace scrolls
+   the body to it, and that would otherwise take the way to trace details off
+   the top. The ground covers the rows passing beneath, whose labels sit a
+   layer up from their bars. */
+.span-trace-body .slowreq-preview-head {
+  position: sticky; top: -12px; z-index: 3;
+  margin: -12px -16px 10px; padding: 12px 16px 8px;
+  background: var(--card);
+}
+/* The trace's root, named as the waterfall names a span: service, then
+   operation. The service reads a step quieter, as the operation is the
+   request. */
+.span-trace-svc { color: var(--text-secondary); }
+/* The way to trace details reads as a link at rest: the brand blue, a step
+   heavier, its arrow drawn in full. With nothing left for a hover to add, it
+   has no hover state; keyboard focus keeps its outline. */
+.span-trace-body .slowreq-trace-link { color: var(--brand); font-weight: 500; }
+.span-trace-body .slowreq-trace-link svg { opacity: 1; stroke-width: 2.5; }
+.span-trace-body .slowreq-trace-link:hover,
+.span-trace-body .slowreq-trace-link:focus-visible { color: var(--brand); background: none; }
+.span-trace-meta { margin: -4px 0 10px; font-size: 11px; color: var(--text-muted); }
+.span-trace-body .slowreq-empty { min-height: 160px; }
+
+/* Where the results pane is narrower than 560px the drawer is the pane's
+   width, and the waterfall's rows were drawn for wider: their indent, chevron,
+   icon, code chip and service name never shrink, so a deep row's service ran
+   over the duration column and its operation was cut to nothing. There, and
+   only there, the service name gives way too, and the operation keeps a few
+   characters. At the fixed width the service keeps its whole name: the
+   drawer's content box is then 559px (560 less its left border), so the query
+   reads "narrower than that". */
+@container trace-drawer (max-width: 558px) {
+  .span-trace-body .tw-label { overflow: hidden; }
+  .span-trace-body .tw-svc { flex-shrink: 1; min-width: 3ch; overflow: hidden; text-overflow: ellipsis; }
+  .span-trace-body .tw-name { flex: 0 1 auto; min-width: 6ch; }
+}

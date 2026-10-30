@@ -30,6 +30,12 @@
   overflow-wrap: anywhere;
 }
 
+/* TracePreview's `fill`: the waterfall takes the height its rows need, for a
+   caller whose own body scrolls (the Traces drawer's Waterfall tab). The 236px
+   cap is the split's, sized against the list beside it; inside a scrolling
+   drawer it would only be a second scrollbar inside the first. */
+.slowreq-waterfall.is-fill { max-height: none; overflow: visible; }
+
 /* controlsAt="list": Sort by (left) and the caller's control (right, the
    "N results" picker) on a bar at the top of the list, over the rows they
    order and count, inset like the rows. The first row keeps its rule, which

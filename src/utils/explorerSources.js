@@ -42,6 +42,11 @@
  *                              Explore has none — both entry points then hide,
  *                              because sending the query to another dataset
  *                              would chart the wrong records under its names
+ *   traceDatasource            the datasource a row's trace_id resolves in
+ *                              ('traces' | 'mobile'), for the drawer's
+ *                              Waterfall tab, or null to offer no tab. A
+ *                              device's id read as a backend one would come
+ *                              back as someone else's borrowed trace
  *
  * A `.js` module rather than part of the page so the page file exports only
  * its component (fast refresh), and so the configs can be tested without
@@ -155,6 +160,7 @@ export const TRACES_SOURCE = {
 
   docsUrl: 'https://docs.cubeapm.com/traces/querying',
   exploreDatasource: 'traces',
+  traceDatasource: 'traces',
 }
 
 /**
@@ -225,6 +231,8 @@ export const MOBILE_TRACES_SOURCE = {
   // Explore has no mobile datasource yet. Sending 'traces' would chart
   // backend spans under mobile field names, so both entry points hide.
   exploreDatasource: null,
+  // A request's trace is the request: one span, decoded from its id.
+  traceDatasource: 'mobile',
 }
 
 /**

@@ -20,7 +20,7 @@ import Waterfall from '@/components/trace/Waterfall'
 import { buildTrace } from '@/data/traceDetail'
 import { REFERENCE_WINDOW, resolveWindow } from '@/data/timeWindow'
 import { slowRequestsForWindow, errorRequestsForWindow } from '@/data/services'
-import RequestTraceSplit, { TraceErrorSummary } from './RequestTraceSplit.jsx'
+import RequestTraceSplit, { TraceErrorSummary, TracePreview } from './RequestTraceSplit.jsx'
 
 const noop = () => {}
 const html = el => renderToStaticMarkup(el)
@@ -321,4 +321,79 @@ test('a caller can open the split on a picked request, and keep its preview in v
   const gone = html(<RequestTraceSplit data={data} initialSelected="no-such-trace" />)
   assert.doesNotMatch(gone, /slowreq-row selected/)
   assert.match(gone, /Select a request to view its trace/)
+})
+
+// The preview is shared with the Traces drawer's Waterfall tab. What that tab
+// adds is opt-in, so the split's preview stays exactly as it was (the test
+// below holds that): the link's text, a line under the heading, and a
+// waterfall that takes its own height.
+test('the preview\'s additions for the drawer are opt-in, each in its place', () => {
+  const trace = buildTrace(slowRequestsForWindow(REFERENCE_WINDOW)[0].traceId)
+  const base = { heading: 'POST /v1/payment', traceId: trace.traceId, onOpenTrace: noop, trace, collapsed: new Set(), onSelect: noop, onToggle: noop }
+  const plain = html(<TracePreview {...base} />)
+  assert.match(plain, /Trace ID · <span class="mono">[0-9a-f]+<\/span>/)
+  assert.match(plain, /class="slowreq-waterfall"/)
+  assert.doesNotMatch(plain, /is-fill|class="meta-line"/)
+
+  const drawer = html(
+    <TracePreview {...base} linkLabel="View trace details" fill
+      meta={<div className="meta-line">meta</div>} />,
+  )
+  assert.match(drawer, /title="Open trace [0-9a-f]+ in trace details">View trace details<svg/)
+  assert.match(drawer, /class="slowreq-waterfall is-fill"/)
+  const at = s => drawer.indexOf(s)
+  assert.ok(at('slowreq-preview-head') < at('meta-line') && at('meta-line') < at('slowreq-waterfall'), 'head, meta, waterfall')
+  // No trace: the empty line, not a waterfall.
+  assert.match(html(<TracePreview {...base} trace={null} />), /No spans recorded for this trace\./)
+})
+
+// The fixture above never picks a row (a static render cannot click), so it
+// never reaches the preview. This holds the preview itself to what the split
+// drew inline before TracePreview was lifted out of it, copied verbatim: every
+// picked request, failed or not, with and without a stack to open.
+function InlinePreview({ row, trace, onOpenTrace, onOpenException }) {
+  return (
+    <>
+      <div className="slowreq-preview-head">
+        <span className="slowreq-preview-ep">{row.endpoint}</span>
+        <button
+          type="button"
+          className="slowreq-trace-link"
+          onClick={() => onOpenTrace?.(row.traceId)}
+          title={`Open trace ${row.traceId} in trace details`}
+        >
+          Trace ID · <span className="mono">{row.traceId}</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M14 4h6v6M20 4l-8 8M18 14v5a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h5" />
+          </svg>
+        </button>
+      </div>
+      <TraceErrorSummary trace={trace} onOpenException={onOpenException} />
+      {trace ? (
+        <div className="slowreq-waterfall">
+          <Waterfall trace={trace} selected={null} onSelect={noop} collapsed={new Set()} onToggle={noop} />
+        </div>
+      ) : (
+        <div className="drill2-empty">No spans recorded for this trace.</div>
+      )}
+    </>
+  )
+}
+
+test('a picked request\'s preview is exactly what the split drew before TracePreview was lifted out', () => {
+  let compared = 0
+  for (const value of ['5m', '1h', '24h']) {
+    const win = resolveWindow({ kind: 'preset', value })
+    for (const data of [slowRequestsForWindow(win), errorRequestsForWindow(win)]) {
+      for (const row of data) {
+        for (const onOpenException of [undefined, noop]) {
+          const split = html(<RequestTraceSplit data={data} onOpenTrace={noop} onOpenException={onOpenException} initialSelected={row.traceId} />)
+          const inline = html(<InlinePreview row={row} trace={buildTrace(row.traceId)} onOpenTrace={noop} onOpenException={onOpenException} />)
+          assert.ok(split.includes(`<div class="slowreq-preview">${inline}</div>`), `${value} ${row.traceId}`)
+          compared++
+        }
+      }
+    }
+  }
+  assert.ok(compared >= 24, `${compared} previews compared`)
 })

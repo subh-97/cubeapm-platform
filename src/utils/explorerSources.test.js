@@ -48,6 +48,7 @@ const CONTRACT_KEYS = [
   'exampleQueries', 'queryHistory', 'initialRecents',
   'placeholder', 'freeTextNoun', 'freeTextMeta',
   'csvColumns', 'csvPrefix', 'alertEmptyLabel', 'alertNamePlaceholder', 'docsUrl', 'exploreDatasource',
+  'traceDatasource',
 ]
 
 const noop = () => {}
@@ -342,7 +343,10 @@ test('link cells render a dash for a missing value and a titled button otherwise
   })
   // One trace link and one filter link, both on the row that has the values.
   assert.equal((html.match(/class="span-trace-link"/g) || []).length, 2)
-  assert.ok(html.includes(`title="Open trace ${withAll.tags.trace_id}"`))
+  // The trace id opens the row's drawer on its Waterfall tab, and says so,
+  // with the arrow-out-of-a-box after it; the filter link carries no arrow.
+  assert.ok(html.includes(`data-link="trace" title="Open trace ${withAll.tags.trace_id} in the Waterfall tab"><span class="span-trace-id">${withAll.tags.trace_id}</span><svg`))
+  assert.equal((html.match(/data-link="trace"/g) || []).length, 1)
   assert.ok(html.includes(`title="${withAll.tags.root_name}\nShow every row like this"`), 'filter link title')
   assert.ok(!html.includes('Open trace undefined'))
   // The bare row's trace id, root name and duration all read as blanks.
@@ -470,4 +474,12 @@ test('the Mobile Traces page', () => {
   for (const s of ['critical', 'warning', 'healthy', 'neutral']) {
     assert.ok(html.includes(`log-lvl-bar span-bar-${s}`), `no ${s} row`)
   }
+})
+
+// The drawer's Waterfall tab reads a row's trace in the datasource its id was
+// minted in: a device's request id read as a backend one would come back as
+// someone else's borrowed trace.
+test('each dataset names the datasource its trace ids resolve in', () => {
+  assert.equal(TRACES_SOURCE.traceDatasource, 'traces')
+  assert.equal(MOBILE_TRACES_SOURCE.traceDatasource, 'mobile')
 })

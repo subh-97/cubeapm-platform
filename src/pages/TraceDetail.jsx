@@ -6,6 +6,7 @@ import { resolveTrace, traceViewFor } from '@/data/traceResolvers'
 import EmptyState from '@/components/shared/EmptyState'
 import { colorForName } from '@/utils/chartPalette'
 import Waterfall, { msLabel, visibleSpans } from '@/components/trace/Waterfall'
+import { autoFolds } from '@/components/trace/traceInsights'
 import { spanSearchFields, spanSearchRow, spanValueIndex } from '@/utils/traceFields'
 import TableQuerySearch from '@/components/TableQuerySearch'
 import SpanExceptionModal from '@/components/errors/SpanExceptionModal'
@@ -25,17 +26,16 @@ const TABS = [
   { id: 'profiles', label: 'Profiles', Icon: Flame },
 ]
 
-// Above this many spans a trace opens folded below the second level. Fully
-// expanded, a fan-out trace is a hundred-odd rows of leaf queries with the
-// shape of the request buried in them — and the shape is what a waterfall is
-// for. Small traces are legible whole, so they are left alone.
+// Above LARGE_TRACE spans a trace opens folded below the second level
+// (autoFolds, shared with the Traces explorer's drawer). Fully expanded, a
+// fan-out trace is a hundred-odd rows of leaf queries with the shape of the
+// request buried in them — and the shape is what a waterfall is for. Small
+// traces are legible whole, so they are left alone.
+//
 // Enough of each pane to stay usable at the extremes of the drag: a couple of
 // table rows, and a few waterfall rows plus its header and search.
 const TABLES_MIN_PX = 96
 const WATERFALL_MIN_PX = 168
-
-const LARGE_TRACE = 40
-const AUTO_FOLD_DEPTH = 2
 
 /** Nanosecond source, millisecond display — three places is the real floor. */
 const round3 = (n) => Math.round(n * 1000) / 1000
@@ -317,11 +317,7 @@ export default function TraceDetail({
   const splitRef = useRef(null)
   const dragRef = useRef(null)
 
-  const [collapsed, setCollapsed] = useState(() => {
-    const spans = trace?.spans ?? []
-    if (spans.length <= LARGE_TRACE) return new Set()
-    return new Set(spans.filter(sp => sp.childIds.length && sp.depth >= AUTO_FOLD_DEPTH).map(sp => sp.id))
-  })
+  const [collapsed, setCollapsed] = useState(() => autoFolds(trace?.spans))
   // Search lives beside the waterfall, not inside a tab, so it behaves the same
   // whichever table is on screen above it. The field owns the text and only
   // hands up a query that parsed, so a half-written one never blanks the marks.
