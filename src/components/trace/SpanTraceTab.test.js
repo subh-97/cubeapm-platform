@@ -37,14 +37,19 @@ test('the span opened is the one row selected, in its own trace', () => {
   }
 })
 
-test('the head names the request, links to trace details, and counts what the trace holds', () => {
+test('the head counts what the trace holds, beside the link to trace details', () => {
   const record = rows.find(r => r.tags['event.domain'] === 'span')
   const t = traceFor(record.traceId)
   const html = render(record)
   assert.match(html, /class="slowreq-trace-link"[^>]*title="Open trace [0-9a-f]+ in trace details"/)
   assert.match(html, />View trace details</)
-  assert.ok(html.includes(`<span class="span-trace-svc">${t.root.service}</span> ${t.root.name}`))
-  assert.match(html, new RegExp(`${t.spans.length} spans · ${t.services.length} service`))
+  const head = html.match(/<span class="slowreq-preview-ep">(.*?)<\/span><button/)[1].replace(/<[^>]+>/g, '')
+  assert.match(head, new RegExp(`^[0-9.]+ m?s · ${t.spans.length} spans · ${t.services.length} services?$`))
+  // The request is the waterfall's first row, so the head does not name it again.
+  assert.ok(!head.includes(t.root.name))
+  assert.ok(html.indexOf(`<span class="tw-svc">${t.root.service}</span>`) > html.indexOf('slowreq-waterfall'))
+  // Nothing between the head and what follows it.
+  assert.match(html, /<\/button><\/div><div class="slowreq-waterfall is-fill">/)
   // The drawer scrolls; the waterfall is not capped inside it.
   assert.match(html, /class="slowreq-waterfall is-fill"/)
 })

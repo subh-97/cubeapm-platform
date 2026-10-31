@@ -325,24 +325,23 @@ test('a caller can open the split on a picked request, and keep its preview in v
 
 // The preview is shared with the Traces drawer's Waterfall tab. What that tab
 // adds is opt-in, so the split's preview stays exactly as it was (the test
-// below holds that): the link's text, a line under the heading, and a
-// waterfall that takes its own height.
+// below holds that): the link's text and a waterfall that takes its own
+// height.
 test('the preview\'s additions for the drawer are opt-in, each in its place', () => {
   const trace = buildTrace(slowRequestsForWindow(REFERENCE_WINDOW)[0].traceId)
   const base = { heading: 'POST /v1/payment', traceId: trace.traceId, onOpenTrace: noop, trace, collapsed: new Set(), onSelect: noop, onToggle: noop }
   const plain = html(<TracePreview {...base} />)
   assert.match(plain, /Trace ID · <span class="mono">[0-9a-f]+<\/span>/)
   assert.match(plain, /class="slowreq-waterfall"/)
-  assert.doesNotMatch(plain, /is-fill|class="meta-line"/)
+  assert.doesNotMatch(plain, /is-fill/)
 
   const drawer = html(
-    <TracePreview {...base} linkLabel="View trace details" fill
-      meta={<div className="meta-line">meta</div>} />,
+    <TracePreview {...base} linkLabel="View trace details" fill />,
   )
   assert.match(drawer, /title="Open trace [0-9a-f]+ in trace details">View trace details<svg/)
   assert.match(drawer, /class="slowreq-waterfall is-fill"/)
   const at = s => drawer.indexOf(s)
-  assert.ok(at('slowreq-preview-head') < at('meta-line') && at('meta-line') < at('slowreq-waterfall'), 'head, meta, waterfall')
+  assert.ok(at('slowreq-preview-head') < at('slowreq-waterfall'), 'head, then waterfall')
   // No trace: the empty line, not a waterfall.
   assert.match(html(<TracePreview {...base} trace={null} />), /No spans recorded for this trace\./)
 })

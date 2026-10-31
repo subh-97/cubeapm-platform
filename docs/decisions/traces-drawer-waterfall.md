@@ -4,10 +4,11 @@ On Traces and Mobile Traces, the record drawer is a fixed 560px wide and has a
 third tab, **Waterfall**, after Overview and JSON. It draws the trace the span
 ran in, the way the service page's Slow Requests preview draws one:
 
-1. The request, over a **View trace details** link.
-2. Its duration, span count and service count.
-3. An **error summary** when the trace failed.
-4. The waterfall, with the span that was opened selected and on screen.
+1. Its duration, span count and service count, beside a **View trace
+   details** link. The request itself is not named there: the waterfall's
+   first row is its root.
+2. An **error summary** when the trace failed.
+3. The waterfall, with the span that was opened selected and on screen.
 
 A row's **trace_id** opens that row's drawer on the Waterfall tab rather than
 leaving for the trace page, which the tab's link reaches. It carries the
@@ -22,7 +23,7 @@ What follows is what is worth not re-deriving.
 | The tab strip | `LogRecordDrawer`'s new `tabs` prop: `[{ id, label, render(record) }]` after Overview and JSON. An `initialView` nothing offers reads as Overview. `viewRequest` (`{ view }`) is a page asking for a tab as it opens or re-points the drawer: each new object is applied once, so the reader's own choice of tab, and Newer and Older, stand. The trace_id cell sends one; a plain row click sends none | The drawer's own tabs |
 | The fixed width | `LogRecordDrawer`'s new `className` prop. TracesView passes `trace-drawer`, styled in `components/trace/span-trace.css` | `.log-detail.errd`, the Error details drawer's override |
 | The tab's body | `components/trace/SpanTraceTab.jsx` | — |
-| Head, error summary, waterfall | `TracePreview`, lifted out of `RequestTraceSplit.jsx` with opt-in `linkLabel`, `meta`, `rowRefs` and `fill` props. The split's preview is byte-identical: a test renders every picked request against a verbatim copy of the JSX it replaced (the older fixture never picks a row) | The Slow Requests preview, `TraceErrorSummary`, `Waterfall` |
+| Head, error summary, waterfall | `TracePreview`, lifted out of `RequestTraceSplit.jsx` with opt-in `linkLabel`, `rowRefs` and `fill` props. The split's preview is byte-identical: a test renders every picked request against a verbatim copy of the JSX it replaced (the older fixture never picks a row) | The Slow Requests preview, `TraceErrorSummary`, `Waterfall` |
 | Folding a large trace | `autoFolds` in `components/trace/traceInsights.js`. Over 40 spans, parents from depth 2 open folded. The trace page now reads the rule from there too | The trace page's rule |
 | What the tab keeps across records | `components/trace/spanTraceState.js`: `arrive`, `pick` and `toggleFold`, plain transitions the tab runs, so they are tested without a DOM | — |
 | Reading a row's trace | `traceInRows(id, rows)` in `data/traceDetail.js` | `buildTree` / `assembleTrace` |
@@ -89,8 +90,8 @@ like the sample ids do.
   which would scroll the explorer behind it too. "On screen" means below the
   sticky head; `scroll-padding-top` keeps a row the keyboard focuses clear of
   it as well.
-- **Sticky head:** the request and its link stay in view while the waterfall
-  scrolls under them.
+- **Sticky head:** the trace's figures and the link stay in view while the
+  waterfall scrolls under them.
 - **Narrow drawer:** where the results pane is under 560px wide, a deep row's
   service name shrinks with an ellipsis rather than painting over the duration,
   and the operation keeps a few characters.

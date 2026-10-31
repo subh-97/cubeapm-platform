@@ -80,23 +80,25 @@ export default function SpanTraceTab({ record, traceFor, onOpenTrace, onOpenExce
     )
   }
 
-  const root = trace?.root ?? null
+  // The head says what the trace holds, beside the way to trace details. The
+  // request needs no line of its own there: the waterfall's first row is its
+  // root, named. A trace with no spans has only its id to show.
+  const heading = trace ? (
+    <span className="span-trace-meta">
+      <span className="mono">{msLabel(trace.totalMs)}</span>
+      {' · '}{plural(trace.spans.length, 'span')}
+      {' · '}{plural(trace.services.length, 'service')}
+      {spanId && !recordSpan && ' · this span is not among them'}
+    </span>
+  ) : <span className="mono">{traceId}</span>
 
   return (
     <div className="log-detail-body span-trace-body" ref={bodyRef}>
       <TracePreview
-        heading={root ? <><span className="span-trace-svc">{root.service}</span> {root.name}</> : traceId}
+        heading={heading}
         traceId={traceId}
         onOpenTrace={onOpenTrace}
         linkLabel="View trace details"
-        meta={trace && (
-          <div className="span-trace-meta">
-            <span className="mono">{msLabel(trace.totalMs)}</span>
-            {' · '}{plural(trace.spans.length, 'span')}
-            {' · '}{plural(trace.services.length, 'service')}
-            {spanId && !recordSpan && ' · this span is not among them'}
-          </div>
-        )}
         trace={trace}
         onOpenException={onOpenException}
         selected={selected}

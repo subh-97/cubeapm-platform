@@ -20,8 +20,8 @@
    below (one line of head, 37px), as the browser's own focus scrolling reads
    it; SpanTraceTab's scroll to the opened span measures the head itself. */
 .log-detail-body.span-trace-body { padding: 12px 16px 16px; scroll-padding-top: 40px; }
-/* The request and its link to the trace page stay in view while the
-   waterfall scrolls under them: opening a span deep in a large trace scrolls
+/* The trace's figures and its link to the trace page stay in view while
+   the waterfall scrolls under them: opening a span deep in a large trace scrolls
    the body to it, and that would otherwise take the way to trace details off
    the top. The ground covers the rows passing beneath, whose labels sit a
    layer up from their bars. */
@@ -30,10 +30,9 @@
   margin: -12px -16px 10px; padding: 12px 16px 8px;
   background: var(--card);
 }
-/* The trace's root, named as the waterfall names a span: service, then
-   operation. The service reads a step quieter, as the operation is the
-   request. */
-.span-trace-svc { color: var(--text-secondary); }
+/* The head is the trace's figures, not an endpoint: read in the drawer's
+   type, with only the duration in figures' mono. */
+.span-trace-body .slowreq-preview-ep { font-family: inherit; }
 /* The way to trace details reads as a link at rest: the brand blue, a step
    heavier, its arrow drawn in full. With nothing left for a hover to add, it
    has no hover state; keyboard focus keeps its outline. */
@@ -41,7 +40,7 @@
 .span-trace-body .slowreq-trace-link svg { opacity: 1; stroke-width: 2.5; }
 .span-trace-body .slowreq-trace-link:hover,
 .span-trace-body .slowreq-trace-link:focus-visible { color: var(--brand); background: none; }
-.span-trace-meta { margin: -4px 0 10px; font-size: 11px; color: var(--text-muted); }
+.span-trace-meta { font-size: 11px; color: var(--text-muted); }
 .span-trace-body .slowreq-empty { min-height: 160px; }
 
 /* Where the results pane is narrower than 560px the drawer is the pane's
