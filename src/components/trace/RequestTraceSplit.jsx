@@ -107,7 +107,6 @@ export function TraceErrorSummary({ trace, onOpenException }) {
  *   heading                what the request was (the split: its endpoint)
  *   traceId, onOpenTrace   the link to trace details
  *   linkLabel              the link's text, "Trace ID · <id>" when not given
- *   meta                   a line under the heading
  *   trace                  the resolved trace; null draws "No spans recorded"
  *   onOpenException        TraceErrorSummary's: given, a failed trace says
  *                          what it threw above the waterfall
@@ -118,7 +117,7 @@ export function TraceErrorSummary({ trace, onOpenException }) {
  *                          scrolling inside the split's 236px
  */
 export function TracePreview({
-  heading, traceId, onOpenTrace, linkLabel, meta, trace, onOpenException,
+  heading, traceId, onOpenTrace, linkLabel, trace, onOpenException,
   selected, onSelect, collapsed, onToggle, rowRefs, fill = false,
 }) {
   return (
@@ -137,7 +136,6 @@ export function TracePreview({
           </svg>
         </button>
       </div>
-      {meta}
       <TraceErrorSummary trace={trace} onOpenException={onOpenException} />
       {trace ? (
         <div className={fill ? 'slowreq-waterfall is-fill' : 'slowreq-waterfall'}>
