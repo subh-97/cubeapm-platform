@@ -82,8 +82,8 @@ const ACTIVE_ITEM = {
   logs: 'logs', infra: 'infra', traces: 'traces', trace: 'traces',
   mtraces: 'mtraces', mtrace: 'mtraces',
   errors: 'errors', explore: 'explore', browser: 'rum',
-  // A rule's page and the rule editor belong to Alerts.
-  alerts: 'alerts', alertRule: 'alerts', alertEditor: 'alerts',
+  // A rule's page, the rule editor and the template catalogue belong to Alerts.
+  alerts: 'alerts', alertRule: 'alerts', alertEditor: 'alerts', alertTemplates: 'alerts',
 }
 
 export default function Sidebar({ navCollapsed, setNavCollapsed, view, goHome, setView, onOpenHelp, onLogout, theme, setTheme }) {

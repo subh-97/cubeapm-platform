@@ -1,0 +1,175 @@
+/* ============================================================================
+   Browse Templates (/alerts/templates, AlertTemplatesView.jsx)
+
+   The Runtime tab's flush-rail frame (.svc-main.has-rail > .runtime-layout):
+   the category rail against the card's left edge with its own scroll, and a
+   content column whose toolbar holds still while the cards scroll under it.
+   The rail's rows are the Infrastructure page's source rail (.svc-sidebar-*),
+   drawn as buttons. Every colour is a var(--…) token, so both themes follow;
+   the one status hue on the page is the urgency dot, from status.js.
+   ============================================================================ */
+
+/* ---------- The rail ---------- */
+
+.tpl-rail {
+  position: relative; width: 205px; flex-shrink: 0; overflow-y: auto; overscroll-behavior: contain;
+  padding: 18px 0; background: var(--card); border-right: 1px solid var(--border-subtle);
+}
+.tpl-rail-list, .tpl-rail-list ul { list-style: none; margin: 0; padding: 0; }
+/* A little air between Domains, so the layers read as groups. */
+.tpl-rail-domain { margin-top: 6px; }
+/* Each level steps in 12px: All templates, its Domains (names only, no
+   mark), their Sub-domains (with their marks) at the shared child indent. */
+.tpl-rail-row.tpl-rail-l1 { padding-left: 26px; }
+.tpl-rail-row.tpl-rail-l2 { padding-left: 38px; }
+/* .svc-sidebar-item arrives as a div's style; a button needs its defaults reset. */
+.tpl-rail-row {
+  width: 100%; background: none; border-top: 0; border-right: 0; border-bottom: 0;
+  font-family: inherit; text-align: left;
+}
+.tpl-rail-row:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.tpl-rail-row.svc-sidebar-child { padding-top: 6px; padding-bottom: 6px; }
+/* An empty row is muted, not faded: its label takes an ink between secondary
+   and muted that still holds 4.5:1 on the card in both themes (muted alone is
+   3.75:1 in dark), and a pointer or the keyboard's focus brings it to full strength. */
+.tpl-rail-row.is-empty:not(.active):not(:hover):not(:focus-visible) {
+  color: color-mix(in srgb, var(--text-secondary) 40%, var(--text-muted));
+}
+/* Only a Sub-domain carries a mark: its integration's or module's. */
+.tpl-rail-mark { display: inline-flex; width: 14px; height: 14px; }
+/* A name too long for the narrow rail ("Containers & Kubernetes") wraps to a
+   second line rather than losing its end to an ellipsis. */
+.tpl-rail .svc-sidebar-name { white-space: normal; line-height: 1.3; }
+
+/* All templates and each Domain are accordion heads, the Infrastructure
+   page's AWS / GCP / Kubernetes groups again: the row scopes the page, and the
+   chevron at its right (.svc-sidebar-group-chev, turning as it opens) opens
+   and closes it. The chevron sits over the row's right end, so the row stays
+   one fill. */
+.tpl-rail-head { position: relative; }
+.tpl-rail-head > .tpl-rail-row { padding-right: 34px; }
+.tpl-rail-toggle {
+  position: absolute; top: 50%; right: 6px; transform: translateY(-50%);
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px;
+  background: none; color: var(--text-muted); cursor: pointer;
+}
+.tpl-rail-toggle .svc-sidebar-group-chev { color: inherit; }
+.tpl-rail-toggle:hover { color: var(--text-primary); background: var(--card); }
+.tpl-rail-toggle:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.tpl-rail-head > .tpl-rail-row.active ~ .tpl-rail-toggle { color: var(--brand-on-muted); }
+/* Pointing at the chevron lights the row it belongs to. */
+.tpl-rail-head:hover > .tpl-rail-row:not(.active) { background: var(--panel); color: var(--text-primary); }
+.tpl-rail-head:hover > .tpl-rail-row .svc-sidebar-count { background: var(--card); }
+.tpl-rail-head:hover > .tpl-rail-row.is-empty:not(.active) { color: var(--text-primary); }
+/* A head's rows slide open and shut; closed, they leave the tab order and the
+   accessibility tree (visibility turns at the end of the slide, and a closed
+   All templates hides the open Domains inside it with it). */
+.tpl-rail-subs { display: grid; grid-template-rows: 1fr; transition: grid-template-rows .18s ease, visibility .18s; }
+.tpl-rail-subs > ul { min-height: 0; overflow: hidden; }
+.tpl-rail-subs.is-closed { grid-template-rows: 0fr; visibility: hidden; }
+
+/* ---------- The content column ---------- */
+
+.tpl-main { --tpl-pad-top: 16px; padding-top: var(--tpl-pad-top); }
+
+/* The search and the filters, held at the top while the cards scroll. Its
+   negative margins cancel the column's padding, so it reaches the card's
+   right edge and sits flush under the page bar. */
+.tpl-toolbar {
+  position: sticky; top: calc(-1 * var(--tpl-pad-top)); z-index: 4;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  margin: calc(-1 * var(--tpl-pad-top)) -16px 0; padding: 18px 16px 12px;
+  background: var(--card);
+}
+.tpl-search { flex: 1 1 320px; min-height: 32px; box-sizing: border-box; padding: 4px 10px; }
+.tpl-search input { font-size: 12.5px; }
+.tpl-kbd {
+  flex-shrink: 0; font-family: var(--font-mono); font-size: 10px; padding: 0 4px;
+  border: 1px solid var(--border-panel); border-radius: 3px; color: var(--text-secondary);
+}
+.tpl-search:focus-within .tpl-kbd { display: none; }
+.filter-select.tpl-filter { width: auto; min-width: 150px; height: 32px; }
+
+/* What is in view: the scope's name and what it holds, and a way out of the
+   search and filters when they are what emptied it. */
+.tpl-results-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 6px 0 14px; }
+/* Focus lands here when "Show all" changes the scope (D17). */
+.tpl-scope:focus { outline: none; }
+.tpl-scope:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 4px; }
+.tpl-scope { display: inline-flex; align-items: center; gap: 8px; margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -.1px; color: var(--text-primary); }
+.tpl-scope .tpl-mark { width: 16px; height: 16px; }
+.tpl-scope-meta { font-size: 12px; color: var(--text-muted); }
+.tpl-clear { margin-left: auto; }
+
+/* ---------- Cards ---------- */
+
+.tpl-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap: 12px; }
+
+/* A card is its CTA's to click, as the create-rule banners are: the button's
+   ::after stretches over the card, the button stays the one control a
+   keyboard meets, and the card, not the button, answers the pointer. The
+   parent links sit above that cover, so they stay links. */
+.tpl-card {
+  position: relative; display: flex; flex-direction: column; gap: 8px;
+  padding: 14px 16px 14px; background: var(--card); border: 1px solid var(--card-border);
+  border-radius: var(--radius-lg); cursor: pointer;
+  transition: background-color .15s ease, border-color .15s ease;
+}
+.tpl-card:not(.is-blocked):is(:hover, :has(.tpl-use:focus-visible)) {
+  background: color-mix(in srgb, var(--panel) 50%, var(--card)); border-color: var(--border-panel);
+}
+.tpl-card.is-blocked { cursor: default; }
+.tpl-card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 18px; }
+.tpl-path { display: inline-flex; align-items: center; gap: 6px; min-width: 0; font-size: 11px; font-weight: 500; color: var(--text-muted); }
+.tpl-mark { display: inline-flex; flex-shrink: 0; width: 13px; height: 13px; color: var(--text-secondary); }
+.tpl-inuse {
+  flex-shrink: 0; padding: 1px 7px; border-radius: 999px; font-size: 10.5px; font-weight: 600;
+  background: var(--brand-muted); color: var(--brand-on-muted);
+}
+.tpl-title { margin: 0; font-size: 14px; font-weight: 600; line-height: 1.35; color: var(--text-primary); }
+
+/* The definition: what it alerts on, then why it matters, a line each. */
+.tpl-def { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--text-secondary); }
+
+/* Tags: quiet, on the panel tint, one row that wraps. */
+.tpl-tags { display: flex; flex-wrap: wrap; gap: 5px; list-style: none; margin: 2px 0 0; padding: 0; }
+.tpl-tag {
+  display: inline-flex; align-items: center; gap: 5px; padding: 2px 7px; border-radius: var(--radius-sm);
+  background: var(--panel); font-size: 11px; line-height: 16px; color: var(--text-secondary);
+}
+.tpl-tag .tpl-mark { width: 12px; height: 12px; }
+.tpl-urgency .status-dot { width: 7px; height: 7px; box-shadow: none; }
+.tpl-urgency .status-dot.neutral { background: var(--neutral); }
+.tpl-needs { background: none; border: 1px dashed var(--border-strong); color: var(--text-secondary); }
+
+/* The foot: the CTA on the right, a blocked one's reason to its left, pushed
+   down so a row's feet line up. */
+.tpl-card-foot { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: auto; padding-top: 6px; }
+.tpl-use { flex-shrink: 0; gap: 6px; }
+.tpl-use::after { content: ''; position: absolute; inset: 0; }
+.tpl-use svg { width: 13px; height: 13px; }
+.tpl-use.primary:hover { background: var(--brand); border-color: var(--brand); }
+/* The page's own disabled look, whichever Alerts chunk loaded first, and no lift on hover. */
+.tpl-card .tpl-use[aria-disabled="true"],
+.tpl-card .tpl-use[aria-disabled="true"]:hover {
+  opacity: .45; cursor: not-allowed; color: var(--text-muted);
+  border-color: var(--border-subtle); background: none;
+}
+.tpl-use[aria-disabled="true"]::after { cursor: default; }
+.tpl-blocked-why { flex: 1; min-width: 0; font-size: 11px; color: var(--text-secondary); }
+/* What carries a tooltip sits above the card's cover. */
+.tpl-inuse, .tpl-urgency { position: relative; z-index: 1; cursor: auto; }
+
+.tpl-empty { padding: 48px 16px; }
+
+/* ---------- Narrow widths ----------
+   Below this the rail stacks above the cards, as the Runtime tab's does, and
+   the page scrolls as one. */
+@media (max-width: 900px) {
+  /* Stacked, the rail grows with what is open (223px closed, about 450px with
+     every Domain open) rather than scrolling inside a cap that hides a Domain
+     whole: the page scrolls as one. */
+  .tpl-rail { width: auto; max-height: none; overflow: visible; border-right: 0; border-bottom: 1px solid var(--border-subtle); }
+  .tpl-toolbar { top: 0; }
+}

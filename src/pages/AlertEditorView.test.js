@@ -80,6 +80,15 @@ test('a card\'s Create Alert opens on the card\'s query, thresholds, name and fo
   assert.ok(inputValues(html).includes('Payments'), 'the folder payment-service\'s rules already use')
 })
 
+test('a template opens with its crumb back to Browse Templates; any other payload does not', () => {
+  const crumb = /<a href="\/alerts\/templates">Browse Templates<\/a>/
+  const fromTemplates = page({ incoming: { view: 'alertEditor', from: 'templates', datasource: 'prometheus', query: 'redis_connected_clients', name: 'Redis: Clients climbing' } })
+  assert.match(fromTemplates, crumb)
+  assert.ok(inputValues(fromTemplates).includes('Redis: Clients climbing'))
+  assert.doesNotMatch(page({ incoming: { view: 'alertEditor', datasource: 'prometheus', query: 'redis_connected_clients' } }), crumb)
+  assert.doesNotMatch(page(), crumb)
+})
+
 test('a Logs bar\'s Create Alert opens on Logs, counting its query', () => {
   const html = page({ incoming: { view: 'alertEditor', ...alertPayloadForQuery({ datasource: 'vlogs', query: 'log.level:="error"' }) } })
   assert.match(html, /role="tab" aria-selected="true" class="tab active">Logs</)

@@ -270,8 +270,9 @@ the repo has no DOM tests (Known gaps).
     always groups by each rule's own group, and New rule is the shared `.run-btn` primary button
     — *moved 2026-10-23* to the "Create a rule from scratch" banner, beside one for templates;
   - the templates banner opens the template drawer (*2026-10-26*): 16 templates in five
-    categories, a card each, marked In use when a rule already runs its query
-    (docs/decisions/alerts-page.md);
+    categories, a card each, marked In use when a rule already runs its query — *replaced
+    2026-11-04* by a page, Browse Templates (`/alerts/templates`): 37 templates in two layers,
+    Domain and Sub-domain (docs/decisions/alerts-page.md);
   - grouped rows sorted by severity (R6), with D3's row anatomy;
   - paused rules folded per group (R47);
   - Snooze and Actions as labelled menus (R11);

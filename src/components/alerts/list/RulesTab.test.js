@@ -195,6 +195,10 @@ test('the toolbar is the search alone: a rule starts from the banners above; no 
   assert.doesNotMatch(bar, /<button|New rule/)
   assert.doesNotMatch(bar, /Group by|filter-select/)
   assert.match(html, /<section class="rtab-slot rtab-create is-scratch"[\s\S]*?<\/svg>Create rule<\/button>/)
+  // The template banner is a link to Browse Templates, a page of its own, not a drawer's trigger.
+  const template = html.slice(html.indexOf('<section class="rtab-slot rtab-create is-template"'), html.indexOf('<section class="rtab-slot rtab-create is-scratch"'))
+  assert.match(template, /<a class="hbtn rtab-create-cta" href="\/alerts\/templates">Browse templates<svg/)
+  assert.doesNotMatch(template, /aria-haspopup|<button/)
   // An old link's grouping is read past: the groups are still the rules' own.
   const heads = h => [...h.matchAll(/class="rtab-group-toggle"[^>]*>[\s\S]*?<span>([^<]+)<\/span>/g)].map(m => m[1])
   for (const g of ['service', 'contact', 'none']) assert.deepEqual(heads(page(`?group_by=${g}`)), heads(html), g)

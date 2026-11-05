@@ -82,11 +82,14 @@
 }
 
 /* ---------- Control widths ----------
-   Stated per control rather than once for the column: a CALCULATE of four
-   options and a FROM of several hundred metrics do not want the same width. */
-.ex-met-calc { flex: 0 1 260px; }
-.ex-met-metric { flex: 1 1 320px; max-width: 460px; }
-.ex-met-group { flex: 1 1 300px; max-width: 460px; }
+   Every field runs to the control column's right edge, the edge the WHERE
+   row's value and the generated query already end on, so the form reads as
+   one block with one right edge. A field that shares its line (CALCULATE
+   beside a percentile) takes what the line leaves. The add-operation picker
+   is the exception: it adds a card rather than holding a value. */
+.ex-met-calc { flex: 1 1 260px; }
+.ex-met-metric { flex: 1 1 320px; }
+.ex-met-group { flex: 1 1 300px; }
 .ex-met-add { flex: 0 1 260px; }
 
 /* ---------- Numbers ---------- */

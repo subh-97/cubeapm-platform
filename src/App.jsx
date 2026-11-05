@@ -40,6 +40,7 @@ import AlertsPageSkeleton from '@/components/alerts/AlertsPageSkeleton'
 const AlertsView = lazy(() => import('@/pages/AlertsView'))
 const AlertRuleView = lazy(() => import('@/pages/AlertRuleView'))
 const AlertEditorView = lazy(() => import('@/pages/AlertEditorView'))
+const AlertTemplatesView = lazy(() => import('@/pages/AlertTemplatesView'))
 
 function getInfraNavItems() {
   const items = []
@@ -395,6 +396,7 @@ export default function App() {
   const isAlerts = view === 'alerts'
   const isAlertRule = view === 'alertRule'
   const isAlertEditor = view === 'alertEditor'
+  const isAlertTemplates = view === 'alertTemplates'
 
   return (
     <div className={`app${navCollapsed ? ' nav-collapsed' : ''}`}>
@@ -584,9 +586,9 @@ export default function App() {
                 setToast={setToast}
                 onOpenLink={openLink}
               />
-            ) : isAlerts || isAlertRule || isAlertEditor ? (
+            ) : isAlerts || isAlertRule || isAlertEditor || isAlertTemplates ? (
               // Quiet while the chunk loads: the page's shape in bones, not a spinner.
-              <Suspense fallback={<AlertsPageSkeleton kind={isAlerts ? 'list' : isAlertRule ? 'rule' : 'editor'} />}>
+              <Suspense fallback={<AlertsPageSkeleton kind={isAlerts ? 'list' : isAlertTemplates ? 'templates' : isAlertRule ? 'rule' : 'editor'} />}>
                 {isAlerts ? (
                   <AlertsView
                     goHome={goHome} timeRange={timeRange} setTimeRange={setTimeRange} setToast={setToast}
@@ -597,6 +599,11 @@ export default function App() {
                     // Keyed on the rule: two rules' pages never share state.
                     key={route.ruleId}
                     ruleId={route.ruleId}
+                    goHome={goHome} timeRange={timeRange} setTimeRange={setTimeRange} setToast={setToast}
+                    onOpenLink={openLink}
+                  />
+                ) : isAlertTemplates ? (
+                  <AlertTemplatesView
                     goHome={goHome} timeRange={timeRange} setTimeRange={setTimeRange} setToast={setToast}
                     onOpenLink={openLink}
                   />

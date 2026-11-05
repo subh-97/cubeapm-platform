@@ -92,6 +92,9 @@ export function ruleMetric(rule) {
   const counted = /stats\s+(?:by\s*\([^)]*\)\s*)?count\(\)/.test(q)
   // Kubernetes events arrive in the log stream, but they are events, not log lines.
   if (ds === 'logs' && /event\.domain:=\s*"k8s"/.test(q)) return { metric: counted ? 'K8s event count' : 'K8s events', unit: 'count' }
+  // The Browser templates' RUM events (ruleTemplates.js).
+  if (ds === 'logs' && /count\(\)\s+if\s*\(\s*eventType:="JavaScriptError"\s*\)/.test(q)) return { metric: 'JS errors per 100 views', unit: null }
+  if (ds === 'logs' && /quantile\(\s*0?\.75\s*,\s*largestContentfulPaint\s*\)/.test(q)) return { metric: 'p75 LCP', unit: 's' }
   if (ds === 'logs') return { metric: counted ? 'Log count' : 'Logs', unit: 'count' }
   if (ds === 'traces') return { metric: counted ? 'Span count' : 'Spans', unit: 'count' }
   if (ds === 'mobile') return { metric: 'Requests', unit: 'count' }
@@ -104,21 +107,42 @@ export function ruleMetric(rule) {
     const exception = /exception\s*=\s*"([^"]+)"/.exec(q)?.[1]
     return { metric: exception ? `${exception.split('.').pop()} rate` : 'Error rate', unit: /\*\s*60\b/.test(q) ? '/min' : null }
   }
+  // A host's error % less its service's (the Errors template): an excess, not a share.
+  if (/-\s*on\s*\(\s*service\s*\)\s*group_left/.test(q) && /status_code\s*=\s*"ERROR"/.test(q)) return { metric: 'Error % over service', unit: '%' }
   if (/status_code\s*=\s*"ERROR"/.test(q) && /\*\s*100\b/.test(q)) return { metric: 'Error %', unit: '%' }
   if (pq) return { metric: `p${Math.round(Number(pq[1]) * 1000) / 10} latency`, unit: ms ? 'ms' : 's' }
   if (/cube_apm_latency_total\b/.test(q)) return { metric: 'Avg latency', unit: ms ? 'ms' : 's' }
+  // Calls against an hour ago, per request served when divided by the service's
+  // own traffic: ahead of RPM, since its traffic floor reads "* 60 > 10".
+  if (/\boffset\s+1h\b/.test(q) && /cube_apm_calls_total\b/.test(q)) return { metric: /group_left/.test(q) ? 'Calls per request vs an hour ago' : 'Calls vs an hour ago', unit: '%' }
   if (/cube_apm_calls_total\b/.test(q) && /\*\s*60\b/.test(q)) return { metric: 'RPM', unit: 'rpm' }
+  // A host's CPU samples, counted: whether it still reports (ruleTemplates.js).
+  if (/count_over_time\(\s*system_cpu_utilization\b/.test(q)) return { metric: 'Samples', unit: null }
   if (/system_cpu_utilization\b/.test(q)) return { metric: 'CPU', unit: '%' }
   if (/redis_memory_used_bytes\b/.test(q)) return { metric: 'Memory', unit: /\/\s*1e6\b/.test(q) ? 'MB' : null }
   // The templates' own measures (ruleTemplates.js), so a rule made from one
   // reads as what it watches rather than as "Value".
   if (/\boffset\s+1h\b/.test(q) && /system_memory_usage_bytes\b/.test(q)) return { metric: 'Memory vs an hour ago', unit: '%' }
-  if (/\boffset\s+1h\b/.test(q) && /cube_apm_calls_total\b/.test(q)) return { metric: 'Calls vs an hour ago', unit: '%' }
   if (/redis_connected_clients\b/.test(q)) return { metric: 'Redis clients', unit: null }
   if (/mysql_threads_connected\b/.test(q)) return { metric: 'MySQL threads', unit: null }
   if (/k8s_pod_cpu_utilization\b/.test(q)) return { metric: 'Pod CPU', unit: '%' }
   if (/kube_pod_container_status_restarts_total\b/.test(q)) return { metric: 'Restarts', unit: null }
   if (/kube_node_status_condition\b/.test(q)) return { metric: 'Node ready', unit: null }
+  const pct = /\*\s*100\b/.test(q)
+  if (/cube_apm_latency_sum\b/.test(q) && /\boffset\s+1h\b/.test(q)) return { metric: 'Avg latency vs an hour ago', unit: '%' }
+  if (/cube_apm_calls_total\b/.test(q) && /http_code\s*=~\s*"5/.test(q)) return { metric: '5xx responses', unit: '/min' }
+  if (/system_network_io_bytes_total\b/.test(q) && /\boffset\s+1w\b/.test(q)) return { metric: 'Network in vs last week', unit: '%' }
+  if (/system_memory_usage_bytes\b/.test(q) && pct) return { metric: 'Memory used', unit: '%' }
+  if (/system_filesystem_usage_bytes\b/.test(q) && pct) return { metric: 'Disk used', unit: '%' }
+  if (/kube_deployment_status_replicas_unavailable\b/.test(q) && pct) return { metric: 'Replicas unavailable', unit: '%' }
+  if (/mysql_global_status_threads_connected\b/.test(q) && pct) return { metric: 'Connections used', unit: '%' }
+  if (/\bmysql_up\b/.test(q)) return { metric: 'MySQL up', unit: null }
+  if (/mysql_global_status_slow_queries\b/.test(q)) return { metric: 'Slow queries', unit: '/min' }
+  if (/mysql_slave_status_seconds_behind_(?:master|source)\b/.test(q)) return { metric: 'Replication lag', unit: 's' }
+  if (/pg_stat_database_numbackends\b/.test(q) && pct) return { metric: 'Connections used', unit: '%' }
+  if (/pg_replication_lag_seconds\b/.test(q)) return { metric: 'Replication lag', unit: 's' }
+  if (/\bpg_up\b/.test(q)) return { metric: 'PostgreSQL up', unit: null }
+  if (/pg_stat_activity_max_tx_duration\b/.test(q)) return { metric: /idle in transaction/.test(q) ? 'Oldest idle transaction' : 'Oldest transaction', unit: 's' }
   return { metric: 'Value', unit: null }
 }
 

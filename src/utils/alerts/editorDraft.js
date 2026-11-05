@@ -377,6 +377,16 @@ export function draftFromPayload(payload = {}) {
   if (Number.isFinite(payload.forSec)) draft.forSec = payload.forSec
   // One of the editor's own choices, or the default stands.
   if (EVALUATION_INTERVALS.includes(payload.intervalSec)) draft.intervalSec = payload.intervalSec
+  // A template's words for the rule's details, and tags (`{ key: value }`) the
+  // evaluator does not own: a template marks the rules made from it this way.
+  for (const field of ['summary', 'description', 'runbook']) {
+    if (payload[field]) draft[field] = String(payload[field])
+  }
+  if (payload.tags && typeof payload.tags === 'object') {
+    draft.tags = Object.entries(payload.tags)
+      .filter(([key]) => key && key !== 'severity' && !MANAGED_LABELS.has(key) && !RESERVED_TAG_KEYS.includes(key))
+      .map(([key, value]) => ({ key, value: String(value) }))
+  }
   return draft
 }
 
