@@ -37,6 +37,7 @@ const VIEW_PATHS = {
   browser: '/browser',
   infra: '/infrastructure',
   alerts: '/alerts',
+  alertTemplates: '/alerts/templates',
 }
 const VIEW_FOR_PATH = new Map(Object.entries(VIEW_PATHS).map(([view, path]) => [path, view]))
 
@@ -81,10 +82,13 @@ export function parseRoute(pathname, search = '') {
   // Production's Alerts paths (docs/alerts/DESIGN.md D14): /alerts/:id is a
   // rule, /alerts/new and /alerts/:id/edit the editor. Their query strings
   // (tab, rule_id, alert_id, …) are the pages' own, read by alertsUrl.js.
+  // /alerts/templates is ours, the template catalogue; it is claimed, as
+  // "new" is, before a segment can be read as a rule's id (ids are numeric).
   if (pathname.startsWith('/alerts/')) {
     const first = segmentAfter(pathname, '/alerts/')
     if (!first) return { view: 'alerts' }
     if (first === 'new') return { view: 'alertEditor', ruleId: null }
+    if (first === 'templates') return { view: 'alertTemplates' }
     const second = segmentAfter(pathname, `/alerts/${pathname.slice('/alerts/'.length).split('/')[0]}/`)
     return second === 'edit' ? { view: 'alertEditor', ruleId: first } : { view: 'alertRule', ruleId: first }
   }

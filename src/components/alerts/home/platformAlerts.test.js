@@ -51,7 +51,7 @@ test('Create offers what the service lacks: error rate, then p90 latency, then t
 
 test('the Alerts pages load behind their own shapes, busy, with nothing from the split code', async () => {
   const { default: AlertsPageSkeleton } = await import('@/components/alerts/AlertsPageSkeleton.jsx')
-  for (const kind of ['list', 'rule', 'editor']) {
+  for (const kind of ['list', 'rule', 'editor', 'templates']) {
     const html = render(<AlertsPageSkeleton kind={kind} />)
     assert.match(html, /^<div class="skeleton-shell" aria-busy="true" aria-label="Loading Alerts">/, kind)
     assert.ok((html.match(/class="ovsk-bone"/g) ?? []).length >= 4, kind)

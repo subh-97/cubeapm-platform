@@ -5,7 +5,7 @@ import { services as SERVICES } from '@/data/services'
 import { zoomRange } from '@/utils/timeRange'
 import { copyText } from '@/utils/clipboard'
 import { MIN_FOCUS_MS } from '@/components/charts/useTimeFocus'
-import { rulePath, ruleEditPath, NEW_RULE_PATH, displayName } from './adapters'
+import { rulePath, ruleEditPath, NEW_RULE_PATH, TEMPLATES_PATH, displayName } from './adapters'
 import { suggestedRules } from './rulesQuery'
 import { toggleExpanded, withUrlRule, ruleKey } from './rulesList'
 import { historyHref, windowAgo } from './ruleDisplay'
@@ -172,11 +172,7 @@ export default function RulesTab({
 
   return (
     <div className="rtab" ref={rootRef}>
-      <CreateRuleBanners
-        rules={rules}
-        onTemplate={t => openLink({ view: 'alertEditor', ...t.payload() })}
-        onScratch={onNewRule}
-      />
+      <CreateRuleBanners onBrowse={() => navigate(TEMPLATES_PATH)} onScratch={onNewRule} />
       {loading ? <BandSkeleton /> : (
         <FiringNow
           rules={rules}

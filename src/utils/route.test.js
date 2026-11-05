@@ -172,11 +172,20 @@ test('production\'s Alerts paths parse to the hub, a rule and the editor', () =>
   assert.deepEqual(parseRoute('/alerts/r%20one'), { view: 'alertRule', ruleId: 'r one' })
 })
 
+test('/alerts/templates is the template catalogue, never a rule called "templates"', () => {
+  assert.deepEqual(parseRoute('/alerts/templates'), { view: 'alertTemplates' })
+  assert.deepEqual(parseRoute('/alerts/templates/'), { view: 'alertTemplates' })
+  assert.deepEqual(parseRoute('/alerts/templates/edit'), { view: 'alertTemplates' }, 'not "edit the rule templates"')
+  assert.deepEqual(parseRoute('/alerts/templates', '?domain=databases&sub=mysql'), { view: 'alertTemplates' })
+  assert.equal(routeUrl({ view: 'alertTemplates' }), '/alerts/templates')
+  assert.equal(canonicalUrl('/alerts/templates/', '?sub=mysql&q=lag'), '/alerts/templates?sub=mysql&q=lag', 'its query string is its own')
+})
+
 test('each Alerts route prints the one URL it is spelled as', () => {
   assert.equal(alertRuleUrl(437), '/alerts/437')
   assert.equal(alertEditorUrl(437), '/alerts/437/edit')
   assert.equal(alertEditorUrl(null), '/alerts/new')
-  for (const path of ['/alerts', '/alerts/437', '/alerts/new', '/alerts/437/edit', '/alerts/r%20one']) {
+  for (const path of ['/alerts', '/alerts/437', '/alerts/new', '/alerts/437/edit', '/alerts/r%20one', '/alerts/templates']) {
     assert.equal(routeUrl(parseRoute(path)), path, path)
   }
 })

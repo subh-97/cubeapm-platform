@@ -3,8 +3,9 @@ import { encodeValue } from '@/utils/searchParams'
 
 /**
  * The Alerts page's query string (docs/alerts/DESIGN.md D14). The paths
- * (/alerts, /alerts/new, /alerts/:id, /alerts/:id/edit) are route.js's; this is
- * everything after the `?`.
+ * (/alerts, /alerts/new, /alerts/:id, /alerts/:id/edit, /alerts/templates) are
+ * route.js's; this is everything after the `?` on /alerts. Browse Templates'
+ * own keys are utils/alerts/templatesUrl.js's.
  *
  *   state = {
  *     tab,            which of the five tabs (production's own values)

@@ -69,6 +69,20 @@ test('what a rule measures, and the unit its threshold is in', () => {
   assert.deepEqual(of('sum by (service, group_name) (rate(cube_apm_calls_total{span_kind="client"}[5m])) / sum by (service, group_name) (rate(cube_apm_calls_total{span_kind="client"}[5m] offset 1h)) * 100 > 130'), { metric: 'Calls vs an hour ago', unit: '%' })
   assert.deepEqual(of('redis_connected_clients > 150'), { metric: 'Redis clients', unit: null })
   assert.deepEqual(of('k8s_pod_cpu_utilization * 100 > 80'), { metric: 'Pod CPU', unit: '%' })
+  // Browse Templates' measures, named and in their units; a raw metric with no ratio is not a percentage.
+  assert.deepEqual(of('(sum by (service, host.name) (rate(cube_apm_calls_total{status_code="ERROR"}[5m])) * 100) - on (service) group_left () (x) > 1'), { metric: 'Error % over service', unit: '%' })
+  assert.deepEqual(of('sum by (service, http_code) (increase(cube_apm_calls_total{http_code=~"5.."}[1m])) > 10'), { metric: '5xx responses', unit: '/min' })
+  assert.deepEqual(of('sum by (host.name, mountpoint) (system_filesystem_usage_bytes{state="used"}) / sum by (host.name, mountpoint) (system_filesystem_usage_bytes) * 100 > 85'), { metric: 'Disk used', unit: '%' })
+  assert.deepEqual(of('system_filesystem_usage_bytes > 1e9'), { metric: 'Value', unit: null })
+  assert.deepEqual(of('mysql_up == 0'), { metric: 'MySQL up', unit: null })
+  assert.deepEqual(of('max by (instance, datname) (pg_stat_activity_max_tx_duration{state=~"idle in transaction.*"}) > 300'), { metric: 'Oldest idle transaction', unit: 's' })
+  // Calls per request served carry a traffic floor ("* 60 > 10"), and are not RPM.
+  assert.deepEqual(of('(sum by (service, group_name) (rate(cube_apm_calls_total{span_kind="client"}[5m])) / on (service) group_left () sum by (service) (rate(cube_apm_calls_total{span_kind=~"server|consumer"}[5m]))) / ((sum by (service, group_name) (rate(cube_apm_calls_total{span_kind="client"}[5m] offset 1h)) > 0.1) / on (service) group_left () sum by (service) (rate(cube_apm_calls_total{span_kind=~"server|consumer"}[5m] offset 1h))) * 100 and on (service) sum by (service) (rate(cube_apm_calls_total{span_kind=~"server|consumer"}[5m])) * 60 > 10 > 150'), { metric: 'Calls per request vs an hour ago', unit: '%' })
+  assert.deepEqual(of('count by (host.name) (count_over_time(system_cpu_utilization[5m])) or count by (host.name) (count_over_time(system_cpu_utilization[1d])) * 0 < 1'), { metric: 'Samples', unit: null })
+  assert.deepEqual(of('max by (instance) (mysql_global_status_threads_connected) / max by (instance) (mysql_global_variables_max_connections) * 100 > 80'), { metric: 'Connections used', unit: '%' })
+  assert.deepEqual(of('pg_up == 0'), { metric: 'PostgreSQL up', unit: null })
+  assert.deepEqual(of('eventType:in("PageView", "JavaScriptError") | stats by (service) count() if (eventType:="JavaScriptError") as js_errors, count() if (eventType:="PageView") as page_views | math js_errors / page_views * 100 | filter result: > 15', 'vlogs'), { metric: 'JS errors per 100 views', unit: null })
+  assert.deepEqual(of('eventType:="PageViewTiming" AND timingName:="largestContentfulPaint" | stats by (service) quantile(0.75, largestContentfulPaint) | filter result: > 2.5', 'vlogs'), { metric: 'p75 LCP', unit: 's' })
 })
 
 test('rules other modules manage say which, and the SLO\'s cannot be edited here', () => {

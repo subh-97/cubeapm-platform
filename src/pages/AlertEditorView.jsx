@@ -29,6 +29,7 @@ import './alerts-view.css'
 import '@/components/alerts/editor/alert-editor.css'
 
 const ALERTS_PATH = routeUrl({ view: 'alerts' })
+const TEMPLATES_PATH = routeUrl({ view: 'alertTemplates' })
 
 // Which section a validation item belongs to, for the "N to finish" on its head.
 const SECTION_OF = field => (/^(query|kind|tiers|tier-)/.test(field) ? 1
@@ -79,6 +80,9 @@ export default function AlertEditorView({ ruleId, goHome, timeRange, setTimeRang
     }
     return blankDraft()
   })
+  // Where a new rule came from, when that was the template catalogue: its
+  // crumb and Cancel lead back there. Held like the payload, for this visit.
+  const [fromTemplates] = useState(() => mode === 'new' && !location.state?.suggestion && incoming?.from === 'templates')
   const [draft, setDraft] = useState(initial)
   const [attempted, setAttempted] = useState(false)
   const [open, setOpen] = useState({ 1: true, 2: true, 3: true, 4: true })
@@ -134,7 +138,7 @@ export default function AlertEditorView({ ruleId, goHome, timeRange, setTimeRang
   }, [dirty])
 
   const leave = useCallback((go) => requestLeave(() => { done.current = true; go() }), [])
-  const backUrl = mode === 'edit' && source ? alertRuleUrl(source.id) : ALERTS_PATH
+  const backUrl = mode === 'edit' && source ? alertRuleUrl(source.id) : fromTemplates ? TEMPLATES_PATH : ALERTS_PATH
   const cancel = () => leave(() => navigate(backUrl))
   const crumbHome = (e) => { if (!isPlain(e)) return; e.preventDefault(); leave(goHome) }
   const crumbTo = url => (e) => { if (!isPlain(e)) return; e.preventDefault(); leave(() => navigate(url)) }
@@ -183,6 +187,12 @@ export default function AlertEditorView({ ruleId, goHome, timeRange, setTimeRang
         <>
           <span className="sep">/</span>
           <a href={alertRuleUrl(source.id)} onClick={crumbTo(alertRuleUrl(source.id))}>{displayName(source)}</a>
+        </>
+      )}
+      {fromTemplates && (
+        <>
+          <span className="sep">/</span>
+          <a href={TEMPLATES_PATH} onClick={crumbTo(TEMPLATES_PATH)}>Browse Templates</a>
         </>
       )}
       <span className="sep">/</span>

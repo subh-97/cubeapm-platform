@@ -815,6 +815,10 @@ filtered by Status (ALL / SUCCESS / ERROR / MUTE / SNOOZE) and Alert.
   - It follows that **our own service filter cannot be called `service`**.
 - **Our own keys** (facets, search; group-by until 2026-10-21, D3) are written in a fixed order with `replace`, while
   the path is `/alerts`.
+- *Revised 2026-11-04:* **one path of ours**, `/alerts/templates`, Browse Templates
+  (docs/decisions/alerts-page.md). Production has no template route; `templates` is claimed before a
+  segment can be read as a rule id (ids are numeric). Its keys — `sub`, `domain`, `q`, `type`,
+  `source`, `urgency` — follow the rules above: fixed order, `replace`, none of the ignored ones.
 - **The create-from-context payload** rides in App state with a nonce, as Explore's handoffs do
   (decided at sign-off, Q8).
   - As in production, the prefilled editor's address (`/alerts/new`) can't be shared, and a
