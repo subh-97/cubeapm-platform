@@ -1,5 +1,5 @@
 // What the main card shows while an Alerts page's code loads, the first time
-// one is opened (docs/alerts/PLAN.md 7a, "Known gaps"). The three pages are
+// one is opened (docs/alerts/PLAN.md 7a, "Known gaps"). The four pages are
 // split from the main bundle — about 240 kB that nothing else needs — so the
 // first visit waits a moment for them. The wait is drawn in the shape of the
 // page coming, in the platform's quiet bones (no spinner), and kept here,
@@ -33,8 +33,9 @@ function Rows({ count }) {
 }
 
 /**
- * `kind` is the page on its way: 'list' (the tabs), 'rule' (a rule's page) or
- * 'editor'.
+ * `kind` is the page on its way: 'list' (the tabs), 'rule' (a rule's page),
+ * 'editor', or 'templates' (the catalogue: a category rail beside a toolbar
+ * and a grid of cards).
  */
 export default function AlertsPageSkeleton({ kind = 'list' }) {
   return (
@@ -60,6 +61,26 @@ export default function AlertsPageSkeleton({ kind = 'list' }) {
           <div style={{ ...card, padding: 16 }}>{bone({ width: '100%', height: 220 })}</div>
           <div style={card}><Rows count={3} /></div>
         </>
+      )}
+      {kind === 'templates' && (
+        <div style={{ display: 'grid', gridTemplateColumns: '205px minmax(0, 1fr)', gap: 16 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingTop: 4 }}>
+            {[150, 120, 132, 104, 140, 118, 96].map((w, i) => bone({ width: w, height: 14 }, i))}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {bone({ width: '100%', height: 32 })}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 12 }}>
+              {Array.from({ length: 6 }, (_, i) => (
+                <div key={i} style={{ ...card, padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {bone({ width: 110, height: 10 })}
+                  {bone({ width: '70%', height: 14 })}
+                  {bone({ width: '100%', height: 30 })}
+                  {bone({ width: '55%', height: 18 })}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
       {kind === 'editor' && (
         <>

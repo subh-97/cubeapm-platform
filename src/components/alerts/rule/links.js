@@ -29,7 +29,7 @@ export const ruleNotificationsHref = id => `${ALERTS_PATH}${alertsSearch({ tab: 
 /** The rule id in a `/alerts/<id>` path, for a page reached before App passes one. */
 export function ruleIdFromPath(pathname) {
   const m = /^\/alerts\/([^/?#]+)\/?$/.exec(String(pathname ?? ''))
-  if (!m || m[1] === 'new') return null
+  if (!m || m[1] === 'new' || m[1] === 'templates') return null
   try {
     return decodeURIComponent(m[1])
   } catch {

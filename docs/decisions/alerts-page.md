@@ -2,7 +2,8 @@
 
 Three routes in production's own paths: `/alerts` (sidebar → Alerts) with five tabs — Rules,
 Insights, Contact points, Mute schedules, Notifications — a page per rule at `/alerts/:id`, and the
-editor at `/alerts/new` and `/alerts/:id/edit`. It answers "what is firing, why, and who was told",
+editor at `/alerts/new` and `/alerts/:id/edit`; and one of ours, the template catalogue, Browse
+Templates, at `/alerts/templates`. It answers "what is firing, why, and who was told",
 and lets a rule be made from wherever a problem is noticed. It keeps production's journey and URL
 dialect and renames only labels — the Errors and Browser method.
 
@@ -83,31 +84,13 @@ not re-deriving.
 - **Two labelled menus per row**, Snooze and Actions, replace production's seven icon-only
   controls (R11). An item a rule does not allow stays, disabled, with the reason as its title.
 - **Two ways to make a rule open the tab**, side by side above the timeline: "Create a rule from a
-  template" (white; it opens the template drawer, below) and "Create a rule from scratch" (the
+  template" (white; a link to Browse Templates) and "Create a rule from scratch" (the
   brand's blue; a blank editor). They replace the toolbar's
   New rule button, removed on review (2026-10-23): the toolbar is the search alone. With no rules
   at all, the empty state still offers New rule, and `n` still starts one.
-- **The template drawer** (`TemplateDrawer.jsx`, 2026-10-26) is production's "Alert templates"
-  drawer in our language, built on the config drawer, the `.svc-search` box, `EmptyState` and a
-  new shared `FilterChips` (capsules: All, then each category with its mark). Sixteen templates
-  (`utils/alerts/ruleTemplates.js`) in five categories by what a rule watches — Services 5,
-  Dependencies 3, Logs 2, Hosts 2, Kubernetes 4 — where production lists a category per Kubernetes
-  object and placeholder "Dummy" ones. The capsules count what the search leaves, and a search
-  that empties one offers the matches in the others. A card gives its source (the vendor's mark
-  for infrastructure, the sidebar's glyph for APM and Logs), what it does in one sentence, and the
-  condition in the rule list's own words ("Error % > 3% critical, > 1% warning, for 5m · one alert
-  per service"); a template whose query a rule already runs is marked In use. The card is the
-  button: its primary "Use template" has an `::after` that covers the card, as the banners' CTAs
-  do. Each card first also previewed what the template would have done over the page's range (a
-  strip and "Would have fired once in the last 1 hr, on 2 of 7 services"); that came out on
-  review the same day, and the editor's preview, one click on, says it. Every query was still
-  checked against the demo's data at every hour: nine catch the payment incident, five stay quiet,
-  none fires outside the incident, and the two that need kube-state-metrics are kept rather than
-  left out (`needs` in the catalogue; the editor's preview shows they have no data here). The log counts swing with the time of day more
-  than the incident moves them, so the log templates sit above the busiest quiet hour. Templates
-  set what payloads could not before: an anomaly rule (`kind`) and a check interval
-  (`intervalSec`); and the rule list names their measures ("Redis clients", "Calls vs an hour
-  ago", "K8s event count") instead of "Value".
+- **Templates live on their own page**, Browse Templates (below). The drawer that held them
+  first (2026-10-26) came out on 2026-11-04: a catalogue of 37 wants a page's room, a link, and
+  Back.
 - **No row selection, no bulk changes.** 7b built them — a select box per row and a bar that
   paused, snoozed, moved, re-routed or deleted the selection as one change with one Undo — and on
   review (2026-10-23) they came out, with the count line above the rules. A rule is changed from
@@ -158,10 +141,84 @@ sign-off), and Browser cards say browser metrics come later.
   Insights' table fits its card and wraps rule names, so Tune stays in
   view.
 
+## Browse Templates
+
+`/alerts/templates` (`AlertTemplatesView.jsx`, 2026-11-04; the catalogue is
+`utils/alerts/ruleTemplates.js`, the URL `utils/alerts/templatesUrl.js`).
+
+- **Two layers, no third.** Layer 1 is the Domain, the area of the stack; layer 2 the
+  Sub-domain — the integration, named as the Infrastructure page names it, or, for our own app,
+  the platform module. In scope: APM (Services, Errors, Mobile, Browser), Cloud & Hosts (Host),
+  Containers & Kubernetes (Kubernetes), Databases (MySQL, PostgreSQL). "K8s", "Postgres",
+  "RDS" and the like are aliases, not names. The service or host a rule is about is its filter or
+  split, never a layer. The rail is a tree of accordions, as the Infrastructure page's AWS, GCP
+  and Kubernetes sources are (2026-11-05; the rail first listed every Sub-domain open under a
+  "Categories" label): All templates at the root, the Domains under it by name alone, each
+  Domain's Sub-domains under that with their marks, 12px further in each time. A chevron opens and closes its row, any number
+  open at once; choosing a row shows its templates and opens it; All templates and the Domain in
+  view open with the page, the other Domains start closed. → and ← open, close and step in and
+  out, beside ↑/↓, Home and End.
+- **One home, other parents.** A template is counted once, at its home; another parent lists it
+  after its own. The card's path ("APM · Services") names its home wherever it is listed; the
+  "From …" / "Also in …" line of links came off the card on review (2026-11-05). Hosting
+  (self-managed, AWS, GCP, SaaS) is a badge on the card, not a layer.
+- **Finding one.** The search reads the name, the full alert name, the Domain and Sub-domain and
+  their aliases, the definition and the tags, every word. Problem type, data source and urgency
+  are filters. Scope, search and filters live in the URL (`sub`, `domain`, `q`, `type`, `source`,
+  `urgency` — never `service`, `category` or `host`, D14), written with replace. `/` reaches the
+  search. A view emptied by a search or a filter names what emptied it and offers the matches
+  elsewhere. The data source filter offers only the sources some template reads (no Traces yet).
+- **The card.** The title is "Subject + state", 45 characters at most; the full alert name adds
+  the Sub-domain ("MySQL: Connections near limit"). The definition is one line: what it alerts on,
+  with its figures and how long it holds. Why it matters came off the card on review
+  (2026-11-04); it is still the rule's description, and the search still reads it. The tags: urgency (High as a firing
+  critical, Medium as a firing warning, through `statusForAlertState`; Low neutral), problem type,
+  data source, hosting and what it waits on. The system ID
+  (`<home>.<slug>`) is not on the card (removed on review, 2026-11-04): it is the rule's
+  `template` tag, and the search still finds it. "Use template" is the card's one control, at the
+  foot's right, named with the full alert name (MySQL and PostgreSQL share titles), and its
+  `::after` covers the card; the In use pill and the urgency tag sit above the cover, so their
+  tooltips show. A card in use names its rules to a screen reader on the button too. A blocked
+  card's button reads "Not available yet", with the reason to its left as its description.
+- **Use template** opens the editor through `openLink` with the template's payload, its full name,
+  the Sub-domain as folder, a per-series summary (`{{ .Labels.service }} is failing {{ printf
+  "%.2f" .Value }}% of requests`: the labels the query keeps and the value, never the thresholds,
+  which a tune changes and the notification states anyway), why it matters as the description,
+  and a `template` tag carrying its system ID. That tag is how a rule made from it is known: such a rule, or one
+  running its query unchanged, marks the card In use. The editor's crumb and Cancel lead back here.
+- **37 templates**: Services 9, Errors 4, Mobile 2, Browser 2, Host 6, Kubernetes 6, MySQL 4,
+  PostgreSQL 4. Every query was drafted and probed against the demo's data at 24 local times,
+  then re-swept and critiqued by a second, independent reviewer per group, then reviewed again
+  as a whole (2026-11-04): 20 read data, none fires before the payment incident over a day, and
+  the 11 whose data moves with the incident catch it (the tests re-check both at 54 times of
+  day); 15 wait on a source the demo lacks and say which — the RUM page views, JavaScript errors
+  and page timings Browser's two Logs rules read, host memory states and filesystem metrics,
+  kube-state-metrics, mysqld_exporter, and the PostgreSQL integration (not connected on the
+  Infrastructure page); 2 cannot be used yet and say why — Mobile, because Mobile alerts are
+  deferred (Q6). Usable ones list first.
+- **Choices the reviews made.** Host CPU keeps the platform's 70% and 85% on the Infrastructure
+  page's own Create-alert query (the profile-bound seed query reads the Infrastructure page's
+  always-hot hosts at 89% and would fire all day). The splits finer than a service — an
+  endpoint's error rate and p99, a version's error rate, a host's — need 10 requests a minute now,
+  so one failed or slow request on a quiet route cannot page. The endpoint p99 also sets `/batch`
+  routes aside, slow by design; the endpoint error rate does not, so a failing batch route still
+  pages. Of the ratios against an hour ago, average latency needs 10 requests a minute in both
+  hours; calls to a dependency are counted per request the service served, so a traffic ramp is
+  not a surge, and need 6 calls a minute an hour ago and 10 requests a minute now; memory and
+  network divide by what a host in service never runs near zero. A host's error template watches
+  its excess over its own service, not the same 1%/3% again. The log and event templates sit
+  above the busiest quiet hour, because sampled log counts swing with the time of day more than
+  the incident moves them. The second review swapped disk I/O queue depth for "Metrics have
+  stopped arriving" (a host that dies goes silent on every other host rule) and PostgreSQL
+  deadlocks for "Server is unreachable", MySQL's twin; it moved MySQL's connections from the
+  demo's thread count against MySQL's default 151 (not RDS's) to mysqld_exporter's share of
+  `max_connections`, and Browser from blocked to waiting: its rules are Logs rules, which run.
+
 ## Loading
 
-The three pages load as their own chunk — about 240 kB (78 kB gzipped) that no other page needs —
-behind `AlertsPageSkeleton` in each page's shape. The data module itself is in the main bundle,
+The four pages load apart from the main bundle — production's three in chunks totalling about
+233 kB (79 kB gzipped), Browse Templates in its own of about 49 kB (14 kB), reusing the editor's
+`editorDraft` chunk — behind `AlertsPageSkeleton` in each page's shape. The data module itself is in the main bundle,
 because Home and the service page read `useAlerts`.
 
 ## Where it deliberately differs from the original
@@ -173,8 +230,9 @@ with Undo; deletes say what they do. A contact point in use says why it can't be
 lists the rules that still send there. Insights flags always-firing, flapping and never-fired rules,
 with Tune. The notification log says which event each send was and why a held or failed one was.
 The editor is one page with a live preview. Create-from-context prefills thresholds, name and
-group; production prefills none. A template says whether a rule already uses it. Nothing waits
-for a Search click (rule 5).
+group; production prefills none. Templates have a page of their own, with two layers instead of
+a category per Kubernetes object and placeholder "Dummy" ones, and a template says whether a rule
+already uses it. Nothing waits for a Search click (rule 5).
 
 ## Known gaps
 
@@ -193,3 +251,13 @@ for a Search click (rule 5).
 - **App-wide, not Alerts'**: focus lands on the page after a route change and there is no skip
   link; a facet group's header collapses on click only; the toast's 4.5 s does not pause on hover.
 - **Waiting on other pages**: the Monitors page's bell, "Edit in SLO", and the Mobile datasource.
+- **Browse Templates' gaps**: Redis has no Sub-domain, so its connection templates have no home
+  (the pool-exhausted log template is the only Redis-facing one); there is no dependency-side
+  error or latency template, because client calls carry neither in the store; LogsQL cannot
+  compare with a baseline, so "a new exception class appears" stands as the pool-exhausted
+  message match; the Infrastructure page's MySQL shows connections, slow queries and replication
+  lag from its own profiles while the store holds only the demo's own thread count, so those
+  templates say they wait on mysqld_exporter. The ratios against an hour ago resolve on their own
+  an hour into a lasting regression, when the baseline catches up; "Memory is climbing" catches
+  growth over 15% in an hour, not a slow leak (a `predict_linear` template would). Replication
+  that stops outright reads as no lag, or no series, and has no template yet.

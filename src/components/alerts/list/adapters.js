@@ -19,6 +19,8 @@ export const rulePath = ruleId => routeUrl({ view: 'alertRule', ruleId })
 /** The editor on a rule; with no id, on a new one (/alerts/new). */
 export const ruleEditPath = ruleId => routeUrl({ view: 'alertEditor', ruleId })
 export const NEW_RULE_PATH = routeUrl({ view: 'alertEditor', ruleId: null })
+/** The template catalogue (Browse Templates), /alerts/templates. */
+export const TEMPLATES_PATH = routeUrl({ view: 'alertTemplates' })
 
 /**
  * Whether a snooze or a mute is holding the rule's notifications now. The

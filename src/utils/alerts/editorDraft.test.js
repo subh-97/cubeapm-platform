@@ -190,6 +190,19 @@ test('a payload can ask for an anomaly rule and its own check interval; anything
   assert.equal(logs.intervalSec, 60, 'an interval the editor does not offer is not taken')
 })
 
+test('a payload can fill the rule\'s details and tags, never the labels the evaluator owns', () => {
+  const d = draftFromPayload({
+    datasource: 'prometheus', query: 'redis_connected_clients', name: 'Redis: Clients climbing',
+    summary: 'More than 150 clients.', description: 'A pool leaking.', runbook: 'https://runbooks/redis',
+    tags: { template: 'redis.clients-climbing', severity: 'critical', group: 'X', rule_id: '9', alertname: 'x', team: 'db' },
+  })
+  assert.deepEqual([d.summary, d.description, d.runbook], ['More than 150 clients.', 'A pool leaking.', 'https://runbooks/redis'])
+  assert.deepEqual(d.tags, [{ key: 'template', value: 'redis.clients-climbing' }, { key: 'team', value: 'db' }])
+  const saved = ruleFromDraft(d)
+  assert.equal(saved.labels.template, 'redis.clients-climbing')
+  assert.equal(saved.annotations.description, 'A pool leaking.')
+})
+
 test('a draft is dirty when it would save something different, and only then', () => {
   const opened = draftFromRule(byId.get(502))
   assert.equal(isDirty(opened, opened), false)

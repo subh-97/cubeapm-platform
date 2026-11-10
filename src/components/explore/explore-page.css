@@ -106,7 +106,7 @@
   right: 0;
   top: 27px;
   height: 1px;
-  background: var(--border-subtle);
+  background: var(--border-panel);
 }
 /* Always on screen rather than summoned by hover: a control nobody can see is
    one nobody drags, and hover cannot be discovered on a touch screen at all.
@@ -124,7 +124,7 @@
     ) center / 16px 5px no-repeat,
     var(--card);
   border: 1px solid var(--border-panel);
-  opacity: .75;
+  opacity: .9;
   transition: opacity .12s, border-color .12s;
 }
 .ex-split:hover .ex-split-grip,

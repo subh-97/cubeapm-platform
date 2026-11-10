@@ -29,7 +29,7 @@ All routes are children of `<AppShell />` via `<Outlet />`:
 - `/mobile-traces` → Mobile Traces (sidebar "MTraces"): the Traces explorer over the mobile dataset (`MOBILE_TRACES_SOURCE`); a request's trace opens at `/trace/<id>?datasource=mobile`
 - `/logs` → LogsPage  
 - `/metrics` → MetricsPage
-- `/alerts` → AlertsView: Rules, Insights, Contact points, Mute schedules and Notifications, under production's `?tab=` values; `/alerts/:id` → AlertRuleView, a rule's page; `/alerts/new` and `/alerts/:id/edit` → AlertEditorView, the editor. The three load as their own chunk (`docs/decisions/alerts-page.md`)
+- `/alerts` → AlertsView: Rules, Insights, Contact points, Mute schedules and Notifications, under production's `?tab=` values; `/alerts/:id` → AlertRuleView, a rule's page; `/alerts/new` and `/alerts/:id/edit` → AlertEditorView, the editor; `/alerts/templates` → AlertTemplatesView, Browse Templates (the template catalogue in two layers, Domain and Sub-domain). The four load apart from the main bundle (`docs/decisions/alerts-page.md`)
 - `/settings` → SettingsPage
 
 The sidebar starts with Home, then follows the production app's list: APM & Services (a service's APM page), Logs, Infrastructure, Browser, Traces, MTraces, Profiles, Errors, Mobile, Dashboard, Explore, SLO, Alerts, Monitors, Investigation. Items not built yet (Profiles, Mobile, Dashboard, SLO, Monitors, Investigation) are stubbed with `opacity-.42` and no click handler.
@@ -101,7 +101,7 @@ Note: canvas is MID-TONE, card is DARKER — intentionally inverted for floating
 - **Panel** — card with header row, used for every data section
 - **DataTable** — sortable, right-aligned numerics, status-colored cells
 - **TabBar** — compact pill tabs, one pattern everywhere
-- **FilterChips** — capsules that narrow one list to one kind (All, then each with its mark and count); a radio group, not tabs
+- **FilterChips** — capsules that narrow one list to one kind (All, then each with its mark and count); a radio group, not tabs. No current consumer
 - **SearchCount** — a table search's "12 of 64 hosts", under its field, only while something is searched
 - **useRevealRows** (`src/hooks/`) — every table outside Logs and Traces draws its first 20 rows, then 20 more as its end scrolls near; give it the rows after search, filter and sort, and the selected row's index so that row is always drawn
 - **KpiCard** — label + status chip + mono value + sparkline + threshold
@@ -145,7 +145,7 @@ Decisions worth not re-deriving. Read the relevant one before reworking that are
 - `docs/decisions/mobile-traces-page.md` — the `/mobile-traces` page: one explorer driven by a dataset `source`, the session-built mobile data and its decodable trace ids, severity bands for HTTP codes, the one-span mobile trace view, and every difference from production
 - `docs/decisions/browser-page.md` — the `/browser` (RUM) page: the original's URL dialect as its only state, the service page's frame and panels reused, synced legend isolation, vitals bands, the source-map-gated exception modal, and the trace's way back to Browser
 - `docs/decisions/infra-charts.md` — every Infrastructure chart is a service-page chart (`LegendLineChart` for fleets, `CardChart` — the Runtime card — for the rest, the Latency Drilldown frame for a host's CPU and memory), no status hues on series, and what each choice cost
-- `docs/decisions/alerts-page.md` — the Alerts module (`/alerts`, a rule's page, the editor): production's URL dialect, a store of the viewer's edits over a seed rebuilt each load, one evaluator behind the history, the preview and the charts, every entry point's payload, keyboard and focus, and every difference from production
+- `docs/decisions/alerts-page.md` — the Alerts module (`/alerts`, a rule's page, the editor, Browse Templates): production's URL dialect, a store of the viewer's edits over a seed rebuilt each load, one evaluator behind the history, the preview and the charts, every entry point's payload, keyboard and focus, and every difference from production
 - `docs/decisions/slow-requests-latency.md` — the Detail tab's Slow Requests: one endpoint's requests modelled minute by minute, a latency Histogram | Heatmap whose drag filters the list (and does not zoom), "slow" as the window's slowest tenth and why it parts from the p90 card at an hour, decodable request trace ids, View in Traces landing on the panel's rows, the duration comparisons it needed, and every difference from production
 - `docs/decisions/chart-compare-expand.md` — every chart card's corner (Expand, then the ⋮ with Compare): the view a card hands `ChartActions`, the frame the modal sets on every chart inside it, `shiftWindow`'s bucket-for-bucket earlier window, what production's Compare does that we copy, and Expand alone (`ChartExpandButton`) for the Logs, Traces and Errors graphs and an error group's chart
 - `docs/decisions/traces-drawer-waterfall.md` — the Traces record drawer: a fixed 560px width, and its Waterfall tab (the span's trace read from the rows on screen, the Slow Requests preview reused, the error summary, why there is no slow-request summary, and the trace-page gap off Last 1 hour)
