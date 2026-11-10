@@ -29,6 +29,7 @@ import { errorGroupsForWindow, tracesFiltersFor } from '@/data/errors'
 import { previousPeriodText, deltaChip } from '@/utils/errorsPage'
 import ErrorSpark from '@/components/errors/ErrorSpark'
 import ErrorGroupsPanel from './ErrorGroupsPanel.jsx'
+import { REVEAL_STEP } from '@/hooks/useRevealRows'
 
 const noop = () => {}
 const html = el => renderToStaticMarkup(el)
@@ -104,7 +105,9 @@ function ErrorsTab({ win, timeRange, serviceId, onFocus, syncId, onOpenLink, sid
       <div className="err-head">
         <span>Endpoint</span><span>Error</span><span>Count</span><span />
       </div>
-      {filtered.map(e => {
+      {/* Not in the original: twenty rows, then the rest as the end scrolls
+          near (useRevealRows), the one later change a regex cannot undo. */}
+      {filtered.slice(0, REVEAL_STEP).map(e => {
         const delta = deltaChip(e.count, e.prevCount, prevText)
         return (
           <div
@@ -148,6 +151,7 @@ function ErrorsTab({ win, timeRange, serviceId, onFocus, syncId, onOpenLink, sid
           </div>
         )
       })}
+      {filtered.length > REVEAL_STEP && <div className="reveal-sentinel" aria-hidden="true" />}
       {filtered.length === 0 && (
         <div className="err-empty">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
@@ -266,17 +270,15 @@ test('the empty state names the side by its label, not its id', () => {
   assert.match(h, />Script<\/div>.*>Ajax<\/div>/)
 })
 
-test('a limit shows the first groups and says how many there are, in the series budget\'s footer', () => {
-  assert.ok(GROUPS.length > 4, 'enough groups to cap')
-  const h = html(<ErrorGroupsPanel side="server" groups={GROUPS} win={WIN} limit={3} noun="errors" />)
-  assert.equal(rowCount(h), 3)
-  assert.match(h, /<div class="errg-foot"><div class="series-budget">/)
-  assert.match(h, new RegExp(`Showing 3 of ${GROUPS.length} errors`))
-  assert.match(h, /<button type="button" class="series-budget-btn">Show all<\/button>/)
-  // Within the limit there is nothing to say.
-  const all = html(<ErrorGroupsPanel side="server" groups={GROUPS} win={WIN} limit={GROUPS.length} />)
-  assert.equal(rowCount(all), GROUPS.length)
-  assert.doesNotMatch(all, /series-budget/)
+test('twenty groups draw first, and the rest wait for the list\'s end to scroll near', () => {
+  assert.ok(GROUPS.length > REVEAL_STEP, 'enough groups to hold some back')
+  const h = html(<ErrorGroupsPanel side="server" groups={GROUPS} win={WIN} />)
+  assert.equal(rowCount(h), REVEAL_STEP)
+  assert.equal((h.match(/class="reveal-sentinel"/g) ?? []).length, 1)
+  // Twenty or fewer: every row, and nothing after them.
+  const few = html(<ErrorGroupsPanel side="server" groups={GROUPS.slice(0, REVEAL_STEP)} win={WIN} />)
+  assert.equal(rowCount(few), REVEAL_STEP)
+  assert.doesNotMatch(few, /reveal-sentinel/)
 })
 
 test('the Endpoint and Error cells are the caller\'s to word', () => {
@@ -366,7 +368,7 @@ test('every row ends in its chart\'s Expand and its Traces, boxed icons named fo
     assert.ok(groups.length > 0, side)
     const h = html(<ErrorGroupsPanel side={side} groups={groups} win={WIN} whereOf={whereOf} onOpenRow={noop} />)
     const cells = actionCells(h)
-    assert.equal(cells.length, groups.length)
+    assert.equal(cells.length, Math.min(REVEAL_STEP, groups.length))
     // The chart cell holds the chart alone now.
     assert.doesNotMatch(h, /<div class="err-spark">(?:(?!<div class="err-actions">).)*<button/)
     cells.forEach((cell, i) => {

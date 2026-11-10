@@ -124,9 +124,9 @@ test('past the ceiling the footer steps up to it, never offers Show all, and sto
 })
 
 test('a list that borrows the footer with no budget behind it is never cut off by the chart ceiling', () => {
-  // The error groups panel: no cap of its own and no ceiling, so Show all
-  // stays on offer however long the list. It passes no showMore, so the footer
-  // draws Show all and not the step.
+  // A list with no cap of its own and no ceiling: Show all stays on offer
+  // however long the list. It passes no showMore, so the footer draws Show all
+  // and not the step.
   assert.deepEqual(budgetOffer({ status: 'capped', count: 10, total: 500 }), { more: 20, all: true, fewer: false, tooMany: false })
   assert.equal(budgetOffer({ status: 'expanded', count: 500, total: 500 }).fewer, true)
 })

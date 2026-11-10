@@ -17,10 +17,6 @@ import './browser-traces.css'
 // the call's.
 const SIDES = BROWSER_KINDS
 
-// Production shows ten and offers the rest, and so does this: a storefront
-// throws on every route it has, and forty-two rows bury the page's own fold.
-const LIMIT = 10
-
 // Each row's chart, lower than APM's 132px so ten rows fit a screen; the
 // .err-spark height in browser-traces.css says the same.
 const SPARK_HEIGHT = 88
@@ -121,7 +117,6 @@ export default function BrowserErrorsTab({
           // "click a row to drill in".
           headRight={<span className="hint">Click a row to see its traces</span>}
           searchPlaceholder={isScript ? 'Search pages or errors…' : 'Search endpoints or status codes…'}
-          limit={LIMIT}
         />
       </div>
       {/* At the tab's root, not in a row: the modal is not portalled, and a

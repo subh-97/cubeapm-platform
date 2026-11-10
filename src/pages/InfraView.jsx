@@ -9,6 +9,7 @@ import {
 import { resolveWindow } from '@/data/timeWindow'
 import PageBar from '@/components/layout/PageBar'
 import TableQuerySearch from '@/components/TableQuerySearch'
+import SearchCount from '@/components/shared/SearchCount'
 import CardMenu, { CardActionContext } from '@/components/CardMenu'
 import ChartActions from '@/components/charts/ChartActions'
 import { alertPayloadForHostCpu } from '@/utils/alerts/editorPayloads'
@@ -523,7 +524,7 @@ function HostTable({ hosts, onSelect }) {
           <div className="panel-head-left">Summary</div>
           <CardMenu kind="table" title="Summary" columns={metricLabels(HOST_COLUMNS)} />
         </div>
-        <TableQuerySearch onApply={setQuery} fields={HOST_FIELDS} />
+        <TableQuerySearch onApply={setQuery} fields={HOST_FIELDS} status={<SearchCount active={!!query.trim()} shown={shown.length} total={hosts.length} noun="hosts" />} />
       </div>
       <SortableTable
         columns={columns}
@@ -997,7 +998,7 @@ function K8sNodeDetail({ node, nodes, pods, onSelectNode, onSelectPod, reveal })
           <div className="panel-head-row">
             <span>Pods</span>
           </div>
-          <TableQuerySearch onApply={setPodQuery} fields={POD_FIELDS} />
+          <TableQuerySearch onApply={setPodQuery} fields={POD_FIELDS} status={<SearchCount active={!!podQuery.trim()} shown={shown.length} total={onNode.length} noun="pods" />} />
         </div>
         <SortableTable
           columns={NODE_POD_COLUMNS.map(c => (c.key === 'name' ? { ...c, render: p => <PodName pod={p} hits={hits} tagHits={tagHits} /> } : c))}
@@ -1150,7 +1151,7 @@ function K8sPodListView({ pods, selectedPod, setSelectedPod, reveal }) {
             <div className="panel-head-left">Summary</div>
             <CardMenu kind="table" title="Summary" columns={metricLabels(NODE_POD_COLUMNS)} />
           </div>
-          <TableQuerySearch onApply={setQuery} fields={POD_NODE_FIELDS} />
+          <TableQuerySearch onApply={setQuery} fields={POD_NODE_FIELDS} status={<SearchCount active={!!query.trim()} shown={shown.length} total={scoped.length} noun="pods" />} />
         </div>
         <SortableTable
           columns={[

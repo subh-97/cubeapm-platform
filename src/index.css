@@ -1090,6 +1090,12 @@ tbody tr:hover { background: var(--panel-2); }
 .search-with-icon > svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
   width: 13px; height: 13px; color: var(--text-muted); pointer-events: none; }
 .search-with-icon > input { display: block; padding-left: 29px; }
+/* A table search's "12 of 64 hosts" (SearchCount), under its field, as the
+   trace waterfall's match count sits under its own. */
+.search-count { margin-top: 6px; font-size: 11px; color: var(--text-muted); }
+/* After a long table's last drawn row (useRevealRows): its coming near the
+   screen brings the next twenty. */
+.reveal-sentinel { height: 1px; }
 .split-ep-row { --row-py: 10px; --col-gap: 10px; display: grid; grid-template-columns: 1fr 88px 60px 66px 72px; gap: var(--col-gap); align-items: center; padding: var(--row-py) 14px; border-top: 1px solid var(--border-subtle); font-size: 11px; cursor: pointer; transition: background .1s; }
 .split-ep-row:hover { background: var(--panel-2); }
 .split-ep-row.selected { background: var(--brand-muted); }

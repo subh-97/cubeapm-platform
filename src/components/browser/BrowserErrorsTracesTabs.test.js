@@ -13,6 +13,7 @@ import {
 } from '@/data/browser'
 import { fmtLoadTime } from '@/components/charts/chartDefaults'
 import BrowserErrorsTab from './BrowserErrorsTab.jsx'
+import { REVEAL_STEP } from '@/hooks/useRevealRows'
 import BrowserTracesTab from './BrowserTracesTab.jsx'
 
 const noop = () => {}
@@ -40,21 +41,21 @@ const tracesTab = props => html(
   />,
 )
 
-test('Errors, Script: the first ten groups, class buttons, and the footer offering the rest', () => {
+test('Errors, Script: the first twenty groups, class buttons, and the rest waiting for a scroll', () => {
   const groups = browserErrorGroupsForWindow(win, app.id, 'server')
-  assert.ok(groups.length > 10)
+  assert.ok(groups.length > REVEAL_STEP)
   const out = errorsTab('server')
   // The toggle reads production's words, Script on.
   assert.match(out, /class="seg active" role="button" tabindex="0" aria-pressed="true">Script</)
   assert.match(out, /class="seg" role="button" tabindex="0" aria-pressed="false">Ajax</)
   assert.match(out, /placeholder="Search pages or errors…"/)
   assert.match(out, /<span class="hint">Click a row to see its traces<\/span>/)
-  assert.equal(count(out, /class="err-row is-clickable"/g), 10)
-  assert.equal(count(out, /<button type="button" class="err-exc-cls"/g), 10)
-  assert.ok(out.includes(`Showing 10 of ${groups.length} error groups`))
+  assert.equal(count(out, /class="err-row is-clickable"/g), REVEAL_STEP)
+  assert.equal(count(out, /<button type="button" class="err-exc-cls"/g), REVEAL_STEP)
+  assert.equal(count(out, /class="reveal-sentinel"/g), 1)
   // Rows in the data's order (count desc), each under its route, which is the
   // row's button for the keyboard, named for where it goes.
-  for (const g of groups.slice(0, 10)) {
+  for (const g of groups.slice(0, REVEAL_STEP)) {
     assert.ok(out.includes(`<div class="err-endpoint" title="${esc(g.endpoint)}"><button type="button" class="err-open" aria-label="${esc(`See traces for ${g.endpoint}, ${g.exception}`)}">`), g.endpoint)
     assert.ok(out.includes(`<span class="err-exc-msg" title="${esc(g.message)}">${esc(g.message)}</span>`), g.message)
   }
@@ -68,14 +69,14 @@ test('Errors, Ajax: a status chip and its reason, nothing to open but the row', 
   assert.match(out, /class="seg active" role="button" tabindex="0" aria-pressed="true">Ajax</)
   assert.match(out, /placeholder="Search endpoints or status codes…"/)
   assert.doesNotMatch(out, /class="err-exc-cls/)
-  assert.equal(count(out, /class="err-row is-clickable"/g), Math.min(10, groups.length))
+  assert.equal(count(out, /class="err-row is-clickable"/g), Math.min(REVEAL_STEP, groups.length))
   const top = groups[0]
   const cls = Number(top.exception) >= 500 ? 'is-5xx' : 'is-4xx'
   assert.ok(out.includes(`<span class="tw-code ${cls}">${top.exception}</span>`), top.exception)
   assert.ok(out.includes(`<span class="errp-code-reason">${top.message}</span>`), top.message)
   // The Endpoint column is the call, spelled as the Traces tab's filter lists it.
   const options = browserEndpointOptions(app.id, 'client')
-  for (const g of groups.slice(0, 10)) assert.ok(options.includes(g.endpoint), g.endpoint)
+  for (const g of groups.slice(0, REVEAL_STEP)) assert.ok(options.includes(g.endpoint), g.endpoint)
   // Drawn with a break after every '/', so a long call wraps between its
   // segments, never inside one; its text is still the call.
   const [first] = groups

@@ -213,3 +213,18 @@ test('nothing sits between the toolbar and the rules, and rows are not selectabl
   assert.doesNotMatch(between, /rtab-controls|rules · |Select all/)
   assert.doesNotMatch(html, /data-row-select|type="checkbox" class="rtab-check"/)
 })
+
+test('a long list draws twenty rules down the groups, the linked one wherever it sits, and an open fold keeps its button', () => {
+  // A search that names nothing in particular unfolds every paused rule: all
+  // 23, cut at twenty, the groups after the cut left for a scroll.
+  const all = rowIds(page('?q=a'))
+  assert.equal(all.length, 20)
+  // External Deps holds only paused rules (432, 433); linked, its fold opens
+  // and 432 is drawn past the twentieth row. The open fold's button (the one
+  // a reader would have pressed) stays, though 433 is still to come.
+  const html = page('?rule_id=432')
+  const ids = rowIds(html)
+  assert.ok(ids.includes('432'))
+  assert.match(html, /<button type="button" class="rtab-fold" aria-expanded="true">/)
+  assert.match(html, /class="reveal-sentinel"/)
+})

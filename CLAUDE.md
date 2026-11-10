@@ -102,6 +102,8 @@ Note: canvas is MID-TONE, card is DARKER — intentionally inverted for floating
 - **DataTable** — sortable, right-aligned numerics, status-colored cells
 - **TabBar** — compact pill tabs, one pattern everywhere
 - **FilterChips** — capsules that narrow one list to one kind (All, then each with its mark and count); a radio group, not tabs
+- **SearchCount** — a table search's "12 of 64 hosts", under its field, only while something is searched
+- **useRevealRows** (`src/hooks/`) — every table outside Logs and Traces draws its first 20 rows, then 20 more as its end scrolls near; give it the rows after search, filter and sort, and the selected row's index so that row is always drawn
 - **KpiCard** — label + status chip + mono value + sparkline + threshold
 - **StatusDot** / **StatusBadge** — always resolve through status utils
 - **IncidentBanner** — left-border severity accent, surfaces root cause prominently

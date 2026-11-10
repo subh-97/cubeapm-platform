@@ -13,6 +13,9 @@
 .cfg-toolbar .hbtn.primary { margin-left: auto; }
 .cfg-toolbar svg, .cfg-item-actions svg, .cfg-delete svg { width: 13px; height: 13px; }
 .cfg-count { margin: 0; font-size: 12px; color: var(--text-muted); }
+/* The search's "3 of 7 contact points" sits in the toolbar's row, beside the
+   field, rather than under it. */
+.cfg-toolbar > .search-count { margin-top: 0; }
 .cfg-count-bad { color: var(--critical-fg); font-weight: 600; }
 .cfg-search { width: 280px; }
 

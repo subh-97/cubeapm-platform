@@ -6,6 +6,7 @@ import { browserColor } from '@/utils/chartPalette'
 import { formatValue, formatThreshold, formatElapsed, multipleText } from '@/utils/alerts/describe'
 import { clockText, crossedTier, tierNumber, toSec } from './rulePage'
 import { tracesHandoff, logsHandoff, hostHandoff } from './handoffs'
+import { useRevealRows } from '@/hooks/useRevealRows'
 
 /** The newest send that concerned a row: a grouped rule's sends concern every series. */
 function lastNotified(row, log) {
@@ -40,12 +41,17 @@ function sinceFor(row, nowSec) {
  * which production lacks, opens the series' host on Infrastructure. Each row
  * offers the ones its own labels reach: a rule grouped by service or by host
  * names them on its series, not on the rule.
+ *
+ * Twenty rows draw, then twenty more as the end scrolls near (useRevealRows);
+ * the selected series is drawn wherever it sits, so a legend pick or an
+ * `alert_id` lands on a row.
  */
 export default function RuleInstances({ view, rows, log, nowSec, selected, onSelect, onTraces, onLogs, onHost, scrollToSelected = false }) {
   const selectedRef = useRef(null)
   useEffect(() => {
     if (scrollToSelected) selectedRef.current?.scrollIntoView?.({ block: 'center' })
   }, [scrollToSelected])
+  const { rows: drawn, sentinel } = useRevealRows(rows, rows.findIndex(r => r.name === selected))
 
   if (rows.length === 0) {
     return (
@@ -72,7 +78,7 @@ export default function RuleInstances({ view, rows, log, nowSec, selected, onSel
           </tr>
         </thead>
         <tbody>
-          {rows.map((row, i) => {
+          {drawn.map((row, i) => {
             const on = selected === row.name
             const crossed = crossedTier({ ...view, severity: row.severity })
             const t = crossed ? tierNumber(crossed.tier) : null
@@ -141,6 +147,7 @@ export default function RuleInstances({ view, rows, log, nowSec, selected, onSel
           })}
         </tbody>
       </table>
+      {sentinel}
     </section>
   )
 }

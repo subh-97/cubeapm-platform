@@ -18,19 +18,6 @@
    row's left edge. */
 .err-row.is-clickable:has(.err-open:focus-visible)::before { background: var(--brand); }
 
-/* The series budget's footer bleeds to the edges of a padded card; a panel's
-   rows carry their own 16px inset instead, so the line takes it as padding —
-   the same arrangement as under a RED chart section. Its top rule closes off
-   the last row.
-
-   Positioned, so the footer's screen-reader line (an absolutely placed
-   .sr-only span) is placed against it. With no positioned ancestor up to the
-   page, that span took the whole document as its box and sat at its own
-   static offset — far below the page's scroller — and the document grew a
-   scrollbar that scrolled the app shell away. */
-.errg-foot { position: relative; }
-.errg-foot > .series-budget { margin: 0; padding: 7px 16px 8px; }
-
 /* The row's actions, Expand then Traces, as boxed icons (.row-icon-btn), at
    the end of the row in a column of their own. */
 .err-actions { display: flex; align-items: center; justify-content: flex-end; gap: 4px; }

@@ -13,6 +13,8 @@ import { usageByContactPoint, deliveryHealth, sortContactPoints } from '@/utils/
 import { alertsSearch } from '@/utils/alertsUrl'
 import { alertRuleUrl, routeUrl } from '@/utils/route'
 import { formatLocal } from '@/utils/timeRange'
+import { useRevealRows } from '@/hooks/useRevealRows'
+import SearchCount from '@/components/shared/SearchCount'
 import ContactPointDrawer from './ContactPointDrawer.jsx'
 
 const ALERTS_PATH = routeUrl({ view: 'alerts' })
@@ -47,6 +49,9 @@ export default function ContactPointsTab({ alerts, setToast }) {
   const sorted = useMemo(() => sortContactPoints(groups, usage, health), [groups, usage, health])
   const q = query.trim().toLowerCase()
   const shown = q ? sorted.filter(g => searchText(g, usage, alerts.lookups).includes(q)) : sorted
+  // A new search starts again at twenty; a delete keeps what is drawn, so the
+  // focus handoff finds the card after the deleted one.
+  const { rows: drawn, sentinel } = useRevealRows(shown, -1, q)
   const failing = groups.filter(g => health.get(g.id)?.status === 'ERROR').length
 
   const go = url => (e) => { if (!isPlain(e)) return; e.preventDefault(); navigate(url) }
@@ -80,6 +85,9 @@ export default function ContactPointsTab({ alerts, setToast }) {
           aria-label="Search contact points"
           onChange={e => setQuery(e.target.value)}
         />
+        {/* After the field, so it takes room from the gap before New rather
+            than moving the field being typed in. */}
+        <SearchCount active={!!q} shown={shown.length} total={groups.length} noun="contact points" />
         <button ref={newRef} type="button" className="hbtn primary" onClick={() => setDrawer({ mode: 'new', group: null })}>
           <Plus aria-hidden="true" />New contact point
         </button>
@@ -97,7 +105,7 @@ export default function ContactPointsTab({ alerts, setToast }) {
         </div>
       ) : (
         <ul className="cfg-list" ref={listRef} onFocus={onListFocus}>
-          {shown.map((g) => {
+          {drawn.map((g) => {
             const users = usage.get(g.id) ?? []
             const h = health.get(g.id)
             const sent = deliveries.get(g.id) ?? []
@@ -141,6 +149,7 @@ export default function ContactPointsTab({ alerts, setToast }) {
           })}
         </ul>
       )}
+      {sentinel}
 
       {drawer && (
         <ContactPointDrawer

@@ -622,7 +622,7 @@ from Alerts alone (J12, J13).
   - Details that say why;
   - links to the rule and instance;
   - facets;
-  - "Show 20 more · Show all";
+  - twenty rows, then twenty more as the list's end scrolls near (`useRevealRows`; "Show 20 more · Show all" until 2026-11-05);
   - rows that expand in place with the payload, the full target and any error text;
   - production's `rule_id` and status values in the URL.
 - [x] **6c — Embeds:** the log on the rule page (P3d) and delivery health on contact points (P5a)

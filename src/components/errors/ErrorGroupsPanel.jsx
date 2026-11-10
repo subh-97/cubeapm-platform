@@ -2,8 +2,9 @@ import { useRef, useState } from 'react'
 import { ArrowUpRight } from 'lucide-react'
 import ErrorSpark from './ErrorSpark'
 import ChartExpandButton from '@/components/charts/ChartExpandButton'
-import SeriesBudgetFooter from '@/components/charts/SeriesBudgetFooter'
+import SearchCount from '@/components/shared/SearchCount'
 import SearchGlyph from '@/components/shared/SearchGlyph'
+import { useRevealRows } from '@/hooks/useRevealRows'
 import { deltaChip, exceptionParts } from '@/utils/errorsPage'
 // errors.css for .errp-delta, each row's comparison chip, and the
 // `.err-row .err-count` rule that stacks it under the count. Said here rather
@@ -50,12 +51,15 @@ function BreakAtDots({ text }) {
  *   prevText               what the count's chip compares against, worded
  *                          from the picked range ("the previous hour"); left
  *                          out, the count stands alone with no chip
- *   limit / noun           show the first `limit` groups, with the series
- *                          budget's "Showing N of M · Show all" line under them
+ *   noun                   what a row is, for the search's "3 of 42 error
+ *                          groups"
  *   renderWhere(group)     the Endpoint cell's content, when it should be more
  *                          than the text (default: whereOf's text)
  *   sparkHeight            each row's chart height (ErrorSpark's 132 by
  *                          default); the row's CSS must agree with it
+ *
+ * Twenty rows draw, then twenty more as the list's end scrolls near
+ * (useRevealRows).
  *
  * A row opens on a click anywhere outside its own controls, as it always has.
  * For the keyboard and a screen reader the way in is a real button: the
@@ -73,16 +77,13 @@ export default function ErrorGroupsPanel({
   groups, whereOf, renderError, onOpenRow, onOpenException,
   prevText, win, onFocus, syncId, headRight,
   searchPlaceholder = 'Search endpoints or exceptions…',
-  limit, noun = 'error groups', renderWhere, sparkHeight,
+  noun = 'error groups', renderWhere, sparkHeight,
 }) {
   const [ownSide, setOwnSide] = useState(sides[0]?.id)
   const side = sideProp ?? ownSide
   const setSide = onSide ?? setOwnSide
   const sideLabel = sides.find(s => s.id === side)?.label ?? side
   const [q, setQ] = useState('')
-  // "Show all" belongs to the side it was asked on: the other side's list is a
-  // different length, and opening it already expanded would skip the cap.
-  const [expandedFor, setExpandedFor] = useState(null)
   // A drag across a row's chart (a zoom) that ends outside the chart finishes
   // its click on the row, which would open the row behind the zoom. Where the
   // press started decides — the same guard as the Errors page's table.
@@ -92,9 +93,8 @@ export default function ErrorGroupsPanel({
   const filtered = q
     ? groups.filter(e => (where(e) + ' ' + e.exception + ' ' + e.message).toLowerCase().includes(q.toLowerCase()))
     : groups
-  const capped = limit != null && filtered.length > limit
-  const expanded = expandedFor === side
-  const shown = capped && !expanded ? filtered.slice(0, limit) : filtered
+  // Each side, and each search, is a new list.
+  const { rows: shown, sentinel } = useRevealRows(filtered, -1, `${side}\n${q}`)
 
   const openRow = e => onOpenRow?.(e)
   const errorCell = renderError ?? (e => (
@@ -152,6 +152,7 @@ export default function ErrorGroupsPanel({
           <SearchGlyph />
           <input placeholder={searchPlaceholder} aria-label={searchPlaceholder.replace(/…$/, '')} value={q} onChange={e => setQ(e.target.value)} />
         </div>
+        <SearchCount active={!!q} shown={filtered.length} total={groups.length} noun={noun} />
       </div>
       <div className="err-head">
         <span>Endpoint</span><span>Error</span><span className="err-count-head">Count</span><span /><span />
@@ -226,16 +227,7 @@ export default function ErrorGroupsPanel({
           </div>
         )
       })}
-      {capped && (
-        <div className="errg-foot">
-          <SeriesBudgetFooter
-            noun={noun}
-            budget={expanded
-              ? { status: 'expanded', count: filtered.length, total: filtered.length, showFewer: () => setExpandedFor(null) }
-              : { status: 'capped', count: limit, total: filtered.length, showAll: () => setExpandedFor(side) }}
-          />
-        </div>
-      )}
+      {sentinel}
       {filtered.length === 0 && (
         <div className="err-empty">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>

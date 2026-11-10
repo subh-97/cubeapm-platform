@@ -15,7 +15,7 @@ import { budgetOffer } from './seriesBudget'
  * (`collapsible`, the alert timeline's lanes) offers "Show less" whenever more
  * than the cap is shown, through the budget's `showFewer`. Otherwise an action
  * is offered only when the budget has a handler for it, so a list that borrows
- * this footer with Show all alone (the error groups panel) draws exactly that.
+ * this footer with Show all alone draws exactly that.
  *
  * The visible count changes every frame while a chart fills in, which is too
  * chatty to announce; the screen-reader line only speaks when the state does.
