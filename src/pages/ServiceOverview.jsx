@@ -20,12 +20,14 @@ import { explorePayloadForCard } from '@/utils/explore/editorState'
 import { alertPayloadForCard } from '@/utils/alerts/editorPayloads'
 import InfoTip from '@/components/shared/InfoTip'
 import SearchGlyph from '@/components/shared/SearchGlyph'
+import SearchCount from '@/components/shared/SearchCount'
 import FilterSelect from '@/components/shared/FilterSelect'
 import ViewToggle from '@/components/shared/ViewToggle'
 import TitleDropdown from '@/components/shared/TitleDropdown'
 import ViewTabs from '@/components/shared/ViewTabs'
 import { SortableTh, CellBar } from '@/components/shared/SortableTable'
 import { useSortedRows } from '@/hooks/useSortedRows'
+import { useRevealRows } from '@/hooks/useRevealRows'
 import { useScrollReveal, revealClass } from '@/hooks/useScrollReveal'
 import RequestTraceSplit, { RequestTraceList } from '@/components/trace/RequestTraceSplit'
 import SlowRequestsPanel from '@/components/trace/SlowRequestsPanel'
@@ -762,7 +764,8 @@ function InfraCorrelation({ hosts, win, onFocus }) {
     () => hosts.map(h => ({ ...h, latencyAvg: h.latencyAvg ?? Math.round(h.latencyP90 * INFRA_AVG_OF_P90) })),
     [hosts]
   )
-  const { rows, sort, toggle } = useSortedRows(rowsWithAvg, 'latencyP90', 'desc')
+  const { rows: sorted, sort, toggle } = useSortedRows(rowsWithAvg, 'latencyP90', 'desc')
+  const { rows, sentinel } = useRevealRows(sorted)
   const [hover, setHover] = useState(null)
   // A short delay before clearing the popover lets the pointer travel from the
   // cell to the chart (and then around inside it) without the chart vanishing
@@ -802,7 +805,7 @@ function InfraCorrelation({ hosts, win, onFocus }) {
   const expandedView = useMemo(() => {
     if (!expanded) return null
     const m = INFRA_METRICS[expanded.metric]
-    const row = rows.find(r => r.host === expanded.host)
+    const row = sorted.find(r => r.host === expanded.host)
     return {
       win,
       comparable: false,
@@ -819,7 +822,7 @@ function InfraCorrelation({ hosts, win, onFocus }) {
         />
       ),
     }
-  }, [expanded, rows, win, onFocus])
+  }, [expanded, sorted, win, onFocus])
 
   return (
     <div className="panel">
@@ -853,6 +856,7 @@ function InfraCorrelation({ hosts, win, onFocus }) {
           ))}
         </tbody>
       </table>
+      {sentinel}
       {hover && (
         <HoverChartPopover
           anchor={hover.anchor}
@@ -956,6 +960,7 @@ function RedTab({ win, endpoints, syncId, onFocus }) {
               onChange={e => setSearch(e.target.value)}
             />
           </div>
+          <SearchCount active={!!search.trim()} shown={filtered.length} total={endpoints.length} noun="endpoints" />
         </div>
       )}
       {isGraph ? (
@@ -973,7 +978,8 @@ function RedTab({ win, endpoints, syncId, onFocus }) {
 }
 
 function RedEndpointsTable({ rows: input }) {
-  const { rows, sort, toggle } = useSortedRows(input, 'timeConsumedPct', 'desc')
+  const { rows: sorted, sort, toggle } = useSortedRows(input, 'timeConsumedPct', 'desc')
+  const { rows, sentinel } = useRevealRows(sorted)
   // The route is what a reader scans this table by, so it gets a set 360px
   // rather than only as much as its longest route needs. A fixed width holds at
   // every panel size; a percentage resolves against a panel that is already
@@ -1017,6 +1023,7 @@ function RedEndpointsTable({ rows: input }) {
           )}
         </tbody>
       </table>
+      {sentinel}
     </div>
   )
 }
@@ -1099,9 +1106,12 @@ function SplitEndpointList({ title, endpoints, selectedIdx, onSelect, onClear })
   const filtered = useMemo(() => (
     search ? endpoints.filter(e => e.endpoint.toLowerCase().includes(search.toLowerCase())) : endpoints
   ), [search, endpoints])
-  const { rows, sort, toggle } = useSortedRows(filtered, 'timeConsumedPct', 'desc')
+  const { rows: sorted, sort, toggle } = useSortedRows(filtered, 'timeConsumedPct', 'desc')
   const hasSelection = selectedIdx != null && endpoints[selectedIdx]
   const selectedEndpoint = hasSelection ? endpoints[selectedIdx].endpoint : null
+  // The picked endpoint stays drawn however far a sort moves it: the charts
+  // beside the list are showing it.
+  const { rows, sentinel } = useRevealRows(sorted, sorted.findIndex(e => e.endpoint === selectedEndpoint))
 
   const SortLbl = ({ sortKey, children }) => {
     const active = sort?.key === sortKey
@@ -1134,6 +1144,7 @@ function SplitEndpointList({ title, endpoints, selectedIdx, onSelect, onClear })
           <SearchGlyph />
           <input placeholder="Search endpoints…" aria-label="Search endpoints" value={search} onChange={e => setSearch(e.target.value)} />
         </div>
+        <SearchCount active={!!search} shown={filtered.length} total={endpoints.length} noun="endpoints" />
       </div>
       <div className="split-ep-head is-sortable">
         <SortLbl sortKey="endpoint">Endpoint</SortLbl>
@@ -1165,6 +1176,7 @@ function SplitEndpointList({ title, endpoints, selectedIdx, onSelect, onClear })
           </div>
         )
       })}
+      {sentinel}
       {rows.length === 0 && (
         <div className="err-empty">No endpoints match "{search}"</div>
       )}

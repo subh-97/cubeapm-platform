@@ -78,7 +78,7 @@ test('a collapsible footer offers Show less once more than the cap is shown, and
 })
 
 test('a budget offers only the actions it has handlers for', () => {
-  // The error groups panel passes Show all, and no step.
+  // A budget that passes Show all, and no step.
   assert.deepEqual(buttons(footer({ total: 64 }, { showAll: noop })), ['Show all'])
   assert.doesNotMatch(footer({ total: 64, want: 28, drawn: 28 }), />Hide all</, 'no chart offers a way back')
 })

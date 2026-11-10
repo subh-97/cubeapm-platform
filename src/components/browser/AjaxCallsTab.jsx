@@ -112,6 +112,8 @@ export default function AjaxCallsTab({ app, win, timeRange, syncId, onFocus, vie
         onView={onView}
         noun="endpoints"
         search={search}
+        shown={rows.length}
+        total={data.rows.length}
         onSearch={setSearch}
         graph={(
           <>

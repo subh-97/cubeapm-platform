@@ -2,10 +2,11 @@
 // under the current Legend value, and — while Compare is on — what it was and
 // how far it has moved.
 //
-// The row model, the merge rule, the sort order and the 20-row limit are all
-// decided in utils/explore/series.js; this file renders them and owns the
-// three pieces of state that are nobody else's business: the search text, the
-// sort column, and whether "Show all" has been pressed. They stay local
+// The row model, the merge rule and the sort order are all decided in
+// utils/explore/series.js; this file renders them, twenty rows at a time and
+// twenty more as the table's end scrolls near (useRevealRows), and owns the
+// two pieces of state that are nobody else's business: the search text and
+// the sort column. They stay local
 // because nothing outside the table reads them — unlike the legend's search,
 // which also decides which lines the chart draws and therefore belongs to the
 // page.
@@ -21,6 +22,7 @@ import { clsx } from 'clsx'
 import { DEFAULT_TABLE_SORT, searchValues, tableView, toggleSort } from '@/utils/explore/series'
 import { segmentSearch, suggestSearch } from '@/utils/explore/searchQuery'
 import { formatValue } from '@/utils/explore/format'
+import { useRevealRows } from '@/hooks/useRevealRows'
 import ValueSparkPopover from './ValueSparkPopover'
 import './explore-results.css'
 
@@ -188,7 +190,7 @@ function SortHeader({ col, label, className, sort, onSort }) {
  * @param {boolean} [props.comparing]   adds the Previous and Change columns
  * @param {string} [props.compareLabel] e.g. "vs previous period"
  * @param {string|number} [props.resetKey]
- *   changing it clears the search, the sort and the row limit. Pass the
+ *   changing it clears the search and the sort, and draws twenty rows again. Pass the
  *   committed query's identity, NOT the run id — a refresh that returns the
  *   same query's rows should not throw away the sort you were reading them in.
  * @param {'idle'|'loading'|'ready'|'empty'|'error'} [props.status]
@@ -201,18 +203,17 @@ export default function ExploreTable({
 }) {
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState(DEFAULT_TABLE_SORT)
-  const [limitOn, setLimitOn] = useState(true)
   const [spark, setSpark] = useState(null)
 
   useEffect(() => {
     setSearch('')
     setSort(DEFAULT_TABLE_SORT)
-    setLimitOn(true)
     setSpark(null)
   }, [resetKey])
 
   const values = useMemo(() => searchValues(rows), [rows])
-  const view = useMemo(() => tableView({ rows, search, sort, limitOn }), [rows, search, sort, limitOn])
+  const view = useMemo(() => tableView({ rows, search, sort, limitOn: false }), [rows, search, sort])
+  const { rows: drawn, sentinel } = useRevealRows(view.rows, -1, `${resetKey}\n${search}`)
 
   const sortBy = (col) => { setSort(s => toggleSort(s, col)); setSpark(null) }
 
@@ -257,7 +258,7 @@ export default function ExploreTable({
             </tr>
           </thead>
           <tbody>
-            {view.rows.map(row => (
+            {drawn.map(row => (
               <tr key={row.key}>
                 <td className="agg-td-group ex-td-label" title={row.label}>
                   {row.label || '-'}
@@ -295,22 +296,16 @@ export default function ExploreTable({
             )}
           </tbody>
         </table>
+        {sentinel}
       </div>
 
       <div className="ex-table-foot">
         {/* "of" counts the rows the SEARCH left, not every row in the result —
             the reference counts all of them, which makes the footer disagree
             with the table above it (ARCH D9). */}
-        {view.limited ? (
-          <>
-            <span>Showing {view.rows.length} of {view.total}</span>
-            <button type="button" className="ex-link" onClick={() => setLimitOn(false)} title="List every row, however many there are">
-              Show all
-            </button>
-          </>
-        ) : (
-          <span>{view.total} row{view.total === 1 ? '' : 's'}</span>
-        )}
+        {drawn.length < view.total
+          ? <span>Showing {drawn.length} of {view.total}</span>
+          : <span>{view.total} row{view.total === 1 ? '' : 's'}</span>}
         {view.total !== view.allCount && <span>· filtered from {view.allCount}</span>}
       </div>
 

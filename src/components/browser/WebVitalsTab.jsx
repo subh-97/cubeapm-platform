@@ -172,6 +172,8 @@ export default function WebVitalsTab({ app, win, timeRange, syncId, onFocus, vie
         onView={onView}
         noun="pages"
         search={search}
+        shown={rows.length}
+        total={data.rows.length}
         onSearch={setSearch}
         graph={(
           <>
