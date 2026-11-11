@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { FileQuestion, Lock } from 'lucide-react'
+import { ArrowLeft, ArrowRight, FileQuestion, Lock } from 'lucide-react'
 import PageBar from '@/components/layout/PageBar'
 import EmptyState from '@/components/shared/EmptyState'
 import AlertDialog from '@/components/alerts/shared/AlertDialog'
 import UndoMessage from '@/components/alerts/shared/UndoMessage'
 import EditorHead from '@/components/alerts/editor/EditorHead'
-import EditorSection from '@/components/alerts/editor/EditorSection'
+import EditorStep from '@/components/alerts/editor/EditorStep'
+import TemplateBanner from '@/components/alerts/editor/TemplateBanner'
 import QuerySection from '@/components/alerts/editor/QuerySection'
 import DetailsSection from '@/components/alerts/editor/DetailsSection'
 import NotifySection from '@/components/alerts/editor/NotifySection'
@@ -23,6 +24,7 @@ import {
   blankDraft, draftFromRule, draftFromPayload, draftFromSuggestion, ruleFromDraft, validateDraft, isDirty, setTier,
 } from '@/utils/alerts/editorDraft'
 import { groupForService } from '@/utils/alerts/editorPayloads'
+import { templateOfDraft, templateDrift, restoreTemplate } from '@/utils/alerts/templateDrift'
 import { alertRuleUrl, routeUrl } from '@/utils/route'
 import { requestLeave, setLeaveGuard } from '@/utils/leaveGuard'
 import './alerts-view.css'
@@ -31,21 +33,27 @@ import '@/components/alerts/editor/alert-editor.css'
 const ALERTS_PATH = routeUrl({ view: 'alerts' })
 const TEMPLATES_PATH = routeUrl({ view: 'alertTemplates' })
 
-// Which section a validation item belongs to, for the "N to finish" on its head.
+// Which step a field belongs to, for the "N to finish" on its head and for
+// going to a field from the sentence or the list of what is missing.
 const SECTION_OF = field => (/^(query|kind|tiers|tier-)/.test(field) ? 1
-  : /^(name|group|tag-)/.test(field) ? 2
+  : /^(name|group|tag-|forSec|intervalSec|repeatSec)/.test(field) ? 2
     : /^(notify|destination-)/.test(field) ? 3 : 4)
+const STEPS = 4
 // What shows inline before the first Save: only what was typed wrong. What is
-// missing waits until someone tries to save, so a new rule does not open red.
+// missing waits until someone tries to save, or leaves the step it is in, so
+// a new rule does not open red.
 const EARLY = field => /^(query|tier-|tag-)/.test(field)
 
 const isPlain = e => !(e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0)
 
 /**
  * /alerts/new and /alerts/:id/edit (docs/alerts/DESIGN.md D6): one page for
- * New, Edit and Clone, with the four sections production steps through as a
- * wizard laid out at once, and a preview beside them that shows where the rule
- * would have fired before it is saved.
+ * New, Edit and Clone. Production's four stages are a vertical stepper on the
+ * left, one step open at a time and every step's header in view with what it
+ * holds; the preview stays beside it whichever step is open, showing where the
+ * rule would have fired before it is saved. Above them, the rule as a sentence
+ * with Cancel and Save, and, for a rule started from a template, how it
+ * stands against that template.
  *
  * Where the draft comes from, in order: the rule being edited; a rule being
  * cloned (`state.cloneOf`, from the Rules tab and the rule page); a service
@@ -85,7 +93,14 @@ export default function AlertEditorView({ ruleId, goHome, timeRange, setTimeRang
   const [fromTemplates] = useState(() => mode === 'new' && !location.state?.suggestion && incoming?.from === 'templates')
   const [draft, setDraft] = useState(initial)
   const [attempted, setAttempted] = useState(false)
-  const [open, setOpen] = useState({ 1: true, 2: true, 3: true, 4: true })
+  // The stepper: the open step, the steps opened so far (a step is done once
+  // it has been seen and holds nothing missing), and the steps left behind,
+  // whose missing fields now say so. A stored rule has nothing left to see.
+  const [current, setCurrent] = useState(1)
+  const [visited, setVisited] = useState(() => new Set(mode === 'new' ? [1] : [1, 2, 3, 4]))
+  const [left, setLeft] = useState(() => new Set())
+  const [listAsk, setListAsk] = useState(0)
+  const headFocus = useRef(false)
   const [leaveAsk, setLeaveAsk] = useState(null)
   const done = useRef(false)
   const armed = useRef(false)
@@ -103,10 +118,15 @@ export default function AlertEditorView({ ruleId, goHome, timeRange, setTimeRang
   const issues = useMemo(() => (draft ? validateDraft(draft) : []), [draft])
   const problems = useMemo(() => {
     const out = {}
-    for (const it of issues) if (!(it.field in out) && (attempted || EARLY(it.field))) out[it.field] = it.message
+    for (const it of issues) if (!(it.field in out) && (attempted || EARLY(it.field) || left.has(SECTION_OF(it.field)))) out[it.field] = it.message
     return out
-  }, [issues, attempted])
-  const sectionIssues = n => (attempted ? issues.filter(it => SECTION_OF(it.field) === n).length : 0)
+  }, [issues, attempted, left])
+  const missingIn = n => issues.filter(it => SECTION_OF(it.field) === n).length
+  const sectionIssues = n => (attempted || left.has(n) ? missingIn(n) : 0)
+  // The template the rule was started from, as it arrived: dropping the tag
+  // later does not hide how the rule stands against it.
+  const [template] = useState(() => templateOfDraft(initial))
+  const drift = useMemo(() => (template && draft ? templateDrift(draft, template) : []), [template, draft])
   const dirty = draft ? isDirty(draft, initial) : false
 
   // ---- leaving with unsaved changes (R24) ----
@@ -143,10 +163,27 @@ export default function AlertEditorView({ ruleId, goHome, timeRange, setTimeRang
   const crumbHome = (e) => { if (!isPlain(e)) return; e.preventDefault(); leave(goHome) }
   const crumbTo = url => (e) => { if (!isPlain(e)) return; e.preventDefault(); leave(() => navigate(url)) }
 
-  // ---- fields ----
+  // ---- steps and fields ----
 
-  const focusField = useCallback((field) => {
-    setOpen(o => ({ ...o, [SECTION_OF(field)]: true }))
+  // Opening a step leaves the one that was open; Back, Continue and a step's
+  // header hand focus to the new step's header, so it never falls to the page.
+  const goTo = (n, { focusHead = true } = {}) => {
+    if (n === current) return
+    setLeft(l => (l.has(current) ? l : new Set(l).add(current)))
+    setVisited(v => (v.has(n) ? v : new Set(v).add(n)))
+    headFocus.current = focusHead
+    setCurrent(n)
+  }
+  useEffect(() => {
+    if (!headFocus.current) return
+    headFocus.current = false
+    const head = document.getElementById(`ae-step-${current}`)
+    head?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    head?.focus({ preventScroll: true })
+  }, [current])
+
+  const focusField = (field) => {
+    goTo(SECTION_OF(field), { focusHead: false })
     requestAnimationFrame(() => {
       const el = document.getElementById(`ae-field-${field}`)
       if (!el) return
@@ -154,7 +191,7 @@ export default function AlertEditorView({ ruleId, goHome, timeRange, setTimeRang
       const target = el.matches('input, textarea, button') ? el : el.querySelector('input, textarea, button:not([aria-disabled="true"])') ?? el
       target.focus({ preventScroll: true })
     })
-  }, [])
+  }
 
   // Insights' Tune opens here on the thresholds (D11), where its preview is
   // already offering a better one for the same range.
@@ -164,7 +201,10 @@ export default function AlertEditorView({ ruleId, goHome, timeRange, setTimeRang
 
   const save = () => {
     setAttempted(true)
-    if (issues.length) return
+    if (issues.length) {
+      setListAsk(n => n + 1)
+      return
+    }
     const before = mode === 'edit' ? source.rule : null
     const { rule: saved } = alerts.actions.saveRule(rule)
     done.current = true
@@ -243,10 +283,40 @@ export default function AlertEditorView({ ruleId, goHome, timeRange, setTimeRang
     3: destinationsText ? `${destinationsText} · ${draft.groupingDisable ? 'one per series' : 'one for all series'}` : 'Nobody yet',
     4: [draft.muteGroupIds.length || draft.muteWindows.length ? `${draft.muteGroupIds.length + draft.muteWindows.length} mute window${draft.muteGroupIds.length + draft.muteWindows.length === 1 ? '' : 's'}` : 'No mutes', draft.access.mode === 'role' ? 'access by role' : 'specific access'].join(' · '),
   }
-  const section = (n, title, body) => (
-    <EditorSection n={n} title={title} summary={summary[n]} open={open[n]} issues={sectionIssues(n)} className={`ae-s${n}`} onToggle={() => setOpen(o => ({ ...o, [n]: !o[n] }))}>
+  const saveLabel = mode === 'edit' ? 'Save changes' : 'Save rule'
+  // The open step's way on: Back to the one before, Continue to the next, and
+  // on the last, Save. Continue never stops on what is missing; the step left
+  // behind says what it still needs.
+  const footer = n => (
+    <>
+      {n > 1 && (
+        <button type="button" className="hbtn ae-step-back" onClick={() => goTo(n - 1)}>
+          <ArrowLeft aria-hidden="true" />Back
+        </button>
+      )}
+      {n < STEPS ? (
+        <button type="button" className="hbtn primary ae-step-next" onClick={() => goTo(n + 1)}>
+          Continue<ArrowRight aria-hidden="true" />
+        </button>
+      ) : (
+        <button type="button" className="hbtn primary ae-step-next" onClick={save}>{saveLabel}</button>
+      )}
+    </>
+  )
+  const step = (n, title, body) => (
+    <EditorStep
+      n={n}
+      of={STEPS}
+      title={title}
+      summary={summary[n]}
+      current={current === n}
+      done={current !== n && visited.has(n) && missingIn(n) === 0}
+      issues={sectionIssues(n)}
+      onOpen={() => goTo(n)}
+      footer={footer(n)}
+    >
       {body}
-    </EditorSection>
+    </EditorStep>
   )
   const title = mode === 'edit' ? `Edit ${displayName(source)}` : mode === 'clone' ? draft.name || 'Copy' : 'New rule'
 
@@ -262,18 +332,44 @@ export default function AlertEditorView({ ruleId, goHome, timeRange, setTimeRang
           onStatus={status => setDraft(d => ({ ...d, status }))}
           issues={issues}
           onFocusField={focusField}
+          name={draft.name}
+          onName={value => setDraft(d => ({ ...d, name: value }))}
+          nameProblem={problems.name}
+          template={template}
+          // Moved off its template, the block below speaks for the rule; the
+          // sentence box steps aside.
+          hideSummary={drift.length > 0}
           onCancel={cancel}
           onSave={save}
+          listAsk={listAsk}
         />
+        {template && (
+          <TemplateBanner
+            drift={drift}
+            onFocusField={focusField}
+            onRestore={() => setDraft(d => restoreTemplate(d, template))}
+          />
+        )}
         {source?.managedBy?.kind === 'synthetic' && (
           <p className="ae-managed">
             Created from the monitor “{source.managedBy.monitorName ?? source.managedBy.monitorId}”. Changes apply to this rule only, not to the monitor.
           </p>
         )}
         <div className="ae-layout">
-          {section(1, 'Query & condition', (
-            <QuerySection draft={draft} onDraft={setDraft} view={view} range={timeRange} problems={problems} />
-          ))}
+          <ol className="ae-stepper" aria-label="Steps to make the rule">
+            {step(1, 'Query & condition', (
+              <QuerySection draft={draft} onDraft={setDraft} view={view} range={timeRange} problems={problems} />
+            ))}
+            {step(2, 'Evaluation & details', (
+              <DetailsSection draft={draft} onDraft={setDraft} series={result?.series} groups={groups} problems={problems} />
+            ))}
+            {step(3, 'Notifications', (
+              <NotifySection draft={draft} onDraft={setDraft} receiverGroups={alerts.receiverGroups} lookups={alerts.lookups} problems={problems} />
+            ))}
+            {step(4, 'Mutes & access', (
+              <MutesAccessSection draft={draft} onDraft={setDraft} muteGroups={alerts.muteGroups} lookups={alerts.lookups} problems={problems} nowSec={ALERTS_NOW} />
+            ))}
+          </ol>
           <PreviewRail
             result={result}
             stale={stale}
@@ -288,15 +384,6 @@ export default function AlertEditorView({ ruleId, goHome, timeRange, setTimeRang
               setDraft(d => setTier(d, name, { value: String(t) }))
             }}
           />
-          {section(2, 'Evaluation & details', (
-            <DetailsSection draft={draft} onDraft={setDraft} series={result?.series} groups={groups} problems={problems} />
-          ))}
-          {section(3, 'Notifications', (
-            <NotifySection draft={draft} onDraft={setDraft} receiverGroups={alerts.receiverGroups} lookups={alerts.lookups} problems={problems} />
-          ))}
-          {section(4, 'Mutes & access', (
-            <MutesAccessSection draft={draft} onDraft={setDraft} muteGroups={alerts.muteGroups} lookups={alerts.lookups} problems={problems} nowSec={ALERTS_NOW} />
-          ))}
         </div>
       </div>
       {leaveAsk && (

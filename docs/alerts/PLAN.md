@@ -421,7 +421,9 @@ listed after the batches; the new gaps are under Known gaps.
 
 - [x] **4a — Page skeleton** (D6):
   - the sentence header with Save and Cancel;
-  - four numbered sections in production's order, with collapsed summaries;
+  - four numbered sections in production's order, with collapsed summaries — *a vertical stepper
+    since 2026-11-11* (D6 revised), one step open at a time, with a head banner and, for a rule
+    from a template, a block that says when it moves off the template's settings;
   - a sticky preview rail, falling back to a stacked layout below ~1280px;
   - a validation list on a disabled Save (R22);
   - the unsaved-changes guard (R24);

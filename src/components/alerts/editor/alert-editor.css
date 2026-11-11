@@ -1,78 +1,196 @@
-/* The rule editor (docs/alerts/DESIGN.md D6): a head with the rule as one
-   sentence, four numbered sections, and the preview beside them. Everything
-   here is tokens; a severity hue appears only where a severity is meant
-   (a problem, a warning hint), never on a series. */
+/* The rule editor (docs/alerts/DESIGN.md D6, revised 2026-11-11): a banner
+   with the rule as one sentence and the page's Cancel and Save; for a rule
+   started from a template, how it stands against it; then the four steps as a
+   vertical stepper on the left and the preview beside it. Everything here is
+   tokens; a severity hue appears only where a severity or a problem is meant
+   (what is left to finish), never on a series. */
 
-.ae-page { display: flex; flex-direction: column; gap: 14px; padding-bottom: 48px; }
+.ae-page { display: flex; flex-direction: column; gap: 14px; padding-bottom: 48px; scroll-padding-top: 72px; }
 
-/* ---- head ---- */
-.ae-head {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px 16px; align-items: start;
-  padding: 14px 16px; background: var(--panel); border: 1px solid var(--border-subtle); border-radius: var(--radius-md);
+/* ---- the head: a row on the page (the name; the status, Cancel and Save), then the sentence in a tinted box ---- */
+/* The row holds at the top of the page while it scrolls: its negative margins
+   cancel the page's padding so it sits flush under the page bar and reaches
+   both edges, and its 12px foot is card, so what passes under it is covered,
+   though at rest the row sits where it did. The page keeps a focused field
+   clear of it (scroll-padding-top), and the preview sticks below it. */
+.ae-head-top {
+  position: sticky; top: calc(-1 * var(--svc-pad-top)); z-index: 6;
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  margin: calc(-1 * var(--svc-pad-top)) -16px -12px; padding: var(--svc-pad-top) 16px 12px;
+  background: var(--card);
 }
-.ae-sentence { margin: 0; font-size: 14px; line-height: 1.6; color: var(--text-secondary); }
+.ae-head { flex: none; }
+/* flex: none — the page is a flex column, and a clipped flex item would otherwise shrink to nothing.
+   16px under the row: the page's 14px gap and 2px of its own. */
+.ae-head-box {
+  flex: none; margin-top: 2px; border-radius: var(--radius-md); overflow: hidden;
+  background: color-mix(in srgb, var(--brand) 5%, var(--card));
+}
+/* The name, a blank to fill in: no box, only a line under it that runs under
+   the bell inside it too, as tall as the buttons beside it so they share a
+   centre. The line marks the state: muted under a pointer, brand while typing,
+   critical when Save finds it empty. */
+.ae-head-name-field {
+  flex: 1 1 auto; min-width: 0; max-width: 560px; height: 34px; box-sizing: border-box;
+  display: flex; align-items: center; gap: 8px; padding: 0 2px 4px; cursor: text;
+  border-bottom: 1px solid var(--border-strong);
+}
+.ae-head-name-field:hover { border-bottom-color: var(--text-muted); }
+.ae-head-name-field:focus-within { border-bottom-color: var(--brand); box-shadow: 0 1px 0 var(--brand); }
+.ae-head-name-field.invalid { border-bottom-color: var(--critical-fg); }
+.ae-head-name-icon { width: 16px; height: 16px; flex: none; color: color-mix(in srgb, var(--brand) 60%, var(--card)); }
+/* One midtone of the brand, outline and fill alike: the bell's body and
+   clapper filled in it (opaque, so the outline over the fill reads as one
+   colour); the ringing arcs stay lines. */
+.ae-head-name-icon path:nth-child(-n + 2) { fill: currentColor; }
+.ae-head-name {
+  flex: 1; min-width: 0; height: 100%; padding: 0; margin: 0; border: 0; border-radius: 0; background: transparent;
+  font: inherit; font-size: 16px; font-weight: 600; letter-spacing: -.1px; color: var(--text-primary);
+}
+.ae-head-name::placeholder { color: var(--text-muted); font-weight: 500; }
+.ae-head-name:focus { outline: none; }
+.ae-head-line { display: flex; align-items: flex-start; gap: 16px; padding: 11px 16px; }
+.ae-sentence { flex: 1; min-width: 0; margin: 0; font-size: 12px; line-height: 18px; color: var(--text-secondary); }
+/* Where a template rule came from, at the line's right, on the sentence's first line. */
+.ae-head-from {
+  flex: none; margin: 0 0 0 auto; white-space: nowrap; line-height: 18px;
+  font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--brand);
+}
+.ae-head-from:focus { outline: none; }
+.ae-head-from:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 3px; }
 .ae-token {
   font: inherit; font-weight: 600; color: var(--text-primary); background: none; border: none; padding: 0;
   border-bottom: 1px dashed var(--border-strong); cursor: pointer;
 }
 .ae-token:hover, .ae-token:focus-visible { color: var(--brand); border-bottom-color: var(--brand); }
-.ae-head-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-.ae-status .seg { display: inline-flex; align-items: center; gap: 5px; border: none; background: none; font-family: inherit; }
-.ae-status .seg.active { background: var(--card); }
-.ae-status svg { width: 12px; height: 12px; }
-.ae-save[aria-disabled="true"] {
-  background: var(--brand-muted); border-color: var(--brand-muted); color: var(--brand-on-muted); cursor: pointer;
+/* The page's way out, its own pair: Cancel outlined, Save solid. */
+.ae-head-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+.ae-head-actions .hbtn { height: 34px; padding: 0 16px; font-size: 13px; }
+/* Cancel's outline: the strong border at rest, a step darker under a pointer. */
+.ae-cancel { border-color: var(--border-strong); }
+.ae-cancel:hover { border-color: var(--text-muted); }
+.ae-save { font-weight: 600; }
+.ae-save[aria-disabled="true"] { opacity: .6; cursor: progress; }
+/* The status, glyphs alone, as tall as the buttons beside it: 28px squares
+   in the control's 3px inset. A hairline parts it from Cancel and Save. */
+/* Its track a step deeper than the usual --panel. */
+.ae-status { padding: 3px; background: var(--panel-2); }
+.ae-status .seg {
+  display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0;
+  border: none; background: none; font-family: inherit;
 }
-.ae-issues-count { font-size: 11.5px; color: var(--text-muted); }
+.ae-status .seg.active { background: var(--card); box-shadow: 0 0 0 1px var(--border-panel); }
+.ae-status .seg:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.ae-status svg { width: 13px; height: 13px; }
+.ae-head-sep { width: 1px; height: 20px; margin: 0 4px; background: var(--border-panel); flex: none; }
 .ae-paused-note, .ae-managed {
-  grid-column: 1 / -1; margin: 0; font-size: 12px; color: var(--text-secondary);
+  margin: 0; font-size: 12px; color: var(--text-secondary);
   padding: 6px 10px; border-left: 3px solid var(--border-strong); background: var(--panel-2); border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
+.ae-paused-note { margin: 0 16px 12px; }
+/* With the sentence stepped aside (moved off a template), the note or the list opens the box. */
+.ae-head-box > .ae-paused-note:first-child { margin-top: 12px; }
+.ae-head-box > .ae-issues:first-child { border-top: 0; }
 .ae-managed { margin: -4px 0 0; }
-.ae-issues {
-  grid-column: 1 / -1; border-top: 1px solid var(--border-subtle); padding-top: 10px;
-}
+.ae-issues { border-top: 1px solid var(--border-subtle); padding: 10px 16px 12px; background: var(--card); }
 .ae-issues-title { margin: 0 0 6px; font-size: 12px; font-weight: 600; color: var(--text-primary); }
 .ae-issues ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
 .ae-issue {
   font: inherit; font-size: 12.5px; color: var(--critical-fg); background: none; border: none; padding: 0;
   text-align: left; cursor: pointer; text-decoration: underline; text-underline-offset: 2px;
 }
+@media (max-width: 900px) {
+  .ae-head-top { flex-wrap: wrap; }
+  .ae-head-name-field { max-width: none; }
+  .ae-head-actions { width: 100%; justify-content: flex-end; }
+}
 
-/* ---- layout: sections on the left, preview on the right; stacked under 1280px ---- */
+/* ---- moved off its template: shown only then ---- */
+/* Straight under the held row (the sentence box stepped aside), 16px down, as the box would be. */
+.ae-head-top + .sr-only + .ae-tpl { margin-top: 2px; }
+/* A hint, not a fault — no borders, a light wash of the warning hue; the line itself in primary ink. */
+.ae-tpl {
+  flex: none; display: flex; align-items: flex-start; gap: 14px; padding: 14px 18px;
+  border-radius: var(--radius-md); background: color-mix(in srgb, var(--warning-fg) 7%, var(--card));
+}
+.ae-tpl-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ae-tpl-verdict { display: flex; align-items: flex-start; gap: 6px; margin: 0; font-size: 12px; font-weight: 500; color: var(--text-primary); }
+.ae-tpl-verdict svg { width: 14px; height: 14px; flex: none; margin-top: 1px; }
+.ae-tpl-drift { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.ae-tpl-change {
+  display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 999px;
+  border: 1px solid var(--border-panel); background: var(--card); font: inherit; font-size: 12px; color: var(--text-secondary); cursor: pointer;
+}
+.ae-tpl-change:hover { border-color: var(--border-strong); color: var(--text-primary); }
+.ae-tpl-change:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.ae-tpl-change-label { font-weight: 600; color: var(--text-primary); }
+.ae-tpl-from { text-decoration: line-through; color: var(--text-muted); }
+.ae-tpl-to { font-weight: 600; color: var(--warning-fg); }
+.ae-tpl-change svg { width: 12px; height: 12px; color: var(--text-muted); }
+/* Restore is a link-weight action in the warning ink: no box, an underline under a pointer. */
+.ae-tpl .ae-tpl-restore {
+  flex: none; gap: 6px; height: auto; padding: 0; border: 0; background: none;
+  font-size: 12px; font-weight: 500; line-height: 18px; color: var(--warning-fg);
+}
+.ae-tpl .ae-tpl-restore:hover { color: var(--warning-fg); text-decoration: underline; text-underline-offset: 2px; }
+.ae-tpl .ae-tpl-restore:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 3px; }
+.ae-tpl-restore svg { width: 13px; height: 13px; }
+
+/* ---- layout: the stepper on the left, the preview on the right; stacked under 1280px ---- */
 .ae-layout {
   display: grid; gap: 14px; align-items: start;
   grid-template-columns: minmax(0, 1fr) minmax(360px, 38%);
-  grid-template-areas: "s1 rail" "s2 rail" "s3 rail" "s4 rail";
+  grid-template-areas: "steps rail";
 }
-.ae-s1 { grid-area: s1; }
-.ae-s2 { grid-area: s2; }
-.ae-s3 { grid-area: s3; }
-.ae-s4 { grid-area: s4; }
-.ae-rail { grid-area: rail; position: sticky; top: 8px; align-self: start; }
+.ae-stepper { grid-area: steps; }
+/* Below the held row (64px tall, 18px of it over the page's padding), with 10px to spare. */
+.ae-rail { grid-area: rail; position: sticky; top: 56px; align-self: start; }
 @media (max-width: 1280px) {
-  .ae-layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "s1" "rail" "s2" "s3" "s4"; }
+  .ae-layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "steps" "rail"; }
   .ae-rail { position: static; }
 }
 
-/* ---- sections ---- */
-.ae-section { background: var(--card); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); min-width: 0; }
-.ae-section-head { margin: 0; font-size: inherit; }
-.ae-section-toggle {
-  display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px 14px;
+/* ---- the stepper: a card per step, the marks joined across the gaps ---- */
+.ae-stepper { --ae-step-gap: 10px; list-style: none; margin: 0; padding: 0; min-width: 0; display: flex; flex-direction: column; gap: var(--ae-step-gap); }
+.ae-step {
+  position: relative; min-width: 0;
+  background: var(--card); border: 1px solid var(--border-subtle); border-radius: var(--radius-md);
+}
+.ae-step.is-current { border-color: var(--border-panel); box-shadow: 0 1px 2px rgba(15, 23, 42, .04); }
+.ae-step section { min-width: 0; }
+/* A short line in the gap from one card's mark to the next one's, brand-muted once the step above is done. */
+.ae-step:not(:last-child)::after {
+  content: ''; position: absolute; left: 26px; top: calc(100% + 1px); height: var(--ae-step-gap); width: 2px;
+  background: var(--border-subtle);
+}
+.ae-step.is-done:not(:last-child)::after { background: var(--brand-muted); }
+.ae-step-head { margin: 0; font-size: inherit; }
+.ae-step-toggle {
+  display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 16px; min-height: 48px;
   background: none; border: none; font-family: inherit; text-align: left; cursor: pointer; color: var(--text-primary);
 }
-.ae-section-n {
-  display: inline-grid; place-items: center; width: 20px; height: 20px; flex: none; border-radius: 50%;
-  font-size: 11px; font-weight: 700; background: var(--brand-muted); color: var(--brand-on-muted);
+.ae-step:not(.is-current) .ae-step-toggle { border-radius: calc(var(--radius-md) - 1px); }
+.ae-step:not(.is-current) .ae-step-toggle:hover { background: var(--panel); }
+.ae-step.is-current .ae-step-toggle { cursor: default; }
+.ae-step-toggle:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; border-radius: var(--radius-sm); }
+.ae-step-mark {
+  position: relative; z-index: 1; display: inline-grid; place-items: center; width: 22px; height: 22px; flex: none; border-radius: 50%;
+  font-size: 11px; font-weight: 700; background: var(--card); color: var(--text-muted); box-shadow: inset 0 0 0 1.5px var(--border-strong);
 }
-.ae-section-title { font-size: 13px; font-weight: 600; flex: none; }
-.ae-section-summary { font-size: 12px; color: var(--text-muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ae-section-issues { margin-left: auto; font-size: 11px; color: var(--critical-fg); flex: none; }
-.ae-section-chev { width: 15px; height: 15px; margin-left: auto; color: var(--text-muted); flex: none; transition: transform .15s; }
-.ae-section-issues + .ae-section-chev { margin-left: 8px; }
-.ae-section.open .ae-section-chev { transform: rotate(180deg); }
-.ae-section-body { padding: 4px 14px 14px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.ae-step.is-current .ae-step-mark { background: var(--brand); color: #fff; box-shadow: none; }
+.ae-step.is-done .ae-step-mark { background: var(--brand-muted); color: var(--brand-on-muted); box-shadow: none; }
+.ae-step-mark svg { width: 12px; height: 12px; stroke-width: 3; }
+.ae-step-title { font-size: 13px; font-weight: 600; flex: none; }
+.ae-step.is-current .ae-step-title { font-size: 14px; }
+.ae-step:not(.is-current):not(.is-done) .ae-step-title { color: var(--text-secondary); }
+.ae-step-summary { font-size: 12px; color: var(--text-muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ae-step-issues { margin-left: auto; font-size: 11px; font-weight: 600; color: var(--critical-fg); flex: none; }
+/* The open step's fields sit under its title. */
+.ae-step-body { padding: 2px 18px 16px 50px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.ae-step-body[hidden] { display: none; }
+.ae-step-foot { display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding-top: 14px; border-top: 1px solid var(--border-subtle); }
+.ae-step-foot .hbtn { gap: 6px; height: 32px; padding: 0 14px; }
+.ae-step-foot svg { width: 13px; height: 13px; }
 
 /* ---- fields ---- */
 .ae-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }

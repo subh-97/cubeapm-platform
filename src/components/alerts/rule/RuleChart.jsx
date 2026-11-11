@@ -37,7 +37,9 @@ const COMPARE_LABELS = COMPARE_CHOICES.map(o => o.label)
  * where `lane` is where the draft WOULD have fired. It has no history to
  * compare with, so there is no Compare control; it says "would have fired"
  * where a saved rule says "was firing"; and a draft with no name yet is "this
- * rule" rather than an empty name. It never reads the rule's id.
+ * rule" rather than an empty name. It never reads the rule's id. Its plot
+ * takes the rail's full width, with no legend beside it: a series is named on
+ * hover, and Expand draws the legend.
  *
  * It brings its own styles and status tones (`.alr-tones`), so it draws the
  * same outside the rule page, as the editor's preview rail draws it.
@@ -130,6 +132,7 @@ export default function RuleChart({
         // The chart's own Compare (the control above and its dashed line)
         // is the comparison here; its ⋮ offers Expand's larger copy only.
         compare={false}
+        hideLegend={preview}
       />
       {/* The strip sits in the same two columns as the chart above it, so its
           track spans exactly the plot: the y axis's gutter on the left, the
@@ -145,7 +148,7 @@ export default function RuleChart({
             label={preview ? `Where ${name} would have fired over ${range}` : `${name}'s state over ${range}`}
           />
         </div>
-        <div className="drill2-legend alr-strip-spacer" aria-hidden="true" />
+        {!preview && <div className="drill2-legend alr-strip-spacer" aria-hidden="true" />}
       </div>
     </section>
   )
