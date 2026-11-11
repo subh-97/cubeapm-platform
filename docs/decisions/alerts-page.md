@@ -101,9 +101,13 @@ not re-deriving.
 - **The rule page explains before it asks**: a banner with the condition and the value against
   it, threshold bands on the chart, the state strip, the instances, and handoffs (traces, logs,
   errors, the service, Explore) that all go through `openLink`, as Errors' do.
-- **The editor is one page** with production's four stages as sections and a preview that stays in
-  view (stacked below 1280 px). It reuses Explore's `MetricsEditor` and `LogsEditor` and their
-  models, so every entry point's payload is an Explore-shaped model the editor already reads.
+- **The editor is a vertical stepper** of production's four stages, one open at a time, with a
+  preview that stays in view on the right (stacked below 1280 px) — D6 as revised 2026-11-11; it
+  was first one page of open sections. Above it, a banner with the rule as a sentence and Cancel
+  and Save; for a rule started from a template, a block that says whether it still runs on the
+  template's settings and lists what moved off them. It reuses Explore's `MetricsEditor` and
+  `LogsEditor` and their models, so every entry point's payload is an Explore-shaped model the
+  editor already reads.
 - **Save always answers**: with something missing it lists what, each item moving focus to its
   field; saved, it lands on the rule's page.
 - Insights' Tune opens the editor with focus on the thresholds, where the preview already offers
@@ -155,8 +159,8 @@ sign-off), and Browser cards say browser metrics come later.
   and Kubernetes sources are (2026-11-05; the rail first listed every Sub-domain open under a
   "Categories" label): All templates at the root, the Domains under it by name alone, each
   Domain's Sub-domains under that with their marks, 12px further in each time. A chevron opens and closes its row, any number
-  open at once; choosing a row shows its templates and opens it; All templates and the Domain in
-  view open with the page, the other Domains start closed. → and ← open, close and step in and
+  open at once; choosing a row shows its templates and opens it; every row opens with the page
+  (2026-11-11; first only the Domain in view did), and one the viewer closes stays closed. → and ← open, close and step in and
   out, beside ↑/↓, Home and End.
 - **One home, other parents.** A template is counted once, at its home; another parent lists it
   after its own. The card's path ("APM · Services") names its home wherever it is listed; the
@@ -229,7 +233,7 @@ rules listed (read-only) beside user rules. Every change confirms in a toast, th
 with Undo; deletes say what they do. A contact point in use says why it can't be deleted and
 lists the rules that still send there. Insights flags always-firing, flapping and never-fired rules,
 with Tune. The notification log says which event each send was and why a held or failed one was.
-The editor is one page with a live preview. Create-from-context prefills thresholds, name and
+The editor is a stepper beside a live preview. Create-from-context prefills thresholds, name and
 group; production prefills none. Templates have a page of their own, with two layers instead of
 a category per Kubernetes object and placeholder "Dummy" ones, and a template says whether a rule
 already uses it. Nothing waits for a Search click (rule 5).

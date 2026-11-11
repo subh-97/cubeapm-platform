@@ -11,9 +11,10 @@ const ALL = 'all'
  * their marks — the Infrastructure page's AWS / GCP / Kubernetes groups
  * again (index.css, "accordion group sources"), any number open at once.
  * The chevron at a row's right opens and closes it and nothing else; choosing
- * the row shows its templates and opens it. All templates and the Domain in view open with the page; the other
- * Domains start closed, so the rail is five rows until one is asked for. A
- * closed row's children leave the tab order and the accessibility tree.
+ * the row shows its templates and opens it. Every row opens with the page, so
+ * all eight Sub-domains show at a glance; what the viewer closes stays closed
+ * until the scope moves into it. A closed row's children leave the tab order
+ * and the accessibility tree.
  *
  * Each row is a button that scopes the page; the one in view carries
  * aria-current. A row's count is the templates homed there under the search
@@ -31,7 +32,7 @@ const ALL = 'all'
 export default function TemplateRail({ scope, counts, onScope }) {
   const list = useRef(null)
   const uid = useId()
-  const [open, setOpen] = useState(() => new Set([ALL, scope.domain].filter(Boolean)))
+  const [open, setOpen] = useState(() => new Set([ALL, ...DOMAINS.map(d => d.id)]))
   const setNodeOpen = (id, next) => setOpen((o) => {
     if (o.has(id) === next) return o
     const n = new Set(o)

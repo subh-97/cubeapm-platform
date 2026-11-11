@@ -28,6 +28,9 @@ const typing = el => !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$
 // The filters' options as FilterSelect takes them, words in, ids out.
 const byLabel = list => Object.fromEntries(list.map(x => [x.label, x.id]))
 const labelOf = (list, id) => list.find(x => x.id === id)?.label ?? ''
+// "All" is a value, the first option, as on the Services page's Category, Host
+// and Version filters, so it reads in the same brand blue as a chosen one.
+const ALL_OPTION = 'All'
 
 // Each template's query as the rule list holds it, for "In use": worked out
 // once, the way the editor would build the rule.
@@ -88,6 +91,12 @@ export default function AlertTemplatesView({ goHome, timeRange, setTimeRange, on
 
   // A control that leaves with its own click hands focus on (D17): a clear to
   // the search, "Show all" to the results' heading.
+  const filterProps = (list, key) => ({
+    value: labelOf(list, view[key]) || ALL_OPTION,
+    options: [ALL_OPTION, ...list.map(x => x.label)],
+    onSelect: v => setView({ [key]: byLabel(list)[v] ?? null }),
+  })
+
   const clearSearch = () => { setView({ q: '' }); searchRef.current?.focus() }
   const clearFilters = () => { setView({ q: '', problem: null, source: null, urgency: null }); searchRef.current?.focus() }
   const rescope = (s) => { setView(s); scopeRef.current?.focus() }
@@ -130,57 +139,48 @@ export default function AlertTemplatesView({ goHome, timeRange, setTimeRange, on
           <TemplateRail scope={scope} counts={counts} onScope={s => setView(s)} />
 
           <div className="runtime-main tpl-main">
+            {/* Held at the top while the cards scroll: what is in view, then the
+                search and the filters that narrow it. */}
             <div className="tpl-toolbar">
-              <div className="svc-search tpl-search">
-                <SearchGlyph />
-                <input
-                  ref={searchRef}
-                  type="text"
-                  value={view.q}
-                  onChange={e => setView({ q: e.target.value })}
-                  onKeyDown={(e) => { if (e.key === 'Escape' && view.q) { e.preventDefault(); clearSearch() } }}
-                  placeholder="Search by name, integration or alias: lag, k8s, rds…"
-                  aria-label="Search templates"
-                  spellCheck={false}
-                  autoComplete="off"
-                />
-                {view.q && (
-                  <button type="button" className="svc-search-clear" aria-label="Clear search" title="Clear search" onClick={clearSearch}>
-                    <X aria-hidden="true" />
-                  </button>
+              <div className="tpl-results-head">
+                <h2 className="tpl-scope" ref={scopeRef} tabIndex={-1}>
+                  {scopeIcon && <CategoryMark icon={scopeIcon} size={16} />}
+                  {scopeLabel}
+                </h2>
+                <span className="tpl-scope-meta" role="status">
+                  {scopeParent && <>{scopeParent} · </>}
+                  {homed} {homed === 1 ? 'template' : 'templates'}
+                </span>
+                {/* The empty state offers its own clear; one is enough. */}
+                {filtered && (shown.length > 0 || offerElsewhere) && (
+                  <button type="button" className="hbtn small tpl-clear" onClick={clearFilters}>Clear search and filters</button>
                 )}
-                <kbd className="tpl-kbd" aria-hidden="true">/</kbd>
               </div>
-              <FilterSelect
-                label="Problem type" className="tpl-filter" clearLabel="All problem types" placeholder="All"
-                value={labelOf(PROBLEM_TYPES, view.problem)} options={PROBLEM_TYPES.map(x => x.label)}
-                onSelect={v => setView({ problem: byLabel(PROBLEM_TYPES)[v] ?? null })}
-              />
-              <FilterSelect
-                label="Data source" className="tpl-filter" clearLabel="All data sources" placeholder="All"
-                value={labelOf(SOURCES_IN_USE, view.source)} options={SOURCES_IN_USE.map(x => x.label)}
-                onSelect={v => setView({ source: byLabel(SOURCES_IN_USE)[v] ?? null })}
-              />
-              <FilterSelect
-                label="Urgency" className="tpl-filter" clearLabel="All urgencies" placeholder="All"
-                value={labelOf(URGENCIES, view.urgency)} options={URGENCIES.map(x => x.label)}
-                onSelect={v => setView({ urgency: byLabel(URGENCIES)[v] ?? null })}
-              />
-            </div>
-
-            <div className="tpl-results-head">
-              <h2 className="tpl-scope" ref={scopeRef} tabIndex={-1}>
-                {scopeIcon && <CategoryMark icon={scopeIcon} size={16} />}
-                {scopeLabel}
-              </h2>
-              <span className="tpl-scope-meta" role="status">
-                {scopeParent && <>{scopeParent} · </>}
-                {homed} {homed === 1 ? 'template' : 'templates'}
-              </span>
-              {/* The empty state offers its own clear; one is enough. */}
-              {filtered && (shown.length > 0 || offerElsewhere) && (
-                <button type="button" className="hbtn small tpl-clear" onClick={clearFilters}>Clear search and filters</button>
-              )}
+              <div className="tpl-controls">
+                <div className="svc-search tpl-search">
+                  <SearchGlyph />
+                  <input
+                    ref={searchRef}
+                    type="text"
+                    value={view.q}
+                    onChange={e => setView({ q: e.target.value })}
+                    onKeyDown={(e) => { if (e.key === 'Escape' && view.q) { e.preventDefault(); clearSearch() } }}
+                    placeholder="Search by name, integration or alias: lag, k8s, rds…"
+                    aria-label="Search templates"
+                    spellCheck={false}
+                    autoComplete="off"
+                  />
+                  {view.q && (
+                    <button type="button" className="svc-search-clear" aria-label="Clear search" title="Clear search" onClick={clearSearch}>
+                      <X aria-hidden="true" />
+                    </button>
+                  )}
+                  <kbd className="tpl-kbd" aria-hidden="true">/</kbd>
+                </div>
+                <FilterSelect label="Problem type" className="tpl-filter" {...filterProps(PROBLEM_TYPES, 'problem')} />
+                <FilterSelect label="Data source" className="tpl-filter" {...filterProps(SOURCES_IN_USE, 'source')} />
+                <FilterSelect label="Urgency" className="tpl-filter" {...filterProps(URGENCIES, 'urgency')} />
+              </div>
             </div>
 
             {shown.length ? (

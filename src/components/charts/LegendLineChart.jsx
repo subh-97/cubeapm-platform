@@ -105,6 +105,9 @@ function orderByLabels(eps, labels, labelKey, fallback) {
  *   height            the plot's height in px (260)
  *   legendScroll      the legend scrolls beside the chart instead of growing
  *                     the row, for a long list of rows
+ *   hideLegend        the card draws the plot alone, full width, with no
+ *                     legend beside it (the rule editor's preview); its
+ *                     Expand still draws the legend, where there is room
  *   axisFormat(v, top)  the y axis's tick formatter, when a tick should read
  *                     differently from a legend value ('30' on the axis,
  *                     '30.00' in the legend). It gets the axis's top as well,
@@ -147,7 +150,7 @@ export default function LegendLineChart(props) {
   const view = {
     win,
     comparable: compare !== false && typeof forWindow === 'function',
-    render: w => <LegendLineBody {...at(w)} {...legend} win={w} />,
+    render: w => <LegendLineBody {...at(w)} {...legend} win={w} hideLegend={false} />,
   }
 
   return (
@@ -180,6 +183,7 @@ function LegendLineBody({
   yTop,
   height = 260,
   legendScroll = false,
+  hideLegend = false,
   axisFormat,
   ownSelected,
   setOwnSelected,
@@ -316,7 +320,7 @@ function LegendLineBody({
 
   return (
     <>
-      <div className="drill2">
+      <div className={`drill2${hideLegend ? ' drill2-single' : ''}`}>
         <div className="drill2-chart">
           <TimeChart win={win} onFocus={onFocus} height={height} onWidth={setPlotWidth}>
             {(axis, focus) => (
@@ -338,6 +342,7 @@ function LegendLineBody({
             )}
           </TimeChart>
         </div>
+        {!hideLegend && (
         <div ref={legendRef} className={`drill2-legend${legendScroll ? ' is-scroll' : ''}`}>
           <div className="drill2-search">
             <SearchGlyph />
@@ -380,6 +385,7 @@ function LegendLineBody({
             </div>
           )}
         </div>
+        )}
       </div>
       <SeriesBudgetFooter budget={budget} noun={noun} />
     </>

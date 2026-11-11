@@ -463,9 +463,38 @@ The cost is a wider layout. Below roughly 1280px the preview drops under section
   step back onto) and closing the tab (`beforeunload`).
 - **What is missing waits for the first Save.** A new rule does not open covered in red. Before
   Save is pressed, only what was typed wrong shows inline: a query that won't run, a threshold
-  that isn't a number, a reserved tag. The head always says "N to finish".
+  that isn't a number, a reserved tag. The head said "N to finish" until 2026-11-11; each step's
+  header says it now, once the step is left or Save is pressed.
 - **Status is a two-way control in the head**, Active / Paused, rather than a line that appears
   only for a paused clone.
+
+**Revised 2026-11-11 (product review): the four sections are a vertical stepper.** The page asked
+for steps rather than one long form, with the preview kept on the right — which keeps (c)'s point,
+a preview in view while the thresholds, hold and name are set, and drops production's faults
+listed above (Next never stops on what is missing, and nothing is out of sight for good).
+
+- **One step is open at a time**; every step's header stays in view with its mark (its number, a
+  check once it has been seen and holds nothing missing), its title, its one-line summary and
+  "N to finish". Any step opens from its header, in any order. A stored rule (Edit, Clone) opens
+  with every step already done.
+- **The open step ends with its own way on**: Back, Continue, and on the last, Save. Continue never
+  stops; a step left with something missing says so on its header and beside its fields.
+- **Focus follows the step**: Back, Continue and a header hand it to the new step's header; the
+  sentence's tokens, the list of what is missing and Insights' Tune open the step a field is in
+  and focus the field.
+- **The head is a banner**: the rule's name as a blank to fill in, the sentence under it, and at
+  its right the status it saves with (Active / Paused, as glyphs named by their labels), a
+  hairline, then Cancel (outlined) and Save (solid). Save stays solid and answers with
+  the list of what is missing (R22). The head carries no count of its own (removed on review,
+  2026-11-11): a step left with something missing says so on its header.
+- **A rule started from a template says so**: the head's sentence box names where the template
+  lives, at its right ("From template · APM · Services"). The rule is held against what the
+  template sets (`utils/alerts/templateDrift.js`) — data source and query, alert type,
+  thresholds, hold, check interval. Changing any of those takes the sentence box away and brings up a block in its place
+  (`TemplateBanner`), a hint ("You've moved off the template's settings") with each change as the
+  template's value against the new one, a link to its field, and Restore template settings, which
+  takes the block away again. Name, folder, tags, details, receivers, mutes and access are the
+  viewer's own and never count.
 
 ## D7. Conditions drawn on the chart, and checked against the range before saving
 

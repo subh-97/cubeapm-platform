@@ -43,8 +43,7 @@ export default function QuerySection({ draft, onDraft, view, range, problems }) 
   return (
     <div className="ae-query" id="ae-field-query" tabIndex={-1}>
       <div className="ae-row">
-        <span className="ae-label" id="ae-kind-label">Type</span>
-        <div className="seg-toggle" role="radiogroup" aria-labelledby="ae-kind-label" id="ae-field-kind" onKeyDown={radioGroupKeyDown}>
+        <div className="seg-toggle" role="radiogroup" aria-label="Alert type" id="ae-field-kind" onKeyDown={radioGroupKeyDown}>
           {[['static', 'Static'], ['anomaly', 'Anomaly']].map(([k, label]) => {
             const blocked = k === 'anomaly' && draft.datasource !== 'prometheus'
             return (

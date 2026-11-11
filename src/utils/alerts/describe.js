@@ -88,6 +88,14 @@ const SYMBOL = { '>': '>', '<': '<', '>=': '≥', '<=': '≤', '==': '=', '!=': 
 const WORDS = { '>': 'above', '<': 'below', '>=': 'at or above', '<=': 'at or below', '==': 'equal to', '!=': 'not equal to' }
 const ANOMALY = { '>': 'above', '<': 'below', '<>': 'outside' }
 
+/** One tier, short: "> 1%", "≥ 150 ms", "outside 3σ"; "none" when it is not set. */
+export function tierShort(view, tier) {
+  if (!tier) return 'none'
+  return view?.kind === 'anomaly'
+    ? `${ANOMALY[tier.op] ?? tier.op} ${formatThreshold(view, tier.deviations)}`
+    : `${SYMBOL[tier.op] ?? tier.op} ${formatThreshold(view, tier.threshold)}`
+}
+
 /**
  * The condition as the list shows it: "Error % > 3% critical, > 1% warning,
  * for 5m", or for an anomaly rule "RPM outside expected by 2σ, 3σ critical,
