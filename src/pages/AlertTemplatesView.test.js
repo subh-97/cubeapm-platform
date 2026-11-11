@@ -95,14 +95,14 @@ const accordion = markup => HEADS.map(([id, label]) => {
   return [id, toggle[1] === 'true']
 })
 
-test('the rail is a tree of accordions: All templates and the Domain in view open with the page, the rest start closed', () => {
+test('the rail is a tree of accordions, every one open with the page', () => {
   const markup = page()
   assert.doesNotMatch(markup, /svc-sidebar-label|>Categories</, 'no "Categories" label: All templates heads the rail')
-  assert.deepEqual(accordion(markup), HEADS.map(([id]) => [id, id === 'all']), 'All templates: five rows until one is asked for')
+  const allOpen = HEADS.map(([id]) => [id, true])
+  assert.deepEqual(accordion(markup), allOpen, 'all eight Sub-domains show at a glance')
   for (const d of DOMAINS) {
-    const open = HEADS.map(([id]) => [id, id === 'all' || id === d.id])
-    assert.deepEqual(accordion(page(`?domain=${d.id}`)), open, d.id)
-    for (const sub of d.subs) assert.deepEqual(accordion(page(`?sub=${sub}`)), open, sub)
+    assert.deepEqual(accordion(page(`?domain=${d.id}`)), allOpen, d.id)
+    for (const sub of d.subs) assert.deepEqual(accordion(page(`?sub=${sub}`)), allOpen, sub)
   }
   // The Domains sit under All templates, the Sub-domains under their Domain, a level in each time; each row scopes the page and its chevron is a control of its own.
   const mysql = page('?sub=mysql')
@@ -149,6 +149,31 @@ test('a Domain counts what it holds as the rail does, and a card from another Do
   // Databases lists the dependency template from Services too, but counts only what it holds, as the rail does.
   assert.match(meta(page('?domain=databases')), /^8 templates$/)
   assert.equal(cards(page('?domain=databases')).length, 9)
+})
+
+test('the pinned top section leads with what is in view, then the search and the filters', () => {
+  const markup = page('?sub=mysql&q=lag')
+  const top = markup.slice(markup.indexOf('<div class="tpl-toolbar">'), markup.indexOf('<ul class="tpl-grid">'))
+  const at = needle => top.indexOf(needle)
+  assert.ok(at('<div class="tpl-results-head">') > 0, 'the heading row is inside the pinned section')
+  assert.ok(at('<h2 class="tpl-scope"') < at('<div class="tpl-controls">'), 'the heading comes first')
+  assert.ok(at('>Clear search and filters</button>') < at('<div class="tpl-controls">'), 'its clear rides with it')
+  assert.ok(at('aria-label="Search templates"') > at('<div class="tpl-controls">'), 'the search sits in the controls below')
+})
+
+test('each filter shows its value, "All" included, as a value rather than a muted placeholder', () => {
+  const filter = (markup, label) => new RegExp(`<div class="filter-select tpl-filter" title="${label}: ([^"]+)"[^>]*>[\\s\\S]*?<span class="filter-value"><span>([^<]+)</span>`).exec(markup)
+  const plain = page()
+  for (const label of ['Problem type', 'Data source', 'Urgency']) {
+    const m = filter(plain, label)
+    assert.ok(m, label)
+    assert.deepEqual([m[1], m[2]], ['All', 'All'], label)
+  }
+  assert.doesNotMatch(plain, /filter-placeholder/)
+  const chosen = page('?type=latency&urgency=medium')
+  assert.equal(filter(chosen, 'Problem type')[2], 'Latency')
+  assert.equal(filter(chosen, 'Urgency')[2], 'Medium')
+  assert.equal(filter(chosen, 'Data source')[2], 'All')
 })
 
 test('the URL filters the page, and a filtered view offers to clear what filtered it', () => {
