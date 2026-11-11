@@ -2,6 +2,8 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { ChevronDown, ChevronRight, Pause } from 'lucide-react'
 import FacetGroup from '@/components/explorer/FacetGroup'
 import TableQuerySearch from '@/components/TableQuerySearch'
+import SearchCount from '@/components/shared/SearchCount'
+import { useRevealRows } from '@/hooks/useRevealRows'
 import { statusForAlertState } from '@/utils/status'
 import {
   RULE_FACETS, RULE_SEARCH_FIELDS, facetValueLabel, selectionFromUrl, hasSelection, toggleFacetValue,
@@ -140,6 +142,18 @@ export default function RulesTable({
 
   const anySelection = hasSelection(selection)
 
+  // Twenty rules draw, then twenty more as the list's end scrolls near
+  // (useRevealRows), counted down the groups in the order they are drawn; the
+  // rule a link names is drawn wherever it sits. While rules are still to
+  // come, the list stops at the group of the last one drawn. Only a new search
+  // or facet starts again at twenty: a fold opened, a group collapsed or a
+  // rule deleted keeps what is drawn.
+  const ordered = useMemo(() => groups.flatMap(g => (collapsed.has(g.key) ? [] : g.rules)), [groups, collapsed])
+  const linked = url.ruleId ? ordered.findIndex(v => ruleKey(v.id) === ruleKey(url.ruleId)) : -1
+  const { rows: drawnRules, sentinel } = useRevealRows(ordered, linked, `${url.q ?? ''}\n${JSON.stringify(url.facets ?? {})}`)
+  const drawnIds = new Set(drawnRules.map(v => v.id))
+  const drawnGroups = sentinel ? groups.slice(0, groups.findIndex(g => g.rules.includes(drawnRules.at(-1))) + 1) : groups
+
   let body
   if (loading) body = <RowsSkeleton />
   else if (rules.length === 0) body = <NoRules suggestions={suggestions} onNewRule={onNewRule} onSuggest={onSuggest} />
@@ -147,7 +161,7 @@ export default function RulesTable({
   else {
     body = (
       <div ref={listRef} className="rtab-groups" onFocus={onListFocus}>
-        {groups.map(g => {
+        {drawnGroups.map(g => {
           const headId = ruleDomId('rtab-g', g.key, 'head')
           const isCollapsed = collapsed.has(g.key)
           const worst = g.rules[0] ?? g.paused[0]
@@ -169,7 +183,7 @@ export default function RulesTable({
               </h3>
               {!isCollapsed && (
                 <>
-                  {g.rules.map(view => {
+                  {g.rules.filter(v => drawnIds.has(v.id)).map(view => {
                     const open = expanded.has(ruleKey(view.id))
                     const domId = ruleDomId('rtab-rule', g.key, view.id)
                     const panelId = `${domId}-details`
@@ -191,7 +205,9 @@ export default function RulesTable({
                       </Fragment>
                     )
                   })}
-                  {g.pausedCount > 0 && !unfoldPaused && (
+                  {/* A closed fold waits for its group's rules to be drawn; an
+                      open one keeps its button, which was just pressed. */}
+                  {g.pausedCount > 0 && !unfoldPaused && (g.foldOpen || g.rules.every(v => drawnIds.has(v.id))) && (
                     <button type="button" className="rtab-fold" aria-expanded={g.foldOpen} onClick={() => toggleFold(g.key)}>
                       <Pause aria-hidden="true" />
                       {g.foldOpen ? `Hide ${foldText(g.pausedCount)}` : foldText(g.pausedCount)}
@@ -203,6 +219,7 @@ export default function RulesTable({
             </section>
           )
         })}
+        {sentinel}
       </div>
     )
   }
@@ -237,6 +254,7 @@ export default function RulesTable({
             onApply={applySearch}
             suggest
             valuesFor={valuesFor}
+            status={<SearchCount active={!!url.q?.trim() || anySelection} shown={filtered.length} total={rules.length} noun="rules" />}
           />
         </div>
         {body}

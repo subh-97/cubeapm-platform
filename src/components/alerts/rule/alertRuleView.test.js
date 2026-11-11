@@ -18,6 +18,7 @@ import { createAlertsStore, alertsFor } from '@/utils/alerts/store'
 import { ruleSentence, displayName } from '@/utils/alerts/describe'
 import AlertRuleView from '@/pages/AlertRuleView'
 import RuleInstances from './RuleInstances.jsx'
+import { REVEAL_STEP } from '@/hooks/useRevealRows'
 import RuleNotifications from './RuleNotifications.jsx'
 import RuleDefinition from './RuleDefinition.jsx'
 import { instanceRows, bannerSentence, rootCauseFor } from './rulePage.js'
@@ -196,12 +197,29 @@ test('Instances: the selected row is marked and its series button pressed', () =
   const log = alerts.log.filter(r => String(r.rule_id) === '515')
   const html = render(<RuleInstances view={v} rows={rows} log={log} nowSec={nowSec} selected={rows[1].name} onSelect={noop} />)
   const trs = [...html.matchAll(/<tr([^>]*)>([\s\S]*?)<\/tr>/g)].slice(1)
-  assert.equal(trs.length, rows.length)
+  assert.equal(trs.length, REVEAL_STEP)
   const picked = trs.filter(([, attrs]) => /aria-selected="true"/.test(attrs))
   assert.equal(picked.length, 1)
   assert.match(picked[0][1], /class="is-selected"/)
   assert.ok(text(picked[0][2]).includes(rows[1].labels['host.name']))
   assert.match(picked[0][2], /aria-pressed="true"/)
+})
+
+test('Instances: twenty rows draw first, and a series picked further down is drawn with them', () => {
+  const v = view(515)
+  const rows = instanceRows(v, alerts.seriesFor(515))
+  assert.ok(rows.length > 2 * REVEAL_STEP)
+  const at = (selected) => {
+    const html = render(<RuleInstances view={v} rows={rows} log={[]} nowSec={nowSec} selected={selected} onSelect={noop} />)
+    return { html, trs: [...html.matchAll(/<tr([^>]*)>([\s\S]*?)<\/tr>/g)].slice(1) }
+  }
+  const first = at(null)
+  assert.equal(first.trs.length, REVEAL_STEP)
+  assert.match(first.html, /<\/table><div class="reveal-sentinel" aria-hidden="true"><\/div><\/section>/)
+  // A legend pick (or an alert_id) far down the list: every row up to it.
+  const far = at(rows[40].name)
+  assert.equal(far.trs.length, 41)
+  assert.match(far.trs[40][1], /aria-selected="true"/)
 })
 
 test('Instances: each row offers the ways out its own labels reach, a host series its host', () => {

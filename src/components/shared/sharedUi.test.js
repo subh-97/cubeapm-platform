@@ -21,6 +21,8 @@ import FilterSelect from './FilterSelect.jsx'
 import ServicePicker from '../ServicePicker.jsx'
 import ViewTabs from './ViewTabs.jsx'
 import FilterChips from './FilterChips.jsx'
+import SearchCount from './SearchCount.jsx'
+import { REVEAL_STEP } from '@/hooks/useRevealRows'
 import { viewTabId, viewTabPanelId } from './viewTabIds.js'
 import { Gauge, Crosshair, ChartLine, Globe, Database, TriangleAlert, Cpu, PanelsTopLeft, ArrowLeftRight, Activity, TextSearch } from 'lucide-react'
 import { SERVICE_TABS } from '@/utils/route'
@@ -429,4 +431,27 @@ test('FilterChips: one choice among capsules, only it in the Tab order, an empty
   assert.match(out, /<button type="button" role="radio" aria-checked="false" tabindex="-1" class="chip">All<span class="chip-count">3<\/span><\/button>/)
   assert.match(out, /<button type="button" role="radio" aria-checked="true" tabindex="0" class="chip is-on"><span class="chip-icon" aria-hidden="true"><svg><\/svg><\/span>Bees<span class="chip-count">3<\/span><\/button>/)
   assert.match(out, /class="chip is-empty">Cats<span class="chip-count">0<\/span>/)
+})
+
+test('a long SortableTable draws twenty rows, a picked one wherever it sorts, and nothing extra when short', () => {
+  const rows = Array.from({ length: 64 }, (_, i) => ({ id: `h${i}`, cpu: i }))
+  const columns = [{ key: 'id', label: 'Host', align: 'left' }, { key: 'cpu', label: 'CPU' }]
+  const trs = h => h.split('<tr').length - 2
+  const long = html(<SortableTable columns={columns} rows={rows} rowKey={r => r.id} defaultSort="cpu" />)
+  assert.equal(trs(long), REVEAL_STEP)
+  // Sorted before it is cut: the top twenty by CPU, the busiest first.
+  assert.match(long, /<tbody><tr><td style="text-align:left">h63<\/td>/)
+  assert.match(long, /<\/table><div class="reveal-sentinel" aria-hidden="true"><\/div><\/div>$/)
+  // A picked row past the twentieth: every row down to it.
+  const picked = html(<SortableTable columns={columns} rows={rows} rowKey={r => r.id} defaultSort="cpu" selectedKey="h20" />)
+  assert.equal(trs(picked), 44)
+  assert.match(picked, /<tr class="selected"><td style="text-align:left">h20<\/td>/)
+  const short = html(<SortableTable columns={columns} rows={rows.slice(0, REVEAL_STEP)} rowKey={r => r.id} />)
+  assert.equal(trs(short), REVEAL_STEP)
+  assert.match(short, /<\/table><\/div>$/)
+})
+
+test('a table search says how many rows it kept, only while it is searching', () => {
+  assert.equal(html(<SearchCount active={false} shown={3} total={64} noun="hosts" />), '')
+  assert.equal(html(<SearchCount active shown={3} total={1200} noun="hosts" />), '<div class="search-count" role="status">3 of 1,200 hosts</div>')
 })

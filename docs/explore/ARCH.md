@@ -122,7 +122,8 @@ says so with a recovery hint. An error shows the inline band and keeps the previ
 Label and Value columns (plus Previous and Change when comparing), sticky header, sortable — Label
 A→Z by default, first click on Value sorts descending. With Labels "all" the label cell is the full
 sorted label set; otherwise it is that label's value. Rows merge on identical label text. A 20-row
-limit with "Show all" counts the filtered rows. The search box uses the reference's SearchQL
+limit counts the filtered rows; the next twenty arrive as the table's end scrolls near (`useRevealRows`,
+where a "Show all" button stood until 2026-11-05). The search box uses the reference's SearchQL
 (`src/utils/explore/searchQuery.js`) with highlighting and suggestions. Hovering a value sourced from
 a range query opens a small sparkline of that series.
 

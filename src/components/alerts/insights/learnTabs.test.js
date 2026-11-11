@@ -14,6 +14,7 @@ import { alertsFor } from '@/utils/alerts/store'
 import { parseAlertsSearch } from '@/utils/alertsUrl'
 import InsightsTab from './InsightsTab.jsx'
 import NotificationsTab from '@/components/alerts/notifications/NotificationsTab.jsx'
+import { REVEAL_STEP } from '@/hooks/useRevealRows'
 
 const HOUR = resolveWindow({ kind: 'preset', value: '1h' })
 const alerts = { ...alertsFor(alertsSeed(), HOUR), actions: {} }
@@ -21,10 +22,12 @@ const render = el => renderToStaticMarkup(<MemoryRouter>{el}</MemoryRouter>)
 const rowsOf = html => html.split('<tr').slice(2)
 const text = html => html.replace(/<[^>]+>/g, ' ').replace(/&quot;/g, '"').replace(/&#x27;/g, '\'').replace(/&amp;/g, '&').replace(/\s+/g, ' ')
 
-test('Insights: every rule, the chronic one first, flagged and offered Tune', () => {
+test('Insights: the first twenty rules, the chronic one first, flagged and offered Tune; the rest wait for a scroll', () => {
   const html = render(<InsightsTab alerts={alerts} win={HOUR} />)
   const rows = rowsOf(html)
-  assert.equal(rows.length, alerts.rules.length)
+  assert.ok(alerts.rules.length > REVEAL_STEP)
+  assert.equal(rows.length, REVEAL_STEP)
+  assert.match(html, /<\/table><div class="reveal-sentinel" aria-hidden="true"><\/div><\/div>/)
   assert.match(rows[0], /notify-service slow sends/)
   assert.match(rows[0], /class="ins-flag alwaysFiring"[^>]*>Always firing</)
   assert.match(rows[0], /<button type="button" class="hbtn ins-tune" title="Open notify-service slow sends in the editor/)

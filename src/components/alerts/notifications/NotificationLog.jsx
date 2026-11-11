@@ -7,9 +7,9 @@ import { dayClock } from '@/utils/alerts/configViews'
 import { payloadOf } from '@/utils/alerts/notificationLog'
 import { alertRuleUrl } from '@/utils/route'
 import { formatLocal } from '@/utils/timeRange'
+import { useRevealRows } from '@/hooks/useRevealRows'
 import './notifications.css'
 
-const PAGE = 20
 const isPlain = e => !(e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0)
 
 /**
@@ -21,15 +21,16 @@ const isPlain = e => !(e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.but
  * Rows expand in place, as the rules list does (signed off as Q5), to the full
  * target, the error for a failure, the payload, and links to the rule and the
  * instance — production opens a modal of raw text instead. Twenty rows at a
- * time, then "Show 20 more · Show all", where production pages with a red
- * "Load more" and searches only what it has loaded.
+ * time, the next twenty as the list's end scrolls near (useRevealRows), where
+ * production pages with a red "Load more" and searches only what it has
+ * loaded.
  *
  * `rows` come from notificationLog.logRows, newest first. `compact` drops the
  * Rule column, for a page that is already one rule's.
  */
 export default function NotificationLog({ rows, nowSec, compact = false, empty }) {
   const navigate = useNavigate()
-  const [limit, setLimit] = useState(PAGE)
+  const { rows: shown, sentinel } = useRevealRows(rows)
   const [open, setOpen] = useState(() => new Set())
   const toggle = id => setOpen((s) => {
     const next = new Set(s)
@@ -41,7 +42,6 @@ export default function NotificationLog({ rows, nowSec, compact = false, empty }
 
   if (!rows.length) return <p className="nlog-empty">{empty ?? 'No notifications match.'}</p>
 
-  const shown = rows.slice(0, limit)
   return (
     <div className={`nlog${compact ? ' compact' : ''}`}>
       <div className="nlog-head" aria-hidden="true">
@@ -101,15 +101,9 @@ export default function NotificationLog({ rows, nowSec, compact = false, empty }
           )
         })}
       </ul>
+      {sentinel}
       <div className="nlog-foot">
         <span>Showing {shown.length.toLocaleString()} of {rows.length.toLocaleString()}</span>
-        {rows.length > limit && (
-          <>
-            <button type="button" className="ae-link" onClick={() => setLimit(l => l + PAGE)}>Show {Math.min(PAGE, rows.length - limit)} more</button>
-            <span aria-hidden="true">·</span>
-            <button type="button" className="ae-link" onClick={() => setLimit(rows.length)}>Show all</button>
-          </>
-        )}
       </div>
     </div>
   )

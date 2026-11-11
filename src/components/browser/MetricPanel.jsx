@@ -1,4 +1,5 @@
 import CardMenu from '@/components/CardMenu'
+import SearchCount from '@/components/shared/SearchCount'
 import SearchGlyph from '@/components/shared/SearchGlyph'
 import ViewToggle from '@/components/shared/ViewToggle'
 import './browser-metrics.css'
@@ -20,9 +21,11 @@ import './browser-metrics.css'
  *                 choice carries from one metric tab to the next
  *   noun          what a row is ('routes'), for the search's wording
  *   search, onSearch   the table search
+ *   shown, total  the rows the search kept and the rows it searched, for the
+ *                 "12 of 14 routes" under the field while something is typed
  *   graph, table  the two bodies; only the one in view is mounted
  */
-export default function MetricPanel({ title, menuColumns, view, onView, noun, search, onSearch, graph, table }) {
+export default function MetricPanel({ title, menuColumns, view, onView, noun, search, onSearch, shown, total, graph, table }) {
   const isGraph = view !== 'table'
   return (
     <div className="panel">
@@ -45,6 +48,7 @@ export default function MetricPanel({ title, menuColumns, view, onView, noun, se
               onChange={e => onSearch(e.target.value)}
             />
           </div>
+          <SearchCount active={!!search.trim()} shown={shown} total={total} noun={noun} />
         </div>
       )}
       {isGraph ? graph : table}

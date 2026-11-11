@@ -115,6 +115,8 @@ export default function PageViewsTab({ app, win, timeRange, syncId, onFocus, vie
         onView={onView}
         noun="routes"
         search={search}
+        shown={rows.length}
+        total={data.rows.length}
         onSearch={setSearch}
         graph={(
           <>

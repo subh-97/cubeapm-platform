@@ -2,6 +2,7 @@ import { memo, useEffect, useRef, useState } from 'react'
 import { ArrowUpRight } from 'lucide-react'
 import ErrorSpark from '@/components/errors/ErrorSpark'
 import ChartExpandButton from '@/components/charts/ChartExpandButton'
+import { useRevealRows } from '@/hooks/useRevealRows'
 import { STATUS_LABELS } from '@/utils/status'
 import { exceptionParts, httpReason, httpCodeClass, deltaChip } from '@/utils/errorsPage'
 import './errors.css'
@@ -210,13 +211,16 @@ const ErrorGroupRow = memo(function ErrorGroupRow({
 /**
  * The error groups, one row each: where, what, how many against before, when,
  * and a way into the spans. The order is the page's (see sortErrorGroups); the
- * header only asks for a different one.
+ * header only asks for a different one. Twenty rows draw, then twenty more as
+ * the end scrolls near (useRevealRows); the group open in the drawer stays
+ * drawn wherever it sorts, so closing the drawer can hand focus back to it.
  */
 export default function ErrorGroupTable({
   groups, side, win, onFocus, sort, onSort, selectedId, onSelect, onOpenTraces,
   serviceStatus, prevText, scrollRoot,
 }) {
   const lazy = groups.length > EAGER_SPARKS
+  const { rows, sentinel } = useRevealRows(groups, groups.findIndex(g => g.id === selectedId))
   return (
     <div className="errp-table">
       <div className="errp-head">
@@ -229,7 +233,7 @@ export default function ErrorGroupTable({
             last column rule stopping at the header. */}
         <span><span className="sr-only">Actions</span></span>
       </div>
-      {groups.map((g, i) => (
+      {rows.map((g, i) => (
         <ErrorGroupRow
           key={g.id}
           group={g}
@@ -245,6 +249,7 @@ export default function ErrorGroupTable({
           scrollRoot={scrollRoot}
         />
       ))}
+      {sentinel}
     </div>
   )
 }

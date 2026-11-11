@@ -18,6 +18,7 @@ import { exceptionParts, deltaChip } from '@/utils/errorsPage'
 import { ChartFrameContext, EXPAND_PLOT_HEIGHT } from '@/components/charts/chartView'
 import ChartModal from '@/components/charts/ChartModal.jsx'
 import ErrorGroupTable from '@/components/errors/ErrorGroupTable.jsx'
+import { REVEAL_STEP } from '@/hooks/useRevealRows'
 import ErrorsView, { ErrorsVolume } from './ErrorsView.jsx'
 
 const noop = () => {}
@@ -90,9 +91,9 @@ const rowsOf = h => h.split('<div class="errp-row').slice(1)
 
 for (const [range, win] of [['1h', WIN], ['7d', resolveWindow({ kind: 'preset', value: '7d' })]]) {
   for (const side of ['server', 'client']) {
-    test(`every row ends in its chart's Expand and its Traces, boxed icons named for its group, lazy rows too (${range}, ${side})`, () => {
+    test(`the first twenty rows each end in their chart's Expand and Traces, boxed icons named for the group, lazy rows too (${range}, ${side})`, () => {
       const groups = groupErrorSeries(errorSeriesForWindow(win, side), win)
-      assert.ok(groups.length > 8, 'enough rows that some charts wait to mount')
+      assert.ok(groups.length > REVEAL_STEP, 'enough rows that some charts wait to mount, and some rows too')
       const h = html(
         <ErrorGroupTable
           groups={groups} side={side} win={win} onFocus={noop}
@@ -101,7 +102,8 @@ for (const [range, win] of [['1h', WIN], ['7d', resolveWindow({ kind: 'preset', 
         />,
       )
       const rs = rowsOf(h)
-      assert.equal(rs.length, groups.length)
+      assert.equal(rs.length, REVEAL_STEP)
+      assert.match(h, /<div class="reveal-sentinel" aria-hidden="true"><\/div><\/div>$/)
       rs.forEach((row, i) => {
         const g = groups[i]
         const where = side === 'client' ? `${g.endpoint}, calling ${g.spanName}` : g.endpoint
@@ -117,7 +119,23 @@ for (const [range, win] of [['1h', WIN], ['7d', resolveWindow({ kind: 'preset', 
         assert.equal(buttons[0], `title="${name}" aria-label="${name}" aria-haspopup="dialog"`)
         assert.match(buttons[1], /^title="View these errors in Traces" aria-label="View these errors in Traces: /)
       })
-      assert.equal((h.match(/aria-haspopup="dialog"/g) ?? []).length, groups.length)
+      assert.equal((h.match(/aria-haspopup="dialog"/g) ?? []).length, REVEAL_STEP)
     })
   }
 }
+
+test('the group open in the drawer is drawn however far down it sorts', () => {
+  const groups = groupErrorSeries(errorSeriesForWindow(WIN, 'client'), WIN)
+  assert.ok(groups.length > 2 * REVEAL_STEP)
+  const picked = groups[30]
+  const h = html(
+    <ErrorGroupTable
+      groups={groups} side="client" win={WIN} onFocus={noop}
+      sort={{ key: 'count', dir: 'desc' }} onSort={noop} selectedId={picked.id} onSelect={noop} onOpenTraces={noop}
+      serviceStatus={{}} prevText="the previous hour" scrollRoot={null}
+    />,
+  )
+  const rs = rowsOf(h)
+  assert.equal(rs.length, 31)
+  assert.match(rs[30], /^[^"]*is-selected/)
+})

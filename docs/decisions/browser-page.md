@@ -118,7 +118,9 @@ Figures are page-view means, as in the original, so nothing calls them a p75.
     with `kind`, `endpoint` and `error` set. The row is not itself a button,
     because it holds the exception's own button. For the keyboard, the
     Endpoint text is a real button (`.err-open`) that does the same thing.
-  - Ten rows show, with "Show all" below.
+  - Twenty rows show, then twenty more as the list's end scrolls near, as on
+    every table on the platform (`useRevealRows`). Production shows ten, with
+    "Show all" below.
 - **Traces** is `RequestTraceSplit` (APM's Slow Requests split). It has Sort
   by Latency | Time | None (default None), an "N results" picker, an error
   summary, the shared waterfall, and "Trace ID ↗" to `/trace/<id>`. The

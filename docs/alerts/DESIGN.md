@@ -728,7 +728,8 @@ filtered by Status (ALL / SUCCESS / ERROR / MUTE / SNOOZE) and Alert.
 - **The URL** reads production's `rule_id`, so the rule row's history link lands where production's
   does. Production writes no other filter to the URL; ours writes its facets in our own dialect,
   using production's status values (SUCCESS / ERROR / MUTE / SNOOZE).
-- **Paging** uses the platform's "Show 20 more · Show all".
+- **Paging** is the platform's: twenty rows, then twenty more as the list's end scrolls near
+  (`useRevealRows`), under "Showing N of M". It was "Show 20 more · Show all" until 2026-11-05.
 - **Rows expand in place**, matching the rules list (Q5). This replaces production's raw-text
   Details modal. The expansion shows the payload, the full target and, for a failure, the error
   text in a scrollable mono block.

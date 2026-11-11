@@ -1,4 +1,5 @@
 import { useSortedRows } from '@/hooks/useSortedRows'
+import { useRevealRows } from '@/hooks/useRevealRows'
 import './sortable-table.css'
 
 // The table pieces the service, Home, Infrastructure and Browser pages share,
@@ -102,9 +103,12 @@ function thStyle(c) {
 // own table rules. The scroller is .table-scroll, which lets a table wider than
 // its panel scroll sideways instead of losing its last columns. `selectedKey`
 // is the rowKey of a row the page has picked (a pod's container), drawn as
-// picked; left out, no row is.
+// picked; left out, no row is. A long table draws twenty rows, then twenty
+// more as its end scrolls near (useRevealRows); a picked row is drawn wherever
+// it sorts.
 export function SortableTable({ columns, rows, rowKey, defaultSort = null, defaultDir = 'desc', onRowClick, empty, sortable = true, className, selectedKey }) {
   const { rows: sorted, sort, toggle } = useSortedRows(rows, defaultSort, defaultDir)
+  const { rows: drawn, sentinel } = useRevealRows(sorted, selectedKey == null ? -1 : sorted.findIndex(r => rowKey(r) === selectedKey))
   const infoOf = c => (c.info != null
     ? <span className="sortable-th-info" style={TH_INFO_STYLE} onClick={stopClick}>{c.info}</span>
     : null)
@@ -120,7 +124,7 @@ export function SortableTable({ columns, rows, rowKey, defaultSort = null, defau
           </tr>
         </thead>
         <tbody>
-          {sorted.map(r => (
+          {drawn.map(r => (
             <tr key={rowKey(r)} className={selectedKey != null && rowKey(r) === selectedKey ? 'selected' : undefined} onClick={onRowClick ? () => onRowClick(r) : undefined}>
               {columns.map(c => (
                 <td key={c.key} className={c.mono ? 'mono' : undefined} style={c.align === 'left' ? { textAlign: 'left' } : undefined}>
@@ -136,6 +140,7 @@ export function SortableTable({ columns, rows, rowKey, defaultSort = null, defau
           )}
         </tbody>
       </table>
+      {sentinel}
     </div>
   )
 }
