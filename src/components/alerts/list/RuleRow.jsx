@@ -1,30 +1,38 @@
-import { ChevronRight, HardDrive, Server, Waypoints } from 'lucide-react'
-import { AlertStateChip, SuppressionChip, SnoozeMenu, RuleActionsMenu, snoozeBlockedReason } from '@/components/alerts/shared'
-import Sparkline from '@/components/charts/Sparkline'
-import { rulePath, conditionText, sinceText, formatValue, displayName } from './adapters'
+import { ChevronRight, HardDrive, Pause, Pin, Play, Server, Waypoints } from 'lucide-react'
+import { AlertStateChip, SuppressionChip, SnoozeMenu, RuleActionsMenu, snoozeBlockedReason, ruleActionItems } from '@/components/alerts/shared'
+import { rulePath, sinceText, displayName } from './adapters'
 import { ruleSource, SOURCE_LABELS } from './rulesQuery'
 import { clickTogglesRow, isPlainClick } from './rulesList'
-import {
-  notifiesSummary, integrationIcon, valueTone, multipleFor, deltaFor, seriesTrend, scopeChips, managedText,
-} from './ruleDisplay'
+import { notifiesSummary, integrationIcon, scopeChips, managedText } from './ruleDisplay'
 
 const SCOPE_ICONS = { service: Server, endpoint: Waypoints, host: HardDrive }
 
 /**
  * One rule, as D3's row anatomy lays it out: its state (and any snooze or mute
- * beside it), its name as a real link, what it watches, its value against its
- * threshold and the start of the range, how long it has been so, who it
- * tells, and its two labelled menus. Production gave the same row seven
- * icon-only controls (R11).
+ * beside it), the pin that keeps it at the top of the list, its name as a real
+ * link, its scope (the service, endpoint or host it watches) and any "managed
+ * by" note, how long it has been in its state, who it tells, and its controls.
+ * The condition sentence ("Error % > 3% critical…"), the current value, its
+ * threshold multiple and a trend sparkline shared the row until 2026-11-26;
+ * they now live on the expanded panel (the sentence at its head, the value on
+ * each instance row), so the collapsed row names the rule rather than reading
+ * it. Production gave the same row seven icon-only controls (R11).
  *
  * The whole row toggles its details (R12: production's only toggle is a small
  * chevron). A click anywhere on it toggles, except on the things with jobs of
- * their own: the name link, the menus, and anything a menu opens. For the
+ * their own: the pin, the name link, the menus, and anything a menu opens. For the
  * keyboard the row's toggle is a real button with `aria-expanded`, so Enter
  * and Space toggle it natively, and ↑ / ↓ move between rows.
+ *
+ * Snooze and Pause/Resume are icon-only, their names carried in title and
+ * `aria-label` (rule 4); Actions keeps its word. Pause is its own control
+ * beside Snooze, not buried in the Actions menu, so the row's commonest change
+ * is one click (production gave it a switch; the menu made it two steps).
  */
+const PAUSE_IDS = ['pause', 'resume']
+
 export default function RuleRow({
-  view, domId, panelId, open, onToggle, onRowKey, nowSec, agoText, seriesFor, handlers,
+  view, domId, panelId, open, pinned = false, onToggle, onRowKey, nowSec, handlers,
 }) {
   const name = displayName(view)
   const source = ruleSource(view)
@@ -32,17 +40,12 @@ export default function RuleRow({
   const showSource = source === 'synthetic' || source === 'slo'
   const live = view.state === 'firing' || view.state === 'pending'
   const blocked = snoozeBlockedReason(view)
-  const multiple = multipleFor(view)
-  const trend = seriesTrend(view, seriesFor)
-  // A rule at rest has no alert to read a value from; its latest reading
-  // still says how near the line it is. Paused, erroring and silent rules
-  // have none to show.
-  const reading = Number.isFinite(view.value) ? view.value : view.state === 'ok' ? trend.last : null
-  const delta = deltaFor(view, reading, trend.previous, agoText)
   const notifies = notifiesSummary(view)
   const NotifyIcon = integrationIcon(notifies.type)
-  const tone = valueTone(view.state, view.severity)
-  const hasValue = Number.isFinite(reading)
+  // Pause or Resume, pulled out of the Actions menu into its own control. The
+  // menu's own descriptor carries whether the rule allows it (an SLO rule has
+  // no such item, and a read-only one is disabled with its reason).
+  const pauseItem = ruleActionItems(view).find(it => PAUSE_IDS.includes(it.id))
 
   const onClick = (e) => {
     if (clickTogglesRow(e.target, e.currentTarget)) onToggle(view.id)
@@ -74,7 +77,21 @@ export default function RuleRow({
       </button>
 
       <div className="rtab-rule-state">
-        <AlertStateChip state={view.state} severity={view.severity} detail={view.lastError ?? undefined} />
+        <div className="rtab-state-line">
+          <AlertStateChip state={view.state} severity={view.severity} detail={view.lastError ?? undefined} />
+          {/* A set pin stays in view: it is state. An unset one shows on the
+              row's hover or focus, as the Logs drawer's field pins do. */}
+          <button
+            type="button"
+            className={`rtab-pin${pinned ? ' is-pinned' : ''}`}
+            aria-pressed={pinned}
+            aria-label={`Pin ${name} to the top`}
+            title={pinned ? 'Unpin from the top' : 'Pin to the top'}
+            onClick={e => handlers.onTogglePin?.(view, e)}
+          >
+            <Pin aria-hidden="true" />
+          </button>
+        </div>
         {view.suppression && <SuppressionChip suppression={view.suppression} nowSec={nowSec} />}
       </div>
 
@@ -84,7 +101,6 @@ export default function RuleRow({
           {showSource && <span className="rtab-source" title={managed ?? undefined}>{SOURCE_LABELS[source]}</span>}
         </div>
         <div className="rtab-rule-sentence">
-          <span>{conditionText(view)}</span>
           {managed && <span className="rtab-managed">{managed}</span>}
           {scopeChips(view).map(c => {
             const Icon = SCOPE_ICONS[c.key]
@@ -96,28 +112,6 @@ export default function RuleRow({
             )
           })}
         </div>
-      </div>
-
-      <div className="rtab-rule-value">
-        <div className="rtab-value-line">
-          <span
-            className={`rtab-val ${live ? tone : ''}${hasValue ? '' : ' is-none'}`}
-            title={hasValue ? `${view.metric ?? 'Value'} ${live ? 'now' : 'at the latest reading'}` : 'No reading'}
-          >
-            {hasValue ? formatValue(view, reading) : '—'}
-          </span>
-          {multiple && <span className="rtab-multiple" title={multiple.title}>{multiple.text}</span>}
-        </div>
-        {(trend.points.length > 1 || delta) && (
-          <div className="rtab-trend-line">
-            {trend.points.length > 1 && (
-              <span className="rtab-spark" title={`${view.metric ?? 'Value'} over the range`}>
-                <Sparkline data={trend.points} color="var(--brand)" height={18} />
-              </span>
-            )}
-            {delta && <span className="rtab-delta" data-dir={delta.dir} title={delta.title}>{delta.label}</span>}
-          </div>
-        )}
       </div>
 
       <div className="rtab-rule-since">
@@ -137,9 +131,23 @@ export default function RuleRow({
             disabledReason={blocked ?? undefined}
             nowSec={nowSec}
             ruleName={name}
+            hideLabel
+            className="icon-only"
           />
         )}
-        <RuleActionsMenu rule={view} onAction={id => handlers.onAction(view, id)} />
+        {pauseItem && (
+          <button
+            type="button"
+            className="hbtn small icon-only"
+            aria-label={`${pauseItem.id === 'resume' ? 'Resume' : 'Pause'} ${name}`}
+            aria-disabled={pauseItem.disabled || undefined}
+            title={pauseItem.title ?? (pauseItem.id === 'resume' ? 'Evaluate this rule again' : 'Stop evaluating this rule until it is resumed')}
+            onClick={pauseItem.disabled ? undefined : () => handlers.onAction(view, pauseItem.id)}
+          >
+            {pauseItem.id === 'resume' ? <Play aria-hidden="true" /> : <Pause aria-hidden="true" />}
+          </button>
+        )}
+        <RuleActionsMenu rule={view} onAction={id => handlers.onAction(view, id)} omit={PAUSE_IDS} />
       </div>
     </div>
   )

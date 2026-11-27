@@ -33,7 +33,7 @@ export default function CreateRuleBanners({ onBrowse, onScratch }) {
             onBrowse?.()
           }}
         >
-          Browse templates<ArrowRight aria-hidden="true" />
+          Browse<ArrowRight aria-hidden="true" />
         </a>
       </section>
 

@@ -303,6 +303,10 @@ export function ruleView(rule, ctx = {}) {
     datasource: datasourceId(rule.datasource),
     kind: rule.kind === 'anomaly' ? 'anomaly' : 'static',
     status: rule.status === 'PAUSED' ? 'PAUSED' : 'ACTIVE',
+    // Did the rule's last evaluation run? Folded into state='error' for the
+    // chip, but the Health filter reads it on its own (a paused rule can still
+    // be unhealthy).
+    health: rule.health && rule.health !== 'ok' ? 'error' : 'ok',
     state,
     severity,
     stateKey,
@@ -357,28 +361,6 @@ export function sortRules(views) {
 }
 
 const NO_SERVICE = 'No service'
-
-/**
- * Views grouped for the list (D3) by their group: the folder a person put the
- * rule in (production's grouping), never one derived from its service or its
- * contact points. Groups sort by their worst rule, then by how many fire, then
- * by name — never alphabetically first (CLAUDE.md rule 3); rules within a
- * group sort the same way. Each group: `{ key, label, rules, firing, worst, counts }`.
- */
-export function groupRules(views) {
-  const groups = new Map()
-  const add = (key, label, view) => {
-    if (!groups.has(key)) groups.set(key, { key, label, rules: [] })
-    groups.get(key).rules.push(view)
-  }
-  for (const v of views) add(v.group, v.group, v)
-  return [...groups.values()]
-    .map(g => {
-      const rules = sortRules(g.rules)
-      return { ...g, rules, firing: rules.filter(r => r.state === 'firing').length, worst: ALERT_ORDER[rules[0]?.rank] ?? 'ok', counts: countRules(rules) }
-    })
-    .sort((a, b) => RANK.get(a.worst) - RANK.get(b.worst) || b.firing - a.firing || a.label.localeCompare(b.label))
-}
 
 /**
  * The summary strip's counts (D2). Snoozed or muted rules that are firing count

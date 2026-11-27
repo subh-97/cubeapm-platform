@@ -5,10 +5,12 @@ import { services as SERVICES } from '@/data/services'
 import { zoomRange } from '@/utils/timeRange'
 import { copyText } from '@/utils/clipboard'
 import { MIN_FOCUS_MS } from '@/components/charts/useTimeFocus'
+import { usePinnedRules } from '@/hooks/usePinnedRules'
+import { pinStore } from '@/utils/alerts/pins'
 import { rulePath, ruleEditPath, NEW_RULE_PATH, TEMPLATES_PATH, displayName } from './adapters'
 import { suggestedRules } from './rulesQuery'
-import { toggleExpanded, withUrlRule, ruleKey } from './rulesList'
-import { historyHref, windowAgo } from './ruleDisplay'
+import { toggleExpanded, withUrlRule, ruleKey, isPaused } from './rulesList'
+import { historyHref } from './ruleDisplay'
 import { changeRule } from './ruleActions'
 import FiringNow from './FiringNow'
 import CreateRuleBanners from './CreateRuleBanners'
@@ -18,6 +20,10 @@ import './alerts-list.css'
 
 const NO_RULES = []
 const NO_TIMELINE = []
+
+// SLO burn-rate rules are configured and shown on their SLO, not here (D18);
+// the Rules tab leaves them out of the list, the firing band and the timeline.
+const isSloRule = r => r?.managedBy?.kind === 'slo'
 const NO_RULE = () => null
 const NO_SERIES = () => []
 
@@ -28,8 +34,9 @@ const typing = el => !!el && (el.isContentEditable || ['TEXTAREA', 'SELECT'].inc
 
 /**
  * The Rules tab (docs/alerts/PLAN.md, P2; DESIGN D2–D4, D10, D16–D18): what is
- * firing now, the range's timeline, and every rule in severity order, grouped,
- * filtered and searched the way the explorer pages are, each expanding in place.
+ * firing now, the range's timeline, and every rule in severity order, the
+ * viewer's pins first, filtered and searched the way the explorer pages are,
+ * each expanding in place.
  *
  * Everything comes in through props, so the page shell owns the data and the
  * URL: `alerts` is `useAlerts(win)` (rule views worst first, `byId`,
@@ -47,15 +54,14 @@ export default function RulesTab({
   setTimeRange, loading = false, stale, onRetry,
 }) {
   const navigate = useNavigate()
-  const rules = alerts?.rules ?? NO_RULES
   const byId = alerts?.byId ?? NO_RULE
   const seriesFor = alerts?.seriesFor ?? NO_SERIES
-  const timeline = alerts?.timeline ?? NO_TIMELINE
+  const rules = useMemo(() => (alerts?.rules ?? NO_RULES).filter(r => !isSloRule(r)), [alerts])
+  const timeline = useMemo(() => (alerts?.timeline ?? NO_TIMELINE).filter(e => !isSloRule(byId(e.ruleId))), [alerts, byId])
   const actions = alerts?.actions
   const nowSec = win.nowSec
   const page = url ?? {}
   const ruleId = page.ruleId ?? null
-  const agoText = windowAgo(win)
 
   // ---- what is open ----
 
@@ -99,6 +105,19 @@ export default function RulesTab({
 
   const [deleting, setDeleting] = useState(null)
 
+  // A pin is the viewer's, not the rule's (utils/alerts/pins.js), but it moves
+  // the row, so it says where the row went and offers to put it back. Paused
+  // rules sort last, so an unpinned one is back among them, folded or not.
+  const { pinned, togglePin } = usePinnedRules()
+  const onTogglePin = useCallback((view) => {
+    const name = displayName(view)
+    const was = pinned.has(ruleKey(view.id))
+    const undo = togglePin(view.id)
+    let text = `Pinned ${name} to the top.`
+    if (was) text = isPaused(view) ? `Unpinned ${name}. It's back with the paused rules at the end.` : `Unpinned ${name}. It's back in its place by severity.`
+    say({ text, undo })
+  }, [pinned, togglePin, say])
+
   const onSnooze = useCallback((view, spec) => {
     say(changeRule(actions, view, { kind: 'snooze', spec }, nowSec))
   }, [actions, nowSec, say])
@@ -139,13 +158,16 @@ export default function RulesTab({
     setDeleting(null)
     if (!view) return
     const outcome = changeRule(actions, view, { kind: 'remove' }, nowSec)
-    if (outcome.undo) setExpanded(cur => { const next = new Set(cur); next.delete(ruleKey(view.id)); return next })
-    say(outcome)
+    if (!outcome.undo) { say(outcome); return }
+    setExpanded(cur => { const next = new Set(cur); next.delete(ruleKey(view.id)); return next })
+    // A deleted rule takes its pin with it, and its Undo brings both back.
+    const repin = pinStore().drop(view.id)
+    say({ ...outcome, undo: () => { outcome.undo(); repin?.() } })
   }, [deleting, actions, nowSec, say])
 
   const handlers = useMemo(() => ({
-    onOpenRule, onOpenLink: openLink, onHistory, onSnooze, onUnsnooze, onAction,
-  }), [onOpenRule, openLink, onHistory, onSnooze, onUnsnooze, onAction])
+    onOpenRule, onOpenLink: openLink, onHistory, onSnooze, onUnsnooze, onAction, onTogglePin,
+  }), [onOpenRule, openLink, onHistory, onSnooze, onUnsnooze, onAction, onTogglePin])
 
   // ---- keys: / searches, n starts a new rule (D17) ----
 
@@ -193,8 +215,8 @@ export default function RulesTab({
         loading={loading}
         expanded={expanded}
         onToggleRow={onToggleRow}
+        pinned={pinned}
         nowSec={nowSec}
-        agoText={agoText}
         seriesFor={seriesFor}
         handlers={handlers}
         suggestions={suggestions}

@@ -21,6 +21,18 @@ test('an overlay replaces, removes and adds by id, keeping seed order', () => {
   assert.deepEqual(out.rules.map(r => r.n), ['A', 'c', 'new'])
 })
 
+test('a new rule never takes a deleted rule\'s id, so a delete\'s Undo cannot overwrite it', () => {
+  const store = createAlertsStore({ storage: memoryStorage() })
+  const base = { ...rule(store, 501), id: null, state: 'firing', alerts: [], seriesCount: 1 }
+  const { rule: first } = store.actions.saveRule({ ...base, name: 'first' })
+  const undoDelete = store.actions.remove(first.id)
+  const { rule: second } = store.actions.saveRule({ ...base, name: 'second' })
+  assert.notEqual(second.id, first.id)
+  undoDelete()
+  assert.equal(rule(store, first.id).name, 'first')
+  assert.equal(rule(store, second.id).name, 'second', 'both rules stand after the Undo')
+})
+
 test('pause and resume, each with an Undo that puts back exactly what was there', () => {
   const store = createAlertsStore({ storage: memoryStorage() })
   const undo = store.actions.pause(501)

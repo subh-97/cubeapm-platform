@@ -1,79 +1,86 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, ChevronRight, Pause } from 'lucide-react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { ChevronRight, Pause } from 'lucide-react'
 import FacetGroup from '@/components/explorer/FacetGroup'
-import TableQuerySearch from '@/components/TableQuerySearch'
 import SearchCount from '@/components/shared/SearchCount'
 import { useRevealRows } from '@/hooks/useRevealRows'
-import { statusForAlertState } from '@/utils/status'
 import {
-  RULE_FACETS, RULE_SEARCH_FIELDS, facetValueLabel, selectionFromUrl, hasSelection, toggleFacetValue,
-  clearRuleFacets, buildRuleFacets, filterRules, parseRuleSearch, searchValuesFor, explainNoMatches,
+  ALERT_FILTERS, filterLabel, tagKeysOf, buildFilterValues,
+  selectionFromUrl, selectionToPatch, hasSelection, toggleFilterValue, setTextFilter,
+  clearSelection, filterRules, explainNoMatches,
+  selectionToChips, chipsToSelection,
 } from './rulesQuery'
-import {
-  listGroups, asksForPaused, groupHeaderText, foldText, groupKeyOf, rowStep, ruleDomId, ruleKey,
-} from './rulesList'
+import { ALERT_FIELD_CATALOG } from './alertFilters'
+import { useRecentSearches } from '@/hooks/useRecentSearches'
+import { listRules, asksForPaused, foldText, isFolded, rowStep, ruleDomId, ruleKey } from './rulesList'
 import RuleRow from './RuleRow'
 import RuleDetails from './RuleDetails'
+import AlertsQueryBuilder from './AlertsQueryBuilder'
+import FacetToggle from './FacetToggle'
+import FacetText from './FacetText'
 import { RowsSkeleton, NoRules, NoMatches } from './ListStates'
 
-const FACET_BY_TITLE = new Map(RULE_FACETS.map(f => [f.title, f]))
+const NO_OP = () => {}
 
 /**
  * The rules list in the explorer frame Logs, Traces and Errors already teach
- * (D3): the facet rail, a field:value search, and the results in severity
- * order, under the groups people put them in. What it is filtered to lives in
- * the URL (`url`, written back through `onUrlChange`), so a link reproduces it;
- * what is open and folded is this page's own.
+ * (D3, revised 2026-11-26): a filter rail and a chip bar that are one state,
+ * and the results in one list in severity order, the viewer's pinned rules at
+ * its head (`pinned`, a Set of ids as text) and the paused ones folded at its
+ * end. The rail and the bar both read and write one selection (`alertFilters`),
+ * which lives in the URL (`url`, through `onUrlChange`) so a link reproduces it;
+ * what is open and folded is this page's own, and what is pinned the viewer's.
  */
 export default function RulesTable({
-  rules, url, onUrlChange, loading, expanded, onToggleRow, nowSec, agoText, seriesFor, handlers, suggestions, onNewRule, onSuggest,
+  rules, url, onUrlChange, loading, expanded, onToggleRow, pinned = NO_PINS, nowSec, seriesFor, handlers, suggestions, onNewRule, onSuggest,
 }) {
-  const selection = useMemo(() => selectionFromUrl(url.facets), [url.facets])
-  const searchNode = useMemo(() => parseRuleSearch(url.q), [url.q])
-  const facetOptions = useMemo(() => buildRuleFacets(rules, selection), [rules, selection])
-  const filtered = useMemo(() => filterRules(rules, selection, searchNode), [rules, selection, searchNode])
-  const unfoldPaused = asksForPaused(selection, url.q)
+  const selection = useMemo(() => selectionFromUrl({ facets: url.facets, q: url.q }), [url.facets, url.q])
+  const tagKeys = useMemo(() => tagKeysOf(rules), [rules])
+  const facetOptions = useMemo(() => buildFilterValues(rules, selection, tagKeys), [rules, selection, tagKeys])
+  const filtered = useMemo(() => filterRules(rules, selection), [rules, selection])
+  const unfoldPaused = asksForPaused(selection)
 
-  // A rule a link names is shown open, wherever it is: its group's paused
-  // fold is opened up front, and a group it sits in is never collapsed.
-  const [openFolds, setOpenFolds] = useState(() => {
-    if (!url.ruleId) return new Set()
-    const key = groupKeyOf(listGroups(filtered), url.ruleId)
-    return key ? new Set([key]) : new Set()
-  })
-  const [collapsed, setCollapsed] = useState(() => new Set())
-  const groups = useMemo(
-    () => listGroups(filtered, { openFolds, unfoldPaused }),
-    [filtered, openFolds, unfoldPaused],
-  )
+  // A rule a link names is shown open, wherever it is: if it is paused, the
+  // fold is opened up front.
+  const [foldOpen, setFoldOpen] = useState(() => !!url.ruleId && isFolded(listRules(filtered, { pinned }), url.ruleId))
+  const list = useMemo(() => listRules(filtered, { foldOpen, unfoldPaused, pinned }), [filtered, foldOpen, unfoldPaused, pinned])
 
-  // The search box keeps its own text; clearing it from outside (the empty
-  // state's Clear filters) remounts it empty.
-  const [searchEpoch, setSearchEpoch] = useState(0)
+  // The row whose pin was just pressed, while focus stays with it (below).
+  const [pinRow, setPinRow] = useState(null)
 
-  const toggleFacet = useCallback((title, value) => {
-    const facet = FACET_BY_TITLE.get(title)
-    if (facet) onUrlChange({ facets: toggleFacetValue(url.facets, facet.key, value) })
-  }, [onUrlChange, url.facets])
-  const clearFacets = () => onUrlChange({ facets: clearRuleFacets(url.facets) })
-  const clearAll = () => {
-    onUrlChange({ facets: clearRuleFacets(url.facets), q: '' })
-    setSearchEpoch(n => n + 1)
-  }
-  const applySearch = useCallback((text) => {
-    const q = (text ?? '').trim()
-    if (q !== (url.q ?? '').trim()) onUrlChange({ q })
-  }, [onUrlChange, url.q])
-  const valuesFor = useCallback(field => searchValuesFor(rules, field), [rules])
+  // The rail controls and the chip bar edit one selection; each write serializes
+  // it back to the URL (and drops the old `q`).
+  const patch = useCallback(next => onUrlChange(selectionToPatch(next)), [onUrlChange])
+  // A ref to the live selection so several toggles fired in one synchronous go
+  // accumulate — the rail's "Clear" clears a facet value by value, and each
+  // write is a whole-URL replace, so without this only the last value would
+  // survive (the shared FacetGroup assumes functional-update accumulation).
+  const selRef = useRef(selection)
+  selRef.current = selection
+  const toggleValue = useCallback((key, value) => {
+    const next = toggleFilterValue(selRef.current, key, value)
+    selRef.current = next
+    patch(next)
+  }, [patch])
+  const setToggle = useCallback((key, value) => {
+    const next = { ...selection }
+    if (value == null) delete next[key]
+    else next[key] = new Set([value])
+    patch(next)
+  }, [patch, selection])
+  const setText = useCallback((key, value) => patch(setTextFilter(selection, key, value)), [patch, selection])
+  const clearAll = useCallback(() => patch(clearSelection()), [patch])
 
-  const toggleSet = setter => key => setter(cur => {
-    const next = new Set(cur)
-    if (next.has(key)) next.delete(key)
-    else next.add(key)
-    return next
-  })
-  const toggleFold = toggleSet(setOpenFolds)
-  const toggleGroup = toggleSet(setCollapsed)
+  // The filter bar is the shared QueryBuilder: its chips are the selection, and
+  // a commit writes the selection back to the URL. Its field catalogue adds the
+  // live tag keys; its value suggestions and counts come from the rules.
+  const chips = useMemo(() => selectionToChips(selection), [selection])
+  const setChips = useCallback(next => patch(chipsToSelection(next)), [patch])
+  // The bar suggests the essential fields only (ALERT_FIELD_CATALOG); every
+  // other filter is still typeable (and on the rail), and its values still come
+  // from the rules through fetchFieldValues.
+  const allValues = useMemo(() => buildFilterValues(rules, {}, tagKeys), [rules, tagKeys])
+  const fetchFieldValues = useCallback(field => Promise.resolve(allValues[field] ?? []), [allValues])
+  const { recents, addRecent } = useRecentSearches()
 
   // `rule_id` scrolls its rule into view, as production does: once per id,
   // after its fold has opened and its row is in the page.
@@ -82,21 +89,15 @@ export default function RulesTable({
   useEffect(() => {
     const id = url.ruleId
     if (!id || scrolledTo.current === id) return
-    const key = groupKeyOf(groups, id)
-    if (key && collapsed.has(key)) {
-      setCollapsed(cur => { const next = new Set(cur); next.delete(key); return next })
-      return
-    }
-    const group = groups.find(g => g.key === key)
-    if (group && group.paused.some(r => ruleKey(r.id) === ruleKey(id))) {
-      setOpenFolds(cur => new Set(cur).add(key))
+    if (isFolded(list, id)) {
+      setFoldOpen(true)
       return
     }
     const el = listRef.current?.querySelector(`[data-rule-id="${CSS.escape(String(id))}"]`)
     if (!el) return
     scrolledTo.current = id
     el.scrollIntoView({ block: 'center' })
-  }, [url.ruleId, groups, collapsed])
+  }, [url.ruleId, list])
 
   // ↑ / ↓ (and Home / End) move between the rows' toggles (D17).
   const onRowKey = useCallback((e) => {
@@ -109,116 +110,113 @@ export default function RulesTable({
   }, [])
 
   // Where focus last was in the list. A row that leaves while it holds focus
-  // (paused into its group's fold, deleted, filtered away) hands focus to the
-  // row that took its place, else its group's fold, else its group's header,
-  // rather than dropping it to the page (7c).
+  // (paused into the fold, deleted, filtered away) hands focus to the row that
+  // took its place, else the one before it, else the fold, rather than
+  // dropping it to the page (7c).
   const lastRow = useRef(null)
   const onListFocus = useCallback((e) => {
     const row = e.target.closest?.('[data-rule-id]')
-    const group = e.target.closest?.('.rtab-group')
-    if (!row || !group || !listRef.current) return
-    lastRow.current = {
-      id: row.dataset.ruleId,
-      group: [...listRef.current.querySelectorAll('.rtab-group')].indexOf(group),
-      index: [...group.querySelectorAll('.rtab-rule')].indexOf(row),
-    }
+    if (!row || !listRef.current) return
+    lastRow.current = { id: row.dataset.ruleId, index: [...listRef.current.querySelectorAll('.rtab-rule')].indexOf(row) }
+    // Focus on another row lets go of the row whose pin was pressed.
+    setPinRow(cur => (cur && ruleKey(cur.id) !== row.dataset.ruleId ? null : cur))
   }, [])
   useEffect(() => {
     const last = lastRow.current
-    const list = listRef.current
-    if (!last || !list) return
+    const el = listRef.current
+    if (!last || !el) return
     const active = document.activeElement
     if (active && active !== document.body) return
-    if (list.querySelector(`[data-rule-id="${CSS.escape(last.id)}"]`)) return
-    const group = list.querySelectorAll('.rtab-group')[last.group] ?? list.querySelector('.rtab-group')
-    if (!group) return
-    const rows = [...group.querySelectorAll('.rtab-rule [data-row-toggle]')]
-    const target = rows[Math.min(last.index, rows.length - 1)]
-      ?? group.querySelector('.rtab-fold')
-      ?? group.querySelector('.rtab-group-toggle')
+    if (el.querySelector(`[data-rule-id="${CSS.escape(last.id)}"]`)) return
+    const rows = [...el.querySelectorAll('.rtab-rule [data-row-toggle]')]
+    const target = rows[Math.min(last.index, rows.length - 1)] ?? el.querySelector('.rtab-fold')
     lastRow.current = null
     target?.focus()
   })
 
+  // A pin moves its row (to the head of the list, or back to its place), and
+  // the pin's button goes with it, keeping focus. `pinRow` is drawn wherever
+  // it sorts (useRevealRows' keep), and followed again when its pin changes by
+  // the toast's Undo or ⌘Z. From the keyboard the page follows the row; from a
+  // pointer it stays where the reader is (the browser's scroll anchoring would
+  // carry it to the row's new place), and the toast says where the row went.
+  const anchor = useRef(null)
+  const rowHandlers = useMemo(() => ({
+    ...handlers,
+    onTogglePin: (view, e) => {
+      const keyboard = !e?.detail
+      const scroller = listRef.current?.closest('.rtab')
+      anchor.current = keyboard || !scroller ? null : { scroller, top: scroller.scrollTop }
+      setPinRow({ id: view.id, keyboard })
+      handlers.onTogglePin?.(view)
+    },
+  }), [handlers])
+  useLayoutEffect(() => {
+    const a = anchor.current
+    if (!a) return
+    anchor.current = null
+    if (a.scroller.scrollTop !== a.top) a.scroller.scrollTop = a.top
+  })
+  useEffect(() => {
+    if (!pinRow) return
+    const pin = listRef.current?.querySelector(`[data-rule-id="${CSS.escape(String(pinRow.id))}"] .rtab-pin`)
+    if (!pin) return
+    // Focus that went elsewhere (to the toast's Undo, say) stays there.
+    const active = document.activeElement
+    if (active !== pin && active && active !== document.body) return
+    if (active !== pin) pin.focus({ preventScroll: true })
+    if (pinRow.keyboard) pin.closest('.rtab-rule')?.scrollIntoView({ block: 'nearest' })
+  }, [pinned, pinRow])
+
   const anySelection = hasSelection(selection)
 
   // Twenty rules draw, then twenty more as the list's end scrolls near
-  // (useRevealRows), counted down the groups in the order they are drawn; the
-  // rule a link names is drawn wherever it sits. While rules are still to
-  // come, the list stops at the group of the last one drawn. Only a new search
-  // or facet starts again at twenty: a fold opened, a group collapsed or a
-  // rule deleted keeps what is drawn.
-  const ordered = useMemo(() => groups.flatMap(g => (collapsed.has(g.key) ? [] : g.rules)), [groups, collapsed])
-  const linked = url.ruleId ? ordered.findIndex(v => ruleKey(v.id) === ruleKey(url.ruleId)) : -1
-  const { rows: drawnRules, sentinel } = useRevealRows(ordered, linked, `${url.q ?? ''}\n${JSON.stringify(url.facets ?? {})}`)
+  // (useRevealRows); the rule a link names, and the one whose pin was just
+  // pressed, are drawn wherever they sit. Only a new search or facet starts
+  // again at twenty: the fold opened or a rule deleted keeps what is drawn.
+  const indexOf = id => (id == null ? -1 : list.rules.findIndex(v => ruleKey(v.id) === ruleKey(id)))
+  const keep = Math.max(url.ruleId ? indexOf(url.ruleId) : -1, indexOf(pinRow?.id))
+  const { rows: drawnRules, sentinel } = useRevealRows(list.rules, keep, JSON.stringify(url.facets ?? {}))
   const drawnIds = new Set(drawnRules.map(v => v.id))
-  const drawnGroups = sentinel ? groups.slice(0, groups.findIndex(g => g.rules.includes(drawnRules.at(-1))) + 1) : groups
 
   let body
   if (loading) body = <RowsSkeleton />
   else if (rules.length === 0) body = <NoRules suggestions={suggestions} onNewRule={onNewRule} onSuggest={onSuggest} />
-  else if (filtered.length === 0) body = <NoMatches explanation={explainNoMatches(rules, selection, url.q)} onClear={clearAll} />
+  else if (filtered.length === 0) body = <NoMatches explanation={explainNoMatches(rules, selection)} onClear={clearAll} />
   else {
     body = (
-      <div ref={listRef} className="rtab-groups" onFocus={onListFocus}>
-        {drawnGroups.map(g => {
-          const headId = ruleDomId('rtab-g', g.key, 'head')
-          const isCollapsed = collapsed.has(g.key)
-          const worst = g.rules[0] ?? g.paused[0]
+      <div ref={listRef} className="rtab-rules" onFocus={onListFocus}>
+        {drawnRules.map((view, i) => {
+          const open = expanded.has(ruleKey(view.id))
+          const domId = ruleDomId('rtab-rule', view.id)
+          const panelId = `${domId}-details`
           return (
-            <section key={g.key} className="rtab-group" aria-labelledby={headId}>
-              <h3 className="rtab-group-head">
-                <button
-                  type="button"
-                  id={headId}
-                  className="rtab-group-toggle"
-                  aria-expanded={!isCollapsed}
-                  onClick={() => toggleGroup(g.key)}
-                >
-                  <ChevronDown aria-hidden="true" />
-                  <span className={`status-dot ${statusForAlertState(worst?.state, worst?.severity)}`} aria-hidden="true" />
-                  <span>{g.label}</span>
-                  <span className="rtab-group-count">{groupHeaderText(g)}</span>
-                </button>
-              </h3>
-              {!isCollapsed && (
-                <>
-                  {g.rules.filter(v => drawnIds.has(v.id)).map(view => {
-                    const open = expanded.has(ruleKey(view.id))
-                    const domId = ruleDomId('rtab-rule', g.key, view.id)
-                    const panelId = `${domId}-details`
-                    return (
-                      <Fragment key={view.id}>
-                        <RuleRow
-                          view={view}
-                          domId={domId}
-                          panelId={panelId}
-                          open={open}
-                          onToggle={onToggleRow}
-                          onRowKey={onRowKey}
-                          nowSec={nowSec}
-                          agoText={agoText}
-                          seriesFor={seriesFor}
-                          handlers={handlers}
-                        />
-                        {open && <RuleDetails view={view} panelId={panelId} nowSec={nowSec} seriesFor={seriesFor} handlers={handlers} />}
-                      </Fragment>
-                    )
-                  })}
-                  {/* A closed fold waits for its group's rules to be drawn; an
-                      open one keeps its button, which was just pressed. */}
-                  {g.pausedCount > 0 && !unfoldPaused && (g.foldOpen || g.rules.every(v => drawnIds.has(v.id))) && (
-                    <button type="button" className="rtab-fold" aria-expanded={g.foldOpen} onClick={() => toggleFold(g.key)}>
-                      <Pause aria-hidden="true" />
-                      {g.foldOpen ? `Hide ${foldText(g.pausedCount)}` : foldText(g.pausedCount)}
-                      {!g.foldOpen && <ChevronRight aria-hidden="true" />}
-                    </button>
-                  )}
-                </>
-              )}
-            </section>
+            <Fragment key={view.id}>
+              <RuleRow
+                view={view}
+                domId={domId}
+                panelId={panelId}
+                open={open}
+                pinned={i < list.pinnedCount}
+                onToggle={onToggleRow}
+                onRowKey={onRowKey}
+                nowSec={nowSec}
+                seriesFor={seriesFor}
+                handlers={rowHandlers}
+              />
+              {open && <RuleDetails view={view} panelId={panelId} nowSec={nowSec} seriesFor={seriesFor} handlers={handlers} />}
+            </Fragment>
           )
         })}
+        {/* A closed fold waits for the rules above it to be drawn; an open one
+            keeps its button, which was just pressed. */}
+        {list.pausedCount > 0 && !unfoldPaused && (list.foldOpen || list.rules.every(v => drawnIds.has(v.id))) && (
+          <button type="button" className="rtab-fold" aria-expanded={list.foldOpen} onClick={() => setFoldOpen(o => !o)}>
+            <Pause aria-hidden="true" />
+            {list.foldOpen ? `Hide ${foldText(list.pausedCount)}` : foldText(list.pausedCount)}
+            {!list.foldOpen && <ChevronRight aria-hidden="true" />}
+          </button>
+        )}
         {sentinel}
       </div>
     )
@@ -229,33 +227,65 @@ export default function RulesTable({
       <div className="logs-filters" role="region" aria-label="Filters">
         <div className="logs-filters-head">
           <span>Filters</span>
-          {anySelection && <button type="button" className="logs-filters-clear" onClick={clearFacets}>Clear all</button>}
+          {anySelection && <button type="button" className="logs-filters-clear" onClick={clearAll}>Clear all</button>}
         </div>
         <div className="logs-filters-scroll">
-          {RULE_FACETS.map(f => (
-            <FacetGroup
-              key={f.key}
-              title={f.title}
-              options={facetOptions[f.key]}
-              selected={selection[f.key] ?? EMPTY}
-              onToggle={toggleFacet}
-              renderLabel={f.label ? v => facetValueLabel(f.key, v) : undefined}
-            />
-          ))}
+          {ALERT_FILTERS.map((f) => {
+            if (f.control === 'enum') {
+              return (
+                <FacetGroup
+                  key={f.key}
+                  title={f.label}
+                  options={facetOptions[f.key] ?? EMPTY_OPTS}
+                  selected={selection[f.key] ?? EMPTY}
+                  onToggle={(_, v) => toggleValue(f.key, v)}
+                  renderLabel={v => filterLabel(f.key, v)}
+                />
+              )
+            }
+            if (f.control === 'toggle') {
+              return (
+                <FacetToggle key={f.key} title={f.label} values={facetOptions[f.key] ?? EMPTY_OPTS} selected={selection[f.key] ?? EMPTY} onSet={v => setToggle(f.key, v)} renderLabel={v => filterLabel(f.key, v)} />
+              )
+            }
+            if (f.control === 'text') {
+              return (
+                <FacetText key={f.key} title={f.label} placeholder={f.placeholder} value={[...(selection[f.key] ?? EMPTY)][0] ?? ''} onChange={v => setText(f.key, v)} />
+              )
+            }
+            if (f.control === 'tag') {
+              return tagKeys.map(k => (
+                <FacetGroup
+                  key={`tag.${k}`}
+                  title={k}
+                  options={facetOptions[`tag.${k}`] ?? EMPTY_OPTS}
+                  selected={selection[`tag.${k}`] ?? EMPTY}
+                  onToggle={(_, v) => toggleValue(`tag.${k}`, v)}
+                />
+              ))
+            }
+            return null
+          })}
         </div>
       </div>
 
       <div className="rtab-main">
         <div className="rtab-toolbar">
-          <TableQuerySearch
-            key={searchEpoch}
-            defaultValue={url.q ?? ''}
-            fields={RULE_SEARCH_FIELDS}
-            onApply={applySearch}
-            suggest
-            valuesFor={valuesFor}
-            status={<SearchCount active={!!url.q?.trim() || anySelection} shown={filtered.length} total={rules.length} noun="rules" />}
-          />
+          <div className="rtab-bar logs-query-bar">
+            <AlertsQueryBuilder
+              chips={chips}
+              setChips={setChips}
+              rows={rules}
+              recents={recents}
+              addRecent={addRecent}
+              onRun={NO_OP}
+              fieldCatalog={ALERT_FIELD_CATALOG}
+              fetchFieldValues={fetchFieldValues}
+            />
+          </div>
+          <div className="rtab-quick">
+            <SearchCount active={anySelection} shown={filtered.length} total={rules.length} noun="rules" />
+          </div>
         </div>
         {body}
       </div>
@@ -264,3 +294,5 @@ export default function RulesTable({
 }
 
 const EMPTY = new Set()
+const NO_PINS = new Set()
+const EMPTY_OPTS = []

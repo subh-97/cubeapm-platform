@@ -166,12 +166,17 @@ export function createAlertsStore({ storage = null, seed = alertsSeed, now = () 
 
     /**
      * Save a rule from the editor. A rule without an id is new and gets the
-     * next free one; the saved definition comes back with `undo`, so the
-     * editor can go to its page.
+     * next free one, never a deleted rule's: the overlay's keys hold the
+     * deletions, so a delete's Undo cannot overwrite a newer rule, and what
+     * the viewer keyed by the old id (a pin) does not pass to the new one.
+     * The saved definition comes back with `undo`, so the editor can go to
+     * its page.
      */
     saveRule(rule) {
       let id = rule?.id
-      if (id == null || id === 0 || id === '') id = Math.max(1000, ...state.rules.map(r => Number(r.id) || 0)) + 1
+      if (id == null || id === 0 || id === '') {
+        id = Math.max(1000, ...state.rules.map(r => Number(r.id) || 0), ...Object.keys(overlay.rules).map(k => Number(k) || 0)) + 1
+      }
       const saved = { ...definitionOf(rule), id }
       const undo = commit('rules', id, saved)
       return { rule: saved, undo }

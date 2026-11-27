@@ -86,7 +86,7 @@ journey.
 | J12 | Debug a failing receiver | Notifications log with event type, failure detail, links (D12) | P6 |
 | J13 | Weekly noise review | Insights flags always-firing, flapping, never-fired; Tune (D11) | P6 |
 | J6 | Alert when a synthetic monitor goes down | Synthetic rules carry a "From monitor" chip and stay editable here (D18); the Monitors bell waits for the Monitors page | P2 (list), P4 (edit) |
-| new | See SLO burn-rate alerts beside other rules | Read-only "From the SLO" rules, fast = Critical, slow = Warning; production doesn't list them (D18) | P1 (data), P2 (list) |
+| new | See SLO burn-rate alerts | Read-only "From the SLO" rules, fast = Critical, slow = Warning; production doesn't list them, and since 2026-11-26 the Rules tab doesn't either — they belong to their SLO (D18) | P1 (data), P2 (list, until 2026-11-26) |
 
 ## Phases at a glance
 
@@ -153,7 +153,8 @@ these docs. P2 and P3 own `src/components/alerts/**`, `AlertRuleView`, and 1g.
   - The SLO rules come from `sloRules(slos)`; `ruleDefsFor(state)` is the stored rules plus those.
   - `observability.js` gained read-only profile accessors (`hostProfile`, `HOST_NAMES`,
     `redisProfile`, `logRateProfile`), so an alert fires where those charts break.
-- [x] **1b — Model.** `src/utils/alerts/model.js` exports `ruleView`, `sortRules`, `groupRules`,
+- [x] **1b — Model.** `src/utils/alerts/model.js` exports `ruleView`, `sortRules`, `groupRules` (removed
+  2026-11-24 with the list's groups),
   `countRules`, `ruleFacets`, `ruleScope`, `ruleMetric`, `ruleManagedBy` and `ALERT_ORDER`.
   - Scope is read by scanning matchers, not by the PromQL parser, which cannot read #437 (see
     Known gaps).
@@ -265,7 +266,7 @@ the repo has no DOM tests (Known gaps).
   suppression overlays and notification ticks. Drag zooms through `useTimeFocus`; the series
   budget footer applies. Space is reserved so nothing shifts (R44).
 - [x] **2c — Rules table** (D3):
-  - the facet rail and `TableQuerySearch`;
+  - the filter rail (`FacetGroup`/`FacetToggle`/`FacetText`) and the shared `QueryBuilder` as the bar (`AlertsQueryBuilder`), one selection; was `TableQuerySearch` + a facet rail until 2026-11-26;
   - Group by (Group / Service / Contact point / None) — *removed 2026-10-21* (D3): the list
     always groups by each rule's own group, and New rule is the shared `.run-btn` primary button
     — *moved 2026-10-23* to the "Create a rule from scratch" banner, beside one for templates;
@@ -273,10 +274,14 @@ the repo has no DOM tests (Known gaps).
     categories, a card each, marked In use when a rule already runs its query — *replaced
     2026-11-04* by a page, Browse Templates (`/alerts/templates`): 37 templates in two layers,
     Domain and Sub-domain (docs/decisions/alerts-page.md);
-  - grouped rows sorted by severity (R6), with D3's row anatomy;
-  - paused rules folded per group (R47);
-  - Snooze and Actions as labelled menus (R11);
-  - source chips for synthetic and SLO rules, with SLO rules read-only (D18).
+  - grouped rows sorted by severity (R6), with D3's row anatomy — *one list since 2026-11-24*,
+    the group a tag on the expanded row, ties within a state broken by the threshold multiple;
+  - paused rules folded per group (R47) — *one fold at the list's end since 2026-11-24*;
+  - *added 2026-11-24:* a pin after each row's state chip, keeping the rule at the head of the
+    list (pinned rules worst first, never folded), kept per browser in `utils/alerts/pins.js`;
+  - Snooze, Pause/Resume and an Actions menu (R11) — *2026-11-26:* Snooze and Pause icon-only
+    (named through title/aria-label), Pause lifted out of Actions to sit beside Snooze;
+  - source chips for synthetic rules (SLO rules were listed read-only until 2026-11-26, then dropped from the tab — D18);
 - [x] **2d — Inline expansion** (D3, as production):
   - the whole row toggles, as a button with `aria-expanded` (R12), and the name stays a link;
   - the restyled details panel: sentence, evaluation settings, Notifies, mutes and snoozes, tags,
@@ -284,7 +289,7 @@ the repo has no DOM tests (Known gaps).
   - instance rows with value against threshold and a sparkline, plus the Traces/Logs handoffs
     production keeps in a new tab;
   - a footer with "Open rule", "Notification history" and "Open in Explore";
-  - several rows can be open at once, under sticky group headers.
+  - several rows can be open at once (under sticky group headers until the groups went, 2026-11-24).
 - [x] **2e — States** (D16):
   - skeleton rows;
   - live refresh with "Updated Ns ago";
@@ -292,7 +297,9 @@ the repo has no DOM tests (Known gaps).
   - empty states for no rules, no matches and nothing firing;
   - toasts with Undo for pause and snooze;
   - the delete dialog's wording.
-- [x] **2f — URL sync:** facets, search and group-by are written in our dialect with `replace`.
+- [x] **2f — URL sync:** the one chip selection (15 filter keys + `tag.<key>`) is written with
+  `replace`; old links (`name:`/`label.`/`status`/`suppressed`/`notifies`/old `state`) still filter
+  (*2026-11-26*; facets and search unified, `alertFilters.js`).
   `rule_id` expands that rule and scrolls it into view, as production does.
 
 **As built, beyond or apart from the batches:**
@@ -813,7 +820,7 @@ integration in the phase shown.
 | Annotations (`summary`, `description`, `runbook_url`) on the write schema | D8's description and runbook | Readable on rules, never written by the UI | P4 |
 | Pending history | Hatched pending stretches on the timeline | The `ALERTS{alertstate="pending"}` series likely exists; confirm | P2 |
 | Display only, no backend change | `lastError` for Rule error, `lastEvaluation` for "last evaluated" | Returned, never displayed (R8) | P2–P3 |
-| SLO burn-rate rules, listed or derivable | D18 shows them read-only beside user rules | Generated server-side from `/slos`; the rules API doesn't return them (inferred) | P2 |
+| SLO burn-rate rules, listed or derivable | D18 kept them read-only beside user rules until 2026-11-26, then dropped them from the Rules tab (they keep their own page) | Generated server-side from `/slos`; the rules API doesn't return them (inferred) | P2 |
 | Snooze author and reason | D10's Reason note; who snoozed | Silences take `createdBy` and `comment`; the UI sends empty strings | P5 |
 | Series count per rule | D1's **No data**: a rule whose query returns no series is not OK | The rules API answers `inactive` for both; the mock adds `seriesCount` | P2 |
 

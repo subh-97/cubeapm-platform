@@ -76,18 +76,30 @@ not re-deriving.
   critical · 8 warning") and a chevron; the whole line is the button that folds the timeline to
   it. It arrives folded (2026-10-24; open only when a quiet day's "Show timeline" brought it), and
   the fold is not remembered. "Drag across to zoom" moved to that line's title. The list is
-  sorted by severity (rule 3), so the worst rule is the first row. The list folds each
-  group's paused rules into one line, and rows expand in place as production's do (sign-off Q5);
-  the name stays a link. The band's state pills and worst-incident banner were removed on
+  sorted by severity (rule 3), so the worst rule is the first row, and within a state by how far
+  past its threshold each rule reads. It is one list (2026-11-24; it was grouped by each rule's
+  group): a rule's group is the first tag on its expanded row, and the Group facet narrows to one.
+  A pin right after a row's state chip moves that rule to the head of the list, the pins worst
+  first among themselves. The pin belongs to the viewer: it is kept in this browser
+  (`utils/alerts/pins.js`), production has none, and a pinned paused rule is never folded.
+  The list folds its other paused rules into one line at its end, and rows expand in place as
+  production's do (sign-off Q5); the name stays a link. The band's state pills and worst-incident banner were removed on
   2026-10-21, as was the Rules tab's "23 · 12 firing" count: the State facet and the first row
   already said the same.
-- **Two labelled menus per row**, Snooze and Actions, replace production's seven icon-only
-  controls (R11). An item a rule does not allow stays, disabled, with the reason as its title.
+- **Snooze, Pause/Resume and an Actions menu per row** replace production's seven icon-only
+  controls (R11). Snooze and Pause are icon-only (2026-11-26), their names in `title`/`aria-label`;
+  Actions keeps its word. Pause/Resume stands beside Snooze rather than inside the menu, so the
+  row's commonest change is one click (an SLO rule has no Pause; it is configured by its SLO, D18).
+  An item a rule does not allow stays, disabled, with the reason as its title.
 - **Two ways to make a rule open the tab**, side by side above the timeline: "Create a rule from a
   template" (white; a link to Browse Templates) and "Create a rule from scratch" (the
   brand's blue; a blank editor). They replace the toolbar's
-  New rule button, removed on review (2026-10-23): the toolbar is the search alone. With no rules
-  at all, the empty state still offers New rule, and `n` still starts one.
+  New rule button, removed on review (2026-10-23): the toolbar is the filter bar. *Revised
+  2026-11-26:* the search bar is the shared `QueryBuilder` (`AlertsQueryBuilder`, reused as Errors
+  does), and the rail and the bar are one selection (15 filters + four quick chips,
+  `alertFilters.js`); facets and search unified; old links still filter (keys folded, `svc`/
+  `severity` read past). With no rules at all, the empty state still offers New rule, and `n` still
+  starts one.
 - **Templates live on their own page**, Browse Templates (below). The drawer that held them
   first (2026-10-26) came out on 2026-11-04: a catalogue of 37 wants a page's room, a link, and
   Back.
@@ -229,7 +241,7 @@ because Home and the service page read `useAlerts`.
 
 Labels, not paths: Rules / Insights / Contact points / Mute schedules / Notifications. Severity
 order instead of alphabetical; firing first; paused folded. Every control labelled. SLO burn-rate
-rules listed (read-only) beside user rules. Every change confirms in a toast, the reversible ones
+rules are left off the tab (2026-11-26): they belong to their SLO (D18). Every change confirms in a toast, the reversible ones
 with Undo; deletes say what they do. A contact point in use says why it can't be deleted and
 lists the rules that still send there. Insights flags always-firing, flapping and never-fired rules,
 with Tune. The notification log says which event each send was and why a held or failed one was.

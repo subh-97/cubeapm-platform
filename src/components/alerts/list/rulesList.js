@@ -1,58 +1,72 @@
 // How the rules list is laid out and how its rows behave, without rendering
-// anything: the paused fold, the group headers' words, and the contract for
-// what a click or a key on a row does (docs/alerts/DESIGN.md D3).
-
-import { groupRules } from './adapters'
+// anything: one list worst first, the viewer's pinned rules at its head, the
+// paused fold at its end, and the contract for what a click or a key on a row
+// does (docs/alerts/DESIGN.md D3).
 
 export const isPaused = view => view?.state === 'paused' || view?.status === 'PAUSED'
 
+// How far past its threshold a rule reads (the row's "4.8×"); none for a rule
+// past no threshold, which sorts after those that are.
+const breach = view => (Number.isFinite(view?.thresholdMultiple) ? view.thresholdMultiple : -1)
+
 /**
- * The groups the list draws — each rule under the group a person put it in —
- * each with its paused rules split off. Seven of
- * production's nine demo rules are paused, each at full height with seven
- * controls, which is the noise that hides the one that fires (R47). So a group
- * shows its paused rules as one line, unless the reader opened that line or
- * asked for paused rules outright (`unfoldPaused`: a State or Status filter
- * naming them, or a search, which is an explicit ask for whatever matches).
- *
- * `{ key, label, rules, paused, foldOpen, total, firing, worst }`, where
- * `rules` are the rows drawn above the fold and `paused` the folded ones.
+ * The list's order: worst state first (critical, warning, pending, rule error,
+ * suppressed, OK, no data, paused); within a state, the rule furthest past its
+ * threshold first, so the incident leads its tier rather than whichever name
+ * sorts first; the name only when nothing else tells two rules apart (never
+ * alphabetical first: CLAUDE.md rule 3).
  */
-export function listGroups(rules, { openFolds = new Set(), unfoldPaused = false } = {}) {
-  return groupRules(rules).map(g => {
-    const active = g.rules.filter(r => !isPaused(r))
-    const paused = g.rules.filter(isPaused)
-    // A group of nothing but paused rules stays folded too: a header and one
-    // line is the point, however few rules it holds.
-    const foldOpen = unfoldPaused || openFolds.has(g.key) || paused.length === 0
-    return {
-      key: g.key,
-      label: g.label,
-      rules: foldOpen ? g.rules : active,
-      paused: foldOpen ? [] : paused,
-      pausedCount: paused.length,
-      foldOpen,
-      total: g.rules.length,
-      firing: g.firing,
-      worst: g.worst,
-    }
-  })
+export function byUrgency(a, b) {
+  return a.rank - b.rank || breach(b) - breach(a) || String(a.name).localeCompare(String(b.name), undefined, { sensitivity: 'base' })
 }
 
+/**
+ * The list the Rules tab draws: every rule in one list, worst first
+ * (`byUrgency`), with no groups — a rule's group is a tag on its expanded row,
+ * and the Group facet narrows to one.
+ *
+ * The rules the viewer pinned (`pinned`, a Set of ids as text) come first, and
+ * worst first among themselves, so a pin never reorders the incident below it
+ * within the pins; then everything else, worst first. A pin is an ask to keep
+ * that rule in sight, so a pinned rule is never folded away, paused or not.
+ *
+ * Paused rules that are not pinned are split off. Seven of production's nine
+ * demo rules are paused, each at full height with seven controls, which is the
+ * noise that hides the one that fires (R47). So they are one line at the
+ * list's end, unless the reader opened that line (`foldOpen`) or asked for
+ * paused rules outright (`unfoldPaused`: a State or Status filter naming them,
+ * or a search, which is an explicit ask for whatever matches).
+ *
+ * `{ rules, paused, pausedCount, pinnedCount, foldOpen }`, where `rules` are
+ * the rows drawn above the fold (its first `pinnedCount` the pinned ones) and
+ * `paused` the folded ones.
+ */
+export function listRules(rules, { foldOpen: opened = false, unfoldPaused = false, pinned = NO_PINS } = {}) {
+  const isPinned = r => pinned.has(ruleKey(r.id))
+  const sorted = [...rules].sort(byUrgency)
+  const pins = sorted.filter(isPinned)
+  const rest = sorted.filter(r => !isPinned(r))
+  const paused = rest.filter(isPaused)
+  const foldOpen = unfoldPaused || opened || paused.length === 0
+  return {
+    rules: [...pins, ...(foldOpen ? rest : rest.filter(r => !isPaused(r)))],
+    paused: foldOpen ? [] : paused,
+    pausedCount: paused.length,
+    pinnedCount: pins.length,
+    foldOpen,
+  }
+}
+
+const NO_PINS = new Set()
+
 /** Whether a filter or a search asks for paused rules, so none are folded away. */
-export function asksForPaused(selection, q) {
-  return !!(selection?.state?.has('paused') || selection?.status?.has('paused') || (q ?? '').trim())
+export function asksForPaused(selection) {
+  return !!(selection?.enabled?.has('off') || selection?.alert?.size || selection?.query?.size)
 }
 
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
 
-/** "3 rules · 2 firing", or "1 rule" when nothing in it fires. */
-export function groupHeaderText(group) {
-  const firing = group.firing ? ` · ${group.firing} firing` : ''
-  return `${plural(group.total, 'rule')}${firing}`
-}
-
-/** "‖ 2 paused rules". */
+/** "‖ 7 paused rules". */
 export const foldText = n => `${plural(n, 'paused rule')}`
 
 // ---------- Expansion ----------
@@ -76,15 +90,8 @@ export function withUrlRule(expanded, ruleId) {
   return new Set(expanded).add(ruleKey(ruleId))
 }
 
-/** The group a rule is listed in first, so a link to a paused rule can open its fold. */
-export function groupKeyOf(groups, ruleId) {
-  const key = ruleKey(ruleId)
-  const here = r => ruleKey(r.id) === key
-  for (const g of groups) {
-    if (g.rules.some(here) || g.paused.some(here)) return g.key
-  }
-  return null
-}
+/** Whether a rule is folded away among the paused ones, so a link to it can open the fold. */
+export const isFolded = (list, ruleId) => list.paused.some(r => ruleKey(r.id) === ruleKey(ruleId))
 
 // What a click on a row may not toggle it from: anything with its own job. The
 // name is a link to the rule page, the menus are menus, and a dialog a menu
@@ -132,7 +139,7 @@ export function rowStep(index, count, key) {
 }
 
 /** A DOM id for a rule's row, safe whatever characters the rule id holds. */
-export function ruleDomId(prefix, groupKey, id) {
+export function ruleDomId(prefix, id) {
   const safe = s => String(s).replace(/[^A-Za-z0-9_-]/g, c => `_${c.charCodeAt(0).toString(16)}`)
-  return `${prefix}-${safe(groupKey)}-${safe(id)}`
+  return `${prefix}-${safe(id)}`
 }

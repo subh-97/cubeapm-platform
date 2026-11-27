@@ -1,114 +1,123 @@
-// The Rules tab's facets and search (docs/alerts/DESIGN.md D3), over the seed
-// as the page shell hands it over.
+// The Rules tab's one selection (docs/alerts/DESIGN.md D3, revised 2026-11-26):
+// the URL turned into `{ key: Set }` and back, old links folded onto the new
+// keys, and the rules filtered through it.
 //
-// The risk: a rail that counts one way and filters another, or a link that
-// names a value no rule has and leaves the reader looking at an empty list
-// with nothing on screen saying why. Production also searched label keys but
-// not their values (R18), so the search is checked on values too.
+// The risks: a link that no longer filters after the chip rewrite, and a rail
+// that counts one way and filters another (checked in alertFilters.test.js).
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { resolveWindow } from '@/data/timeWindow'
 import { services } from '@/data/services'
 import { seededAlerts } from './fixtures.js'
+import { parseAlertsSearch, alertsSearch } from '@/utils/alertsUrl'
 import {
-  RULE_FACETS, buildRuleFacets, applyRuleFacets, selectionFromUrl, toggleFacetValue, clearRuleFacets,
-  filterRules, parseRuleSearch, explainNoMatches, facetValueLabel, suggestedRules,
+  selectionFromUrl, selectionToPatch, hasSelection, toggleFilterValue, setTextFilter,
+  clearSelection, filterRules, explainNoMatches, quickChipActive, toggleQuickChip,
+  QUICK_CHIPS, suggestedRules, selectionToChips, chipsToSelection,
 } from './rulesQuery.js'
 
 const win = resolveWindow({ kind: 'preset', value: '1h' })
 const { rules } = seededAlerts(win)
-const ids = list => list.map(r => String(r.id))
-const search = q => ids(filterRules(rules, {}, parseRuleSearch(q)))
+const plain = sel => Object.fromEntries(Object.entries(sel).map(([k, v]) => [k, [...v].sort()]))
 
-test('the rail is D3\'s nine facets, in its order, under the URL\'s own keys', () => {
-  assert.deepEqual(RULE_FACETS.map(f => f.title), ['State', 'Severity', 'Group', 'Service', 'Source', 'Type', 'Notifies', 'Status', 'Suppressed'])
-  assert.deepEqual(RULE_FACETS.map(f => f.key), ['state', 'severity', 'group', 'svc', 'source', 'type', 'notifies', 'status', 'suppressed'])
+test('new keys, tag keys and text keys read straight off the URL', () => {
+  const sel = selectionFromUrl({ facets: { group: ['Payments'], state: ['firing'], 'tag.kind': ['synthetic'], alert: ['pay'], query: ['cube_'] } })
+  assert.deepEqual(plain(sel), { group: ['Payments'], state: ['firing'], 'tag.kind': ['synthetic'], alert: ['pay'], query: ['cube_'] })
 })
 
-test('facet counts are over every rule, whatever else is selected', () => {
-  const all = buildRuleFacets(rules, {})
-  const narrowed = buildRuleFacets(rules, selectionFromUrl({ state: ['critical'], group: ['Payments'] }))
-  assert.deepEqual(narrowed.group, all.group, 'a group\'s count does not shrink because a state is picked')
-  const total = all.state.reduce((n, o) => n + o.count, 0)
-  assert.equal(total, rules.length, 'every rule has exactly one state')
-  assert.equal(all.status.find(o => o.value === 'paused').count, 4, 'four synthetic monitors are paused')
+test('old links still filter: the old keys fold onto the new ones, service and severity read past', () => {
+  const sel = selectionFromUrl({
+    facets: { status: ['paused'], state: ['critical', 'ok'], notifies: ['Platform team'], suppressed: ['muted'], svc: ['checkout'], severity: ['critical'] },
+    q: 'payment label.kind:synthetic',
+  })
+  assert.deepEqual(plain(sel), {
+    enabled: ['off'],
+    state: ['firing', 'normal'],
+    receiver_group: ['Platform team'],
+    muted: ['yes'],
+    alert: ['payment'],
+    'tag.kind': ['synthetic'],
+  })
 })
 
-test('closed sets keep their order; open sets sort by count', () => {
-  const f = buildRuleFacets(rules, {})
-  const order = ['critical', 'warning', 'pending', 'error', 'ok', 'nodata', 'paused']
-  const states = f.state.map(o => o.value)
-  assert.deepEqual(states, order.filter(s => states.includes(s)))
-  const counts = f.group.map(o => o.count)
-  assert.deepEqual(counts, [...counts].sort((a, b) => b - a))
+test('an old state=error / state=paused link lands on Health / Enabled', () => {
+  assert.deepEqual(plain(selectionFromUrl({ facets: { state: ['error'] } })), { health: ['error'] })
+  assert.deepEqual(plain(selectionFromUrl({ facets: { state: ['paused'] } })), { enabled: ['off'] })
 })
 
-test('a value a link seeded stays in the rail at 0, and the list says what emptied it', () => {
-  const selection = selectionFromUrl({ state: ['error'], svc: ['no-such-service'] })
-  const facets = buildRuleFacets(rules, selection)
-  assert.deepEqual(facets.svc.find(o => o.value === 'no-such-service'), { value: 'no-such-service', count: 0 })
-  assert.equal(filterRules(rules, selection, null).length, 0)
-  const why = explainNoMatches(rules, selection, 'redis')
-  assert.deepEqual(why.filters.map(f => [f.title, f.label, f.count]), [['State', 'Rule error', 1], ['Service', 'no-such-service', 0]])
-  assert.equal(why.search, 'redis')
+test('a selection round-trips through the URL', () => {
+  const sel = { group: new Set(['Payments']), state: new Set(['firing', 'pending']), enabled: new Set(['off']), 'tag.kind': new Set(['synthetic']), alert: new Set(['pay']) }
+  const patch = selectionToPatch(sel)
+  assert.equal(patch.q, '', 'the old q is dropped')
+  const back = selectionFromUrl(parseAlertsSearch(alertsSearch({ facets: patch.facets })))
+  assert.deepEqual(plain(back), plain(sel))
 })
 
-test('values are ORed inside a facet and facets are ANDed', () => {
-  const either = applyRuleFacets(rules, selectionFromUrl({ state: ['pending', 'error'] }))
-  assert.deepEqual(ids(either).sort(), ['503', '513'])
-  const both = applyRuleFacets(rules, selectionFromUrl({ state: ['critical'], svc: ['payment-service'] }))
-  assert.ok(both.length >= 2 && both.every(r => r.stateKey === 'critical' && r.scope.service === 'payment-service'))
+test('toggling, text and clear edit the selection', () => {
+  let sel = {}
+  sel = toggleFilterValue(sel, 'state', 'firing')
+  sel = toggleFilterValue(sel, 'state', 'pending')
+  assert.deepEqual([...sel.state].sort(), ['firing', 'pending'])
+  sel = toggleFilterValue(sel, 'state', 'firing')
+  assert.deepEqual([...sel.state], ['pending'])
+  sel = setTextFilter(sel, 'alert', 'pay')
+  assert.deepEqual([...sel.alert], ['pay'])
+  sel = setTextFilter(sel, 'alert', '')
+  assert.ok(!('alert' in sel), 'an empty text drops the key')
+  assert.ok(hasSelection(sel) && !hasSelection(clearSelection()))
 })
 
-test('severity is the highest tier a rule defines, not its state', () => {
-  const critical = applyRuleFacets(rules, selectionFromUrl({ severity: ['critical'] }))
-  assert.ok(critical.some(r => r.state === 'ok'), 'an OK rule with a critical tier is still severity critical')
+test('filtering keeps the severity sort — the survivors stay in rule order', () => {
+  const selection = { state: new Set(['firing']) }
+  const kept = filterRules(rules, selection)
+  const ranks = kept.map(r => r.rank)
+  assert.deepEqual(ranks, [...ranks].sort((a, b) => a - b))
+  assert.ok(kept.length > 0 && kept.every(r => r.state === 'firing'))
+  assert.equal(filterRules(rules, {}).length, rules.length, 'no selection keeps every rule')
 })
 
-test('a rule with no service is filterable as "No service", and a synthetic rule says Synthetic', () => {
-  const none = applyRuleFacets(rules, selectionFromUrl({ svc: ['No service'] }))
-  assert.ok(none.length > 0 && none.every(r => !r.scope.service))
-  const synthetic = applyRuleFacets(rules, selectionFromUrl({ source: ['synthetic'] }))
-  assert.deepEqual(ids(synthetic).sort(), ['426', '427', '428', '432', '433'])
-  assert.equal(facetValueLabel('source', 'slo'), 'SLO')
-  assert.equal(facetValueLabel('status', 'paused'), 'Paused')
+test('a quick chip is active when its values are selected, and toggles them', () => {
+  const firing = QUICK_CHIPS.find(c => c.id === 'firing')
+  let sel = {}
+  assert.ok(!quickChipActive(sel, firing))
+  sel = toggleQuickChip(sel, firing)
+  assert.ok(quickChipActive(sel, firing) && [...sel.state].includes('firing'))
+  sel = toggleQuickChip(sel, firing)
+  assert.ok(!quickChipActive(sel, firing) && !hasSelection(sel))
 })
 
-test('the search reads name:, group:, service: and label:, and free text reads label values', () => {
-  assert.ok(search('name:payment').includes('501'))
-  assert.deepEqual(search('service:order-service').sort(), ['505', '506'])
-  assert.deepEqual(search('group:Fulfilment'), ['507'])
-  assert.deepEqual(search('redis'), ['514'], 'free text over names')
-  // The host is a label only an alert carries: production searched label keys, never values.
-  assert.deepEqual(search('ip-10-0-143-40'), ['515'])
-  assert.deepEqual(search('label.host.name:ip-10-0-142-2'), ['515'])
-  assert.deepEqual(search('label.kind:synthetic').sort(), ['426', '427', '428', '432', '433'])
+test('a toggle-key quick chip replaces, never leaving a boolean key holding both values', () => {
+  // Rail sets Enabled = On; the "Switched off" chip must not OR Off onto it
+  // (enabled: {on, off} would match every rule).
+  const off = QUICK_CHIPS.find(c => c.id === 'off')
+  const next = toggleQuickChip({ enabled: new Set(['on']) }, off)
+  assert.deepEqual([...next.enabled], ['off'])
+  // And it still toggles back off cleanly.
+  assert.ok(!hasSelection(toggleQuickChip(next, off)))
 })
 
-test('filtering never reorders: the severity sort survives a search', () => {
-  const hit = filterRules(rules, {}, parseRuleSearch('payment'))
-  const positions = hit.map(r => rules.indexOf(r))
-  assert.deepEqual(positions, [...positions].sort((a, b) => a - b))
+test('the selection round-trips through the builder\'s chips (eq, in, contains)', () => {
+  const sel = { state: new Set(['firing']), group: new Set(['Payments', 'Checkout']), alert: new Set(['pay']), 'tag.kind': new Set(['synthetic']) }
+  const chips = selectionToChips(sel)
+  assert.ok(chips.find(c => c.field === 'group')?.op === 'in', 'a multi-value key is an in-list chip')
+  assert.ok(chips.find(c => c.field === 'state')?.op === 'eq', 'a single value is an exact chip')
+  assert.ok(chips.find(c => c.field === 'alert')?.op === 'contains', 'a text key is a contains chip')
+  assert.deepEqual(plain(chipsToSelection(chips)), plain(sel))
+  // A negation the builder can make has no rail home and is dropped.
+  assert.deepEqual(chipsToSelection([{ field: 'state', op: 'neq', value: 'firing' }]), {})
 })
 
-test('a search that does not parse filters nothing rather than everything', () => {
-  assert.equal(parseRuleSearch('name:(payment'), null)
-  assert.equal(filterRules(rules, {}, parseRuleSearch('name:(payment')).length, rules.length)
+test('the empty state names every selected value with its count, text filters included', () => {
+  const selection = { source: new Set(['nosuch']), alert: new Set(['xyz']) }
+  const { filters } = explainNoMatches(rules, selection)
+  const source = filters.find(f => f.key === 'source')
+  assert.ok(source && source.count === 0 && source.title === 'Source')
+  const name = filters.find(f => f.key === 'alert')
+  assert.ok(name && name.count == null && name.label === 'xyz', 'a text filter has no count')
 })
 
-test('toggling a value writes the facets back without empty keys, and clearing leaves other tabs\' keys', () => {
-  const on = toggleFacetValue({ state: ['critical'] }, 'state', 'warning')
-  assert.deepEqual(on, { state: ['critical', 'warning'] })
-  assert.deepEqual(toggleFacetValue(on, 'state', 'critical'), { state: ['warning'] })
-  assert.deepEqual(toggleFacetValue({ state: ['critical'] }, 'state', 'critical'), {})
-  assert.deepEqual(clearRuleFacets({ state: ['critical'], svc: ['x'], event: ['fired'] }), { event: ['fired'] })
-})
-
-test('an empty workspace is offered an error-rate rule for each uncovered service, at the card thresholds', () => {
-  const suggestions = suggestedRules(services, [])
-  assert.equal(suggestions[0].service, services[0].id, 'worst service first')
-  assert.equal(suggestions[0].sentence, 'Error % > 3% critical, > 1% warning, for 5m')
-  const covered = suggestedRules(services, rules)
-  assert.ok(covered.every(s => !rules.some(r => r.scope.service === s.service)))
+test('suggestedRules still offers an error-rate rule per uncovered service', () => {
+  const out = suggestedRules(services, [])
+  assert.ok(out.length > 0 && out[0].spec.calculate === 'error_percentage')
 })

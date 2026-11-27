@@ -36,9 +36,11 @@ CLAUDE.md's six, as they land on this module:
 2. **No status hues on series.** A query's lines use the chart palette. Severity colour is reserved
    for things that *are* a severity: state chips, threshold bands, timeline bars. Production draws
    the rule's series in green; that goes.
-3. **Severity first.** Groups and rows sort firing-critical → firing-warning → pending → rule error →
-   suppressed-but-firing → OK → no data → paused. Production sorts groups alphabetically, which
-   buries the only firing group last.
+3. **Severity first.** Rows sort firing-critical → firing-warning → pending → rule error →
+   suppressed-but-firing → OK → no data → paused, and within a state the rule furthest past its
+   threshold leads (D3). Production sorts groups alphabetically, which buries the only firing group
+   last. (Rows were grouped until 2026-11-24, the groups sorting the same way. A viewer's pins lead
+   the list since then, and the order holds within the pins and within the rest.)
 4. **Every control has a label.** Production's rows carry seven icon-only controls (a switch and six
    buttons) whose names exist only in hover tooltips. They become a labelled **Snooze** button and a
    labelled **Actions** menu (D3).
@@ -141,8 +143,8 @@ We read two dimensions, because suppression changes who gets told, not what is t
   tested like `statusForWebVital` and `WEB_VITAL_RATINGS`. The relabelling follows the same
   precedent. `THRESHOLDS` gets exported, so a rule created from a service card defaults to exactly
   the thresholds that turn that card amber or red.
-- **Roll-up uses the alert order, not `worstStatus`.** Instances roll up to their rule, and rules
-  roll up to their group, in rule 3's order. `worstStatus` ranks healthy above info, so a rule
+- **Roll-up uses the alert order, not `worstStatus`.** Instances roll up to their rule in rule 3's
+  order (rules rolled up to their group the same way until the list's groups went, 2026-11-24). `worstStatus` ranks healthy above info, so a rule
   with one pending and one OK instance would read OK. For alerts, pending outranks OK. The order
   lives with the alerts model (`utils/alerts/model.js`), not in `status.js`.
 - **A rule error sorts above OK.** A rule that cannot evaluate is a silent hole in coverage. The
@@ -180,12 +182,12 @@ CubeAPM / Alerts                                        [↻ Refresh] [Auto: Off
 │ payment-service p90 latency  ··································▒▒█████████████████            │
 │ order-service p90 latency    ········▒▒███████··········▒▒█████████████████████            │
 └────────────────────────────────────────────────────────────────────────────────────────────┘
-┌ Filters ─────┐ ┌ Search rules  name: group: service: label:      Group by [Group ▾] [+ New rule] ┐
+┌ Filters ─────┐ ┌ ⌕ [State: Firing ×] [Group: Payments ×]  type a field or a name…               ┐
 │ State        │ │ ▾ Payments                                          3 rules · 2 firing           │
 │ Severity     │ │   [Critical] payment-service error rate                                        │
 │ Group        │ │              Error % > 3% critical, > 1% warning, for 5m · payment-service      │
 │ Service      │ │              14.2%  4.7× ↑ vs 0.4% · firing 13m · Payments on-call               │
-│ Source       │ │                                                       [Snooze ▾] [Actions ▾]    │
+│ Source       │ │                                                   [Snooze] [Pause] [Actions ▾]   │
 │ Notifies     │ │   ‖ 1 paused rule ▸                                                              │
 │ Status       │ │ ▾ Checkout …                                                                     │
 └──────────────┘ └──────────────────────────────────────────────────────────────────────────────────┘
@@ -223,6 +225,37 @@ Suppressed. Facets carry counts and keep values at 0 when a link seeds them, as 
 **Search.** `TableQuerySearch` with `name:`, `group:`, `service:`, `label:` and free text, the same
 `field:value` language as Home and Infra.
 
+*Revised 2026-11-26: one chip state, the shared QueryBuilder reused, facets and search unified
+(supersedes the two blocks above and "deliberately not the logs builder").* The search bar is now the
+**actual Logs/Traces/Errors `QueryBuilder`** (`AlertsQueryBuilder`, as `ErrorsQueryBuilder` reuses it),
+so the chip input and its overlay — the field list, recent searches, saved queries, grouping, value
+suggestions — and the keyboard model are the same product, the user's explicit ask. The alerts
+vocabulary is bound in through a field catalog (`ALERT_FIELD_CATALOG`), a value accessor
+(`getAlertFieldValue`), `fetchFieldValues` (each field's values with counts, so a multi-value field
+suggests correctly), recents (`useRecentSearches`), example queries, and `colonMatch: 'contains'`.
+The overlay suggests only the **essential** fields (`ESSENTIAL_FIELDS`: group, alert, state, enabled,
+health, source, receiver_group — the spec's "what is firing, switched off, who gets notified"), so
+the empty-input list stays short; every other filter is still typeable in the bar (values still come
+through `fetchFieldValues`) and still on the rail.
+The rail and the bar are **one selection** (`alertFilters.js`, `{ key: Set }` in the URL): the bar's
+chips are `selectionToChips(selection)` and a commit is `chipsToSelection` back to the selection, so
+ticking a facet in the rail and typing a chip are the same state. The alerts fields are all
+strings/keywords, so a value-click commits an exact chip and a typed `field:value` is a contains; a
+builder-only operator with no rail home (`!=`, `not_in`) simply doesn't narrow the rail. The rail is
+15 filters, each a `control`:
+- **checkbox lists** (`FacetGroup`): Group, State (Firing / Pending / Normal), Health (ok / error),
+  Source, Type, Receiver group, Receiver type, Mute group;
+- **tri-state toggles** (`FacetToggle`): Enabled (On / Off), Has receiver, Muted now, Notification
+  grouping;
+- **text boxes** (`FacetText`): Alert name, Query contains (substring);
+- **a section per tag key** (`tag.<key>`): the rule's own labels.
+Four **quick chips** sit above the list: Firing, Switched off, No receiver, Muted now. There is **no
+separate Severity filter** — State is that dimension. Counts still sit over every rule and keep a
+seeded value at 0. Old links keep working: the parser folds `name:`→`alert:`, `label.`→`tag.`, and
+the old facet keys (`status`→`enabled`, `suppressed`→`muted`, `notifies`→`receiver_group`, the old
+`state` values onto State / Health / Enabled); `svc` and `severity` have no filter now and are read
+past, and `group_by` still is.
+
 **Group by.** Group (the default, as production) | Service | Contact point | None. "Service" is read
 from the query's `service` matcher using our PromQL and LogsQL parsers. A Code-only rule without one
 lands under "No service". Decided at sign-off (Q7): derived only, no service field in the editor.
@@ -235,21 +268,49 @@ primary action button, `.hbtn.primary.run-btn`, as Run is on Logs and Traces. *R
 New rule left the toolbar for two banners above the timeline, "Create a rule from a template" and
 "Create a rule from scratch"; the toolbar is the search alone.
 
+*Revised 2026-11-24: no groups at all.* The list is one list. A rule's group is shown as the first
+of its tags when the row is expanded (`group: Payments`), and the Group facet and the `group:`
+search still narrow to one. Within a state, the rule furthest past its threshold comes first (the
+row's "4.8×"), then the name, so the incident leads its tier; groups used to put it first by sorting
+the group with most firing ahead. The paused rules of the whole list fold into one line at its end.
+
+*Revised 2026-11-24: pins.* Each row has a pin right after its state chip. A pinned rule moves to the
+head of the list, and the pinned rules sort worst first among themselves, then the rest worst first.
+A pinned paused rule is never folded away: a pin is an ask to keep that rule in sight. A pin is the
+viewer's own arrangement of the list, like an open row, not part of the rule. Production has no pins
+and its API has nowhere to keep one, so pins live in this browser (`utils/alerts/pins.js`, its own
+localStorage key, outside the store's overlay of edits) and don't reorder a teammate's list. Unset,
+the pin shows on the row's hover or focus, as the Logs drawer's field pins do; set, it stays,
+filled in the brand's blue. Pinning or unpinning says where the row went in a toast with Undo (D16),
+since the row moves away from the pointer ("Pinned … to the top", "… back in its place by
+severity", "… back with the paused rules at the end"). Focus goes with the pin's button, and the
+row stays drawn wherever it sorts; from the keyboard the page follows it (an Undo or ⌘Z too), and
+from a pointer the page stays put, holding off the browser's scroll anchoring. Deleting a rule
+drops its pin, and the delete's Undo brings both back; a new rule never takes a deleted rule's id,
+so no pin passes to it. A pin made in another tab arrives through the `storage` event.
+
+*The cost:* a pinned rule at OK sits above an unpinned critical one, so CLAUDE.md rule 3 holds only
+within the pins and within the rest. That is the viewer's own choice and is undone by a click; the
+incident still leads everything unpinned.
+
 **Row anatomy:**
 
 | Element | Content | Replaces |
 |---|---|---|
 | State chip | `StatusBadge` with D1's label, plus a suppression chip when one applies | "normal" / "firing" badge |
-| Name | A link to the rule page; the group is muted beside it | plain text |
-| Sentence | `Error % > 3% critical, > 1% warning, for 5m`, from `describe.js` | raw PromQL in the expanded row |
+| Pin | Right after the state chip: pins the rule to the head of the list (`aria-pressed`) | (none) |
+| Name | A link to the rule page (its group is a tag in the expanded row) | plain text |
+| Sentence | `Error % > 3% critical, > 1% warning, for 5m`, from `describe.js`, above the raw query | raw PromQL alone in the expanded row |
 | Scope | Service · endpoint · host chips | (none) |
 | Value | `14.2%` coloured by state, `4.7×` threshold, a sparkline over the range, and a delta vs the previous period | `0.29535866` |
 | Since | "Firing 13m" / "OK for 3d" / "Last fired 2h ago" | (none) |
 | Notifies | Contact points as icon + name | (in the expanded row) |
-| Snooze | A labelled menu: 5m / 15m / 30m / 1h / Custom… (firing and pending rows) | icon-only "Snooze" |
-| Actions | A labelled menu: Pause/Resume, Edit, Clone, Notification history, Copy link, Delete… | the switch and five icons |
+| Snooze | A menu: 5m / 15m / 30m / 1h / Custom… (firing and pending rows); icon-only since 2026-11-26, its name in `title`/`aria-label` | icon-only "Snooze" |
+| Pause / Resume | Its own icon-only control beside Snooze (SLO rules excepted), lifted out of Actions since 2026-11-26 so the commonest change is one click | part of the row's switch |
+| Actions | A labelled menu: Edit, Clone, Notification history, Copy link, Delete… (Pause/Resume left it 2026-11-26) | the switch and five icons |
 
-- **Paused rules fold away.** Each group shows "‖ N paused rules ▸" as one line. Seven of
+- **Paused rules fold away.** The list ends with "‖ N paused rules ▸" as one line (one per group
+  until 2026-11-24). Seven of
   production's nine demo rules are paused; listing each at full height is the noise that hides the
   one that fires.
 - **"Health: ok" disappears.** It appeared on every row in production. Only a failing health
@@ -261,13 +322,17 @@ New rule left the toolbar for two banners above the timeline, "Create a rule fro
     so only a small chevron expands it (R12). The row is a button with `aria-expanded`; Enter or
     Space toggles it. The name stays a real link to the rule page, so ⌘-click opens it in a new tab.
     The Snooze and Actions menus don't toggle the row.
-  - **The expanded panel is production's details panel, restyled**, with D3's sentence in place of
-    raw PromQL:
+  - **The expanded panel is production's details panel, restyled**. It carries everything the main
+    platform's panel shows and leads with D3's sentence above the raw query, so a glance needs no
+    PromQL and a check still has it (the sentence replaced PromQL outright until 2026-11-26, when the
+    query came back under it to match production):
     - source and type;
+    - the raw query (mono, as production shows it);
     - Check every / Fire after / Re-notify every;
+    - notification grouping, On or Off;
     - Notifies, with contact points as icon + name;
     - mutes and snoozes, with the time left on each;
-    - tags;
+    - tags, the rule's group first;
     - "last evaluated" (R8).
   - **Instances follow**, one row per label set: state chip, distinguishing labels, value against
     threshold with a sparkline, since. Production's "Traces ↗ / Logs ↗" handoffs move onto these
@@ -275,8 +340,8 @@ New rule left the toolbar for two banners above the timeline, "Create a rule fro
   - **The panel's footer** has "Open rule", "Notification history" and "Open in Explore".
   - **More than one row can be open at once.** `rule_id` in the URL expands that rule and scrolls
     it into view, as production does.
-  - **The cost:** a long panel pushes the rows below it down. The list keeps its group headers
-    sticky, so position is never lost.
+  - **The cost:** a long panel pushes the rows below it down. (Sticky group headers kept the
+    place until the groups went, 2026-11-24; the open row's own background marks it now.)
 
 ## D4. The alert timeline, which replaces "Recent Alerts"
 
@@ -638,7 +703,7 @@ came out on review (2026-10-23), so the link is "Show them in Rules" again and t
 |---|---|---|---|
 | **Snooze** | Stop notifications for this rule from now until a time (an Alertmanager silence) | Row, expanded panel and rule page: 5m / 15m / 30m / 1h / Custom… | "Snoozed · 23m left" chip, Unsnooze action, SNOOZE rows in Notifications |
 | **Mute schedule** | Recurring quiet windows (time, duration, weekdays, timezone) | Mute schedules tab; per rule in section 4 | "Muted until 07:00" chip while active; MUTE rows in Notifications |
-| **Pause** | Stop evaluating the rule | Actions menu | Paused state; folded at the bottom of its group |
+| **Pause** | Stop evaluating the rule | Actions menu | Paused state; folded into the one "‖ N paused rules" line at the list's end (per group until 2026-11-24), unless the viewer pinned it |
 
 - **State and notifications stay separate.** Snooze and mute silence notifications, not state. A
   snoozed rule that is firing still reads Critical, with the overlay chip, and sorts below the
@@ -1002,7 +1067,12 @@ Two kinds of rule are created outside the editor. Both are in v1 (decided at sig
 - **Production hides them.** The SLO drawer's "Alerts" switch creates multi-window, multi-burn-rate
   rules with "Receivers for Fast Burn alerts" and "Receivers for Slow Burn alerts", but production
   does not list them in Alerts, so a firing burn alert has no home there.
-- **Here they appear in Rules, read-only:**
+- **Revised 2026-11-26: they are left off the Rules tab.** They belong to their SLO, so the Rules
+  tab (`RulesTab`, `isSloRule`) filters them out of the list, the firing band, the timeline and the
+  facet counts; the Source facet no longer offers "SLO". They keep their own rule page (reached by
+  URL, and by the SLO page once it exists), where the data is unchanged. This supersedes the "appear
+  in Rules, read-only" treatment below, which held until then.
+- **How they read where they still appear (the rule page):**
   - an "SLO" source chip and "From the SLO for <service> <endpoint>";
   - one rule per objective and speed, error or latency × fast or slow;
   - fast burn reads Critical and slow burn reads Warning, following production's own copy ("deliver
@@ -1010,9 +1080,10 @@ Two kinds of rule are created outside the editor. Both are in v1 (decided at sig
 - **What you can do with them.** Snooze, because it holds notifications, not configuration.
   Notification history. "Edit in SLO", disabled with "The SLO page comes later" until that page
   exists. No Pause, Edit, Clone or Delete, because those would contradict the SLO's own switch.
-- **Data.** The prototype derives them from seeded SLO configs in production's `/slos` shape, so
-  payment-service's SLO burns fast during the incident and its rule fires beside the others.
-  Integration needs the backend to expose them; see PLAN.md, "Needs from the backend".
+- **Data.** The prototype derives them from seeded SLO configs in production's `/slos` shape; the
+  evaluator still fires payment-service's fast burn during the incident, so the data is ready for a
+  dedicated SLO page even though the Rules tab no longer shows it. Integration needs the backend to
+  expose them; see PLAN.md, "Needs from the backend".
 
 ## Decisions taken at sign-off (2026-10-15)
 
@@ -1023,7 +1094,7 @@ Two kinds of rule are created outside the editor. Both are in v1 (decided at sig
 | Q3 | Landing | **"Firing now" band** above the rules: summary pills, incident banner, timeline. *Revised 2026-10-21: the title, pills and banner removed; the band keeps the timeline (D2).* |
 | Q4 | Editor layout | **One page with a sticky preview**; stacked below ~1280px. |
 | Q5 | Rule row click | **Expand in place, as production** (not the proposed drawer). The whole row toggles; the name stays a link. Notification rows follow suit. |
-| Q6 | v1 scope | **In:** per-rule custom permissions, Jira, SLO burn-rate rules in the list (read-only), editing synthetic-managed rules. **Deferred:** the Mobile datasource (shown disabled). |
+| Q6 | v1 scope | **In:** per-rule custom permissions, Jira, SLO burn-rate rules in the list (read-only; later dropped from the Rules tab, 2026-11-26 — see D18), editing synthetic-managed rules. **Deferred:** the Mobile datasource (shown disabled). |
 | Q7 | Service of a rule | **Derived from the query's matchers**; "No service" otherwise. No editor field. |
 | Q8 | Create-from-context prefill | **App state with a nonce**, like Explore's handoffs; not encoded in the URL. |
 | Q9 | Prototype edits | **`localStorage`, versioned.** |

@@ -2,7 +2,10 @@
 //
 // Deliberately not the logs query builder: that one is a chip tree with pipes
 // and an operator catalogue, and a two- or three-column table does not earn it.
-// This is one line of text over a field set the caller supplies.
+// This is one line of text over a field set the caller supplies. (The Alerts
+// Rules tab left this for a chip model of its own on 2026-11-26 — a filter
+// catalogue, still no LogsQL operators; see components/alerts/list/alertFilters.js.
+// Home, Infra and the trace span table still use this.)
 //
 //   payment                    both fields, substring
 //   pod:payment                one field
