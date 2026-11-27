@@ -24,9 +24,13 @@ import './alerts-shared.css'
  *
  * Items: `{ id, label, icon?, disabled?, title?, danger?, ariaLabel? }` or
  * `{ sep: true }`. A disabled item stays visible with its reason as its title.
+ *
+ * `hideLabel` keeps the word off the trigger (icon and chevron only) but still
+ * in the DOM for a screen reader, for a row too tight for every control to
+ * carry its text; the trigger then needs `ariaLabel` to name which rule it is.
  */
 export default function MenuButton({
-  label, icon: Icon, items, onSelect, disabled = false, title, ariaLabel, align = 'right', className = '',
+  label, icon: Icon, items, onSelect, disabled = false, title, ariaLabel, align = 'right', className = '', hideLabel = false,
 }) {
   const [open, setOpen] = useState(false)
   const [hl, setHl] = useState(-1)
@@ -113,7 +117,7 @@ export default function MenuButton({
         }}
       >
         {Icon && <Icon aria-hidden="true" />}
-        {label}
+        {hideLabel ? <span className="sr-only">{label}</span> : label}
         <ChevronDown className="chev" aria-hidden="true" />
       </button>
       {open && portal(

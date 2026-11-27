@@ -113,7 +113,14 @@ test('the hub writes in a fixed order, readably', () => {
     facets: { status: new Set(['ERROR', 'MUTE']), svc: ['payment-service'], state: 'critical' },
   })
   assert.equal(s, '?tab=alert-logs&rule_id=437&q=payment+error&state=critical&svc=payment-service&status=ERROR&status=MUTE')
-  assert.equal(alertsSearch({ facets: { group: ['Payments'], severity: ['critical'], state: ['ok'] } }), '?state=ok&severity=critical&group=Payments')
+  // Rules-tab keys lead in catalog order (group, then state), then the legacy ones (severity).
+  assert.equal(alertsSearch({ facets: { group: ['Payments'], severity: ['critical'], state: ['ok'] } }), '?group=Payments&state=ok&severity=critical')
+})
+
+test('tag.<key> filters are accepted and serialized like any facet, after the fixed keys', () => {
+  const s = alertsSearch({ facets: { 'tag.kind': ['synthetic'], group: ['Payments'] } })
+  assert.equal(s, '?group=Payments&tag.kind=synthetic')
+  assert.deepEqual(parseAlertsSearch(s).facets, { group: ['Payments'], 'tag.kind': ['synthetic'] })
 })
 
 test('what the page reads from outside is never written back', () => {

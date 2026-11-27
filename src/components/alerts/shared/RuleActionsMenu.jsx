@@ -17,13 +17,18 @@ const ICONS = {
  * `onAction(id)` gets the item id: 'pause' | 'resume' | 'edit' | 'clone' |
  * 'history' | 'copyLink' | 'delete'. Deleting asks first: show
  * DeleteRuleDialog on 'delete' rather than removing straight away.
+ *
+ * `omit` drops items by id — the Rules list pulls Pause/Resume out into a
+ * control of its own beside Snooze, so it omits them here.
  */
-export default function RuleActionsMenu({ rule, onAction, label = 'Actions', align = 'right', className }) {
-  const items = ruleActionItems(rule).map(item => {
-    if (item.sep) return item
-    const Icon = ICONS[item.icon]
-    return { ...item, icon: Icon ? <Icon aria-hidden="true" /> : null }
-  })
+export default function RuleActionsMenu({ rule, onAction, label = 'Actions', align = 'right', className, omit }) {
+  const items = ruleActionItems(rule)
+    .filter(item => item.sep || !omit?.includes(item.id))
+    .map(item => {
+      if (item.sep) return item
+      const Icon = ICONS[item.icon]
+      return { ...item, icon: Icon ? <Icon aria-hidden="true" /> : null }
+    })
   const name = rule ? displayName(rule) : null
   return (
     <MenuButton

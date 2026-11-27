@@ -45,12 +45,22 @@ export const DEFAULT_ALERTS_TAB = 'alerts'
  * state: a critical rule that is OK right now still has severity=critical.
  */
 export const ALERTS_FACET_KEYS = [
-  'state', 'severity', 'group', 'svc', 'source', 'type', 'notifies', 'suppressed',
+  // Rules tab — the unified chip filters (2026-11-26). Plus `tag.<key>` keys,
+  // which are dynamic and accepted by prefix, not listed here.
+  'group', 'alert', 'state', 'enabled', 'health', 'source', 'receiver_group',
+  'has_receiver', 'muted', 'type', 'receiver_type', 'mute_group', 'grouping', 'query',
+  // Rules tab, kept so an old link still parses: `status` is also a rule's
+  // Active/Paused, `svc`/`severity`/`notifies`/`suppressed` have no filter of
+  // their own now and are read past by the selection (rulesQuery.js).
+  'svc', 'severity', 'notifies', 'suppressed',
+  // Notifications tab.
   'status', 'event', 'contact', 'integration',
 ]
 // A Set, not an object: the keys come from whoever wrote the link, and looked
 // up on a plain object `?toString=1` would find Object.prototype.toString.
 const FACET_KEYS = new Set(ALERTS_FACET_KEYS)
+// A rule's own labels filter under `tag.<key>`, one key per label name.
+const isFacetKey = key => FACET_KEYS.has(key) || key.startsWith('tag.')
 
 const PRESETS = new Set(TIME_PRESETS.map(p => p.value))
 
@@ -97,7 +107,7 @@ export function parseAlertsSearch(search) {
 
   const facets = {}
   for (const [key, value] of params) {
-    if (!FACET_KEYS.has(key)) continue
+    if (!isFacetKey(key)) continue
     const v = String(value ?? '').trim()
     if (!v) continue
     const list = facets[key] ?? (facets[key] = [])
@@ -133,7 +143,7 @@ export function parseAlertsSearch(search) {
  *
  * Writes only what the hub owns, in a fixed order: the tab (left out at its
  * default), the rule a link is about, the search and the facets. The list is
- * always grouped by each rule's own group, so an old link's `group_by` is read
+ * one list, never grouped (DESIGN D3), so an old link's `group_by` is read
  * past. The time range is App's, and alert_id, notifyTime,
  * incidentTime and config are arrivals from outside — a notification, an OAuth
  * redirect — that the page reads once and never writes back.
@@ -144,7 +154,10 @@ export function alertsSearch({ tab = DEFAULT_ALERTS_TAB, ruleId = null, q = '', 
   if (ALERTS_TABS.includes(tab) && tab !== DEFAULT_ALERTS_TAB) put('tab', tab)
   if (ruleId != null && String(ruleId).trim()) put('rule_id', String(ruleId).trim())
   if (q?.trim()) put('q', q.trim())
-  for (const key of ALERTS_FACET_KEYS) {
+  // The fixed keys in their listed order, then the dynamic `tag.<key>` keys
+  // sorted, so the same state is always the same string.
+  const tagKeys = Object.keys(facets ?? {}).filter(k => k.startsWith('tag.')).sort()
+  for (const key of [...ALERTS_FACET_KEYS, ...tagKeys]) {
     // A Set (the page's own state) or an array (what parseAlertsSearch returns).
     // A lone string is one value: iterated, it would be written a letter at a
     // time. Repeats are dropped, as reading the link back would drop them.

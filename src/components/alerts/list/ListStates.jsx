@@ -77,10 +77,6 @@ export function RowsSkeleton({ rows = 6 }) {
             {bone({ width: `${62 - (i % 3) * 9}%`, height: 12 })}
             {bone({ width: `${44 + (i % 2) * 12}%`, height: 10 })}
           </span>
-          <span className="rtab-sk-lines" style={{ alignItems: 'flex-end' }}>
-            {bone({ width: 64, height: 12 })}
-            {bone({ width: 96, height: 10 })}
-          </span>
           <span className="rtab-sk-lines">
             {bone({ width: 70, height: 12 })}
             {bone({ width: 110, height: 10 })}
@@ -142,7 +138,7 @@ export function NoRules({ suggestions = [], onNewRule, onSuggest }) {
  * matches (a value a link seeded at 0 is the usual culprit), and clear them.
  */
 export function NoMatches({ explanation, onClear }) {
-  const { filters = [], search = '' } = explanation ?? {}
+  const { filters = [] } = explanation ?? {}
   return (
     <EmptyState
       icon={FilterX}
@@ -150,21 +146,15 @@ export function NoMatches({ explanation, onClear }) {
       description="Every rule is still here; the filters below hide all of them."
       action={(
         <>
-          {(filters.length > 0 || search) && (
+          {filters.length > 0 && (
             <ul className="rtab-empty-list" aria-label="Active filters">
               {filters.map(f => (
-                <li key={`${f.key}=${f.value}`} className="rtab-empty-filter" title={`${f.title} = ${f.label}: ${f.count} rule${f.count === 1 ? '' : 's'}`}>
+                <li key={`${f.key}=${f.value}`} className="rtab-empty-filter" title={f.count == null ? `${f.title}: ${f.label}` : `${f.title} = ${f.label}: ${f.count} rule${f.count === 1 ? '' : 's'}`}>
                   <span>{f.title}</span>
                   <span className="v">{f.label}</span>
-                  <span className="zero">· {f.count}</span>
+                  {f.count != null && <span className="zero">· {f.count}</span>}
                 </li>
               ))}
-              {search && (
-                <li className="rtab-empty-filter" title={search}>
-                  <span>search</span>
-                  <span className="v">{search}</span>
-                </li>
-              )}
             </ul>
           )}
           <div className="rtab-empty-actions">

@@ -1,7 +1,8 @@
 // The Rules tab rendered from a URL the way a cold load renders it, over the
 // seed (docs/alerts/PLAN.md P2 "Done when": the payment incident is the first
 // thing on the page, a snoozed or paused rule is distinguishable from an OK
-// one without expanding anything, and no control is icon-only).
+// one without expanding anything, and every control carries a name — icon-only
+// Snooze and Pause through title and aria-label, not left nameless (rule 4)).
 //
 // What a click or a key does needs a DOM and is checked in the running page;
 // the contracts behind them are tested beside the pure modules here.
@@ -13,6 +14,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { resolveWindow } from '@/data/timeWindow'
 import { parseAlertsSearch } from '@/utils/alertsUrl'
 import { seededAlerts, quietAlerts, emptyAlerts } from './fixtures.js'
+import { pinStore } from '@/utils/alerts/pins'
 import RulesTab from './RulesTab.jsx'
 
 const noop = () => {}
@@ -57,15 +59,37 @@ test('above the rules: the timeline, with no title, state pills, banner or "Upda
   assert.equal(rowIds(html)[0], '501', 'the payment incident leads the rules instead')
 })
 
-test('rows come worst first, under groups ordered by their worst rule', () => {
+test('rows come worst first in one list, with no group headers', () => {
   const html = page()
   const ids = rowIds(html)
   assert.equal(ids[0], '501')
   assert.ok(ids.indexOf('501') < ids.indexOf('503'), 'firing before pending')
   assert.ok(ids.indexOf('513') < ids.indexOf('507'), 'a rule error before a snoozed rule that fires')
   assert.ok(ids.indexOf('507') < ids.indexOf('426'), 'which comes before OK')
-  const heads = [...html.matchAll(/class="rtab-group-toggle"[^>]*>[\s\S]*?<span>([^<]+)<\/span>/g)].map(m => m[1])
-  assert.deepEqual(heads.slice(0, 2), ['Payments', 'Infrastructure'])
+  assert.doesNotMatch(html, /rtab-group/, 'no group sections or headers')
+  assert.match(html, /<div class="rtab-rules">/)
+})
+
+test('SLO-managed rules are left off the Rules tab, the Source facet included', () => {
+  const html = page()
+  // 9011 and 9012 are the seed's SLO burn-rate rules.
+  assert.doesNotMatch(html, /data-rule-id="9011"|data-rule-id="9012"/, 'no SLO rule row')
+  const results = html.slice(html.indexOf('<div class="rtab-rules"'))
+  // The SLO source chip reads "SLO"; the synthetic rules' chip ("Synthetic")
+  // stays, so match the SLO label and managed note specifically.
+  assert.doesNotMatch(results, /From the SLO for|>SLO<\/span>/, 'no SLO source chip or managed note')
+  const filters = html.slice(html.indexOf('class="logs-filters"'), html.indexOf('class="rtab-main"'))
+  assert.doesNotMatch(filters, /SLO/, 'the Source facet offers only listed sources, so no SLO')
+})
+
+test('a rule\'s group is a tag on its expanded row, first among its tags', () => {
+  const html = page('?rule_id=501')
+  const dStart = html.indexOf('aria-label="payment-service error rate: details"')
+  const details = html.slice(dStart, html.indexOf('data-rule-id="', dStart))
+  assert.match(details, /<dt>Tags<\/dt><dd class="rtab-d-list"><span class="rtab-tag">group: Payments<\/span>/)
+  // Every rule has a group, so every expanded rule shows one, even one with no other tags.
+  const paused = page('?rule_id=427')
+  assert.match(paused.slice(paused.indexOf('aria-label="Synthetic down - Marketing Site: details"')), /<span class="rtab-tag">group: [^<]+<\/span>/)
 })
 
 test('a snoozed rule and a paused one read as such without expanding anything', () => {
@@ -75,11 +99,13 @@ test('a snoozed rule and a paused one read as such without expanding anything', 
   assert.match(row('507'), /Warning/, 'snoozed, and still Warning (D10)')
   assert.doesNotMatch(html, /data-rule-id="427"/, 'paused rules are folded away')
   const folds = html.match(/<button type="button" class="rtab-fold" aria-expanded="false">[\s\S]*?<\/button>/g) ?? []
-  assert.equal(folds.length, 2, 'one line per group with paused rules')
-  assert.ok(folds.every(f => /2 paused rules/.test(text(f))))
+  const paused = seededAlerts(hour).rules.filter(r => r.state === 'paused' || r.status === 'PAUSED').length
+  assert.equal(folds.length, 1, 'one line for every paused rule, at the list\'s end')
+  assert.match(text(folds[0]), new RegExp(`^${paused} paused rules$`))
+  assert.ok(html.lastIndexOf('data-rule-id=') < html.indexOf('class="rtab-fold"'), 'after every row')
 })
 
-test('every control carries a label: no button, link or menu is icon-only', () => {
+test('every control carries a name, even the icon-only Snooze and Pause (rule 4)', () => {
   const html = page('?rule_id=501')
   const buttons = [...html.matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g)]
   assert.ok(buttons.length > 40)
@@ -97,6 +123,55 @@ test('every control carries a label: no button, link or menu is icon-only', () =
   for (const div of html.match(/<div[^>]*role="button"[^>]*>/g) ?? []) assert.ok(attr(div, 'title'), div)
 })
 
+test('every row has a pin right after its state, labelled, unset until the viewer sets it', () => {
+  const html = page()
+  const rows = html.match(/<div class="rtab-rule-state">[\s\S]*?<\/div><\/div>/g) ?? []
+  assert.equal(rows.length, rowIds(html).length)
+  for (const state of rows) {
+    assert.match(state, /^<div class="rtab-rule-state"><div class="rtab-state-line"><span class="alr-chip[^"]*"[^>]*>[\s\S]*?<\/span><button type="button" class="rtab-pin" aria-pressed="false" aria-label="Pin [^"]+ to the top" title="Pin to the top">/,
+      'the chip, then the pin')
+  }
+})
+
+test('a pinned rule leads the list with its pin set, above the incident; a pinned paused rule leaves the fold', () => {
+  const store = pinStore()
+  const undoWarning = store.toggle(504)
+  const undoPaused = store.toggle(427)
+  try {
+    const html = page()
+    assert.deepEqual(rowIds(html).slice(0, 3), ['504', '427', '501'], 'pins first, worst first among them, then the incident')
+    const pin = id => html.match(new RegExp(`data-rule-id="${id}"[\\s\\S]*?(<button type="button" class="rtab-pin[^>]*>)`))[1]
+    assert.match(pin('504'), /class="rtab-pin is-pinned" aria-pressed="true"[^>]*title="Unpin from the top"/)
+    assert.match(pin('501'), /class="rtab-pin" aria-pressed="false"/)
+    const paused = seededAlerts(hour).rules.filter(r => r.state === 'paused' || r.status === 'PAUSED').length
+    assert.match(text(html.match(/<button type="button" class="rtab-fold"[\s\S]*?<\/button>/)[0]), new RegExp(`^${paused - 1} paused rules$`))
+  } finally {
+    undoPaused()
+    undoWarning()
+  }
+  assert.equal(pinStore().getSnapshot().size, 0)
+})
+
+test('Pause is its own icon control beside Snooze, out of the Actions menu; only Actions keeps its word', () => {
+  const html = page('?rule_id=501') // firing, active, not SLO
+  const start = html.indexOf('data-rule-id="501"')
+  const block = html.slice(html.indexOf('class="rtab-rule-actions"', start), html.indexOf('</div></div></div>', start))
+  // Snooze is icon-only: its word is there for a screen reader, named for the rule.
+  assert.match(block, /aria-label="Snooze payment-service error rate"/)
+  assert.match(block, /<span class="sr-only">Snooze<\/span>/)
+  // Pause is a button of its own, icon-only and named, not a menu item.
+  assert.match(block, /<button type="button" class="hbtn small icon-only" aria-label="Pause payment-service error rate"[^>]*title="Stop evaluating[^"]*"/)
+  // Actions still carries its visible word. (That its menu no longer offers
+  // Pause needs the menu open, which is checked in the running page.)
+  assert.match(block, /<\/svg>Actions<svg/)
+})
+
+test('a paused rule\'s control reads Resume, not Pause', () => {
+  const html = page('?state=paused') // a state filter unfolds the paused rules
+  assert.match(html, /<button type="button" class="hbtn small icon-only" aria-label="Resume [^"]+"[^>]*title="Evaluate this rule again"/)
+  assert.doesNotMatch(html, /aria-label="Pause /)
+})
+
 test('rule_id opens its rule in place, with its settings, snoozes and alerts', () => {
   const html = page('?rule_id=507')
   const toggle = html.match(/<button type="button" class="rtab-rule-toggle"[^>]*aria-label="Details for shipment-service p90 latency"[^>]*>/)?.[0]
@@ -104,10 +179,14 @@ test('rule_id opens its rule in place, with its settings, snoozes and alerts', (
   const panelId = attr(toggle, 'aria-controls')
   const panel = html.slice(html.indexOf(`id="${panelId}"`))
   assert.match(panel, /role="region" aria-label="shipment-service p90 latency: details"/)
-  const words = text(panel.slice(0, panel.indexOf('class="rtab-d-foot"') + 2000))
-  for (const w of ['Check every 1m', 'Fire after 5m', 'Unsnooze', 'Last evaluated', '1 alert', 'Traces', 'Logs', 'Open rule', 'Notification history', 'Open in Explore']) {
+  const words = text(panel.slice(0, panel.indexOf('data-rule-id="')))
+  for (const w of ['Check every 1m', 'Fire after 5m', 'Notification grouping', 'Unsnooze', 'Last evaluated', '1 alert', 'Traces', 'Logs']) {
     assert.ok(words.includes(w), w)
   }
+  // No row of links back out: the rule's own name opens its page.
+  assert.doesNotMatch(panel.slice(0, panel.indexOf('data-rule-id="')), /Open rule|Open in Explore|rtab-d-foot/)
+  // The raw query stands under the sentence, as the main platform shows it.
+  assert.match(panel, /<dt>Query<\/dt><dd class="rtab-d-query"><code>[^<]/)
   assert.equal((html.match(/aria-expanded="true" aria-controls="rtab-rule-/g) ?? []).length, 1, 'only that one is open')
 })
 
@@ -120,7 +199,7 @@ test('an alert counts "Firing" from when it fired, matching its rule, not from w
   const panelId = attr(toggle, 'aria-controls')
   const at = html.indexOf(`id="${panelId}"`)
   const row = text(html.slice(html.lastIndexOf('class="rtab-rule', html.indexOf(toggle)), at))
-  const panel = text(html.slice(at, html.indexOf('class="rtab-d-foot"', at)))
+  const panel = text(html.slice(at, html.indexOf('data-rule-id="', at)))
   const ruleSince = row.match(/Firing (\d+[a-z]+(?: \d+[a-z]+)?)/)?.[1]
   const alertSince = panel.match(/Firing (\d+[a-z]+(?: \d+[a-z]+)?)/)?.[1]
   assert.ok(ruleSince, 'the rule says how long it has fired')
@@ -131,7 +210,7 @@ test('an alert on a host offers that host, beside the evidence its labels reach'
   const html = page('?rule_id=515')
   const toggle = html.match(/<button type="button" class="rtab-rule-toggle"[^>]*aria-label="Details for CPU high on ‹host\.name›"[^>]*>/)?.[0]
   const at = html.indexOf(`id="${attr(toggle, 'aria-controls')}"`)
-  const panel = html.slice(at, html.indexOf('class="rtab-d-foot"', at))
+  const panel = html.slice(at, html.indexOf('data-rule-id="', at))
   const alerts = [...panel.matchAll(/<div class="rtab-inst-row">([\s\S]*?)<div class="rtab-inst-links">([\s\S]*?)<\/div>/g)]
   assert.equal(alerts.length, 3, 'one alert per host')
   for (const [, row, links] of alerts) {
@@ -143,7 +222,7 @@ test('an alert on a host offers that host, beside the evidence its labels reach'
   }
 })
 
-test('rule_id of a paused rule opens its group\'s fold to show it', () => {
+test('rule_id of a paused rule opens the fold to show it', () => {
   const html = page('?rule_id=427')
   assert.match(html, /data-rule-id="427"/)
   assert.match(html, /aria-label="Synthetic down - Marketing Site: details"/)
@@ -174,12 +253,11 @@ test('no rules at all says what goes here and offers a start from a service', ()
 })
 
 test('filters that match nothing name themselves, a seeded value at 0 included, with Clear', () => {
-  const html = page('?state=error&svc=no-such-service')
+  const html = page('?source=nosuchsource')
   assert.match(html, /No rules match these filters/)
   const filters = text(html.match(/<ul class="rtab-empty-list" aria-label="Active filters">[\s\S]*?<\/ul>/)?.[0] ?? '')
-  assert.equal(filters, 'State Rule error · 1 Service no-such-service · 0')
+  assert.equal(filters, 'Source nosuchsource · 0', 'the seeded-but-absent value stays, at 0')
   assert.match(html, /class="search-empty-clear">Clear filters</)
-  assert.match(html, /title="no-such-service">no-such-service<\/span><span class="facet-opt-count">0</, 'the rail keeps the seeded value at 0')
 })
 
 test('a calm day is one line, with the timeline closed until asked for', () => {
@@ -189,20 +267,46 @@ test('a calm day is one line, with the timeline closed until asked for', () => {
   assert.doesNotMatch(html, /class="panel rtab-tl"/)
 })
 
-test('the toolbar is the search alone: a rule starts from the banners above; no Group by', () => {
+test('the toolbar is the QueryBuilder bar; a rule starts from the banners above; no Group by', () => {
   const html = page()
-  const bar = html.slice(html.indexOf('<div class="rtab-toolbar">'), html.indexOf('<div class="rtab-groups"'))
-  assert.doesNotMatch(bar, /<button|New rule/)
+  const bar = html.slice(html.indexOf('<div class="rtab-toolbar">'), html.indexOf('<div class="rtab-rules"'))
+  assert.match(bar, /class="qb-input"/, 'the shared QueryBuilder is the filter bar')
+  assert.doesNotMatch(bar, /rtab-quick-chip/, 'no quick chips')
+  assert.doesNotMatch(bar, /New rule/)
   assert.doesNotMatch(bar, /Group by|filter-select/)
   assert.match(html, /<section class="rtab-slot rtab-create is-scratch"[\s\S]*?<\/svg>Create rule<\/button>/)
   // The template banner is a link to Browse Templates, a page of its own, not a drawer's trigger.
   const template = html.slice(html.indexOf('<section class="rtab-slot rtab-create is-template"'), html.indexOf('<section class="rtab-slot rtab-create is-scratch"'))
-  assert.match(template, /<a class="hbtn rtab-create-cta" href="\/alerts\/templates">Browse templates<svg/)
+  assert.match(template, /<a class="hbtn rtab-create-cta" href="\/alerts\/templates">Browse<svg/)
   assert.doesNotMatch(template, /aria-haspopup|<button/)
-  // An old link's grouping is read past: the groups are still the rules' own.
-  const heads = h => [...h.matchAll(/class="rtab-group-toggle"[^>]*>[\s\S]*?<span>([^<]+)<\/span>/g)].map(m => m[1])
-  for (const g of ['service', 'contact', 'none']) assert.deepEqual(heads(page(`?group_by=${g}`)), heads(html), g)
-  assert.ok(!heads(html).includes('No service'))
+  // An old link's grouping is read past: the list is one list whatever it asks for.
+  for (const g of ['service', 'contact', 'none']) {
+    const linked = page(`?group_by=${g}`)
+    assert.deepEqual(rowIds(linked), rowIds(html), g)
+    assert.doesNotMatch(linked, /rtab-group/, g)
+  }
+})
+
+test('the filter rail is the catalog: checkbox lists, tri-state toggles, text boxes and a section per tag key', () => {
+  const html = page()
+  const rail = html.slice(html.indexOf('class="logs-filters-scroll"'), html.indexOf('class="rtab-main"'))
+  for (const title of ['Group', 'State', 'Health', 'Source', 'Type', 'Receiver group']) {
+    assert.match(rail, new RegExp(`class="facet-title-btn"[^>]*>${title}<`), `checkbox list: ${title}`)
+  }
+  for (const label of ['Enabled', 'Has receiver', 'Muted now', 'Notification grouping']) {
+    assert.match(rail, new RegExp(`class="facet-group facet-toggle"[^>]*aria-label="${label}"`), `toggle: ${label}`)
+  }
+  assert.match(rail, /class="facet-group facet-text"[^>]*aria-label="Alert name"/)
+  assert.match(rail, /class="facet-group facet-text"[^>]*aria-label="Query contains"/)
+  assert.match(rail, /class="facet-title-btn"[^>]*>kind</, 'one section per tag key')
+})
+
+test('a filtered link renders the selection as QueryBuilder chips', () => {
+  const html = page('?state=firing&enabled=off&alert=payment')
+  const bar = html.slice(html.indexOf('<div class="rtab-toolbar">'), html.indexOf('<div class="rtab-quick">'))
+  assert.equal((bar.match(/class="qb-chip"/g) ?? []).length, 3, 'one chip per filter, the text filter included')
+  const barText = text(bar)
+  for (const token of ['state', 'firing', 'enabled', 'off', 'payment']) assert.ok(barText.includes(token), token)
 })
 
 test('a link\'s search arrives in the search box and filters the list', () => {
@@ -213,22 +317,25 @@ test('a link\'s search arrives in the search box and filters the list', () => {
 
 test('nothing sits between the toolbar and the rules, and rows are not selectable', () => {
   const html = page()
-  const between = html.slice(html.indexOf('<div class="rtab-toolbar">'), html.indexOf('<div class="rtab-groups"'))
+  const between = html.slice(html.indexOf('<div class="rtab-toolbar">'), html.indexOf('<div class="rtab-rules"'))
   assert.doesNotMatch(between, /rtab-controls|rules · |Select all/)
   assert.doesNotMatch(html, /data-row-select|type="checkbox" class="rtab-check"/)
 })
 
-test('a long list draws twenty rules down the groups, the linked one wherever it sits, and an open fold keeps its button', () => {
-  // A search that names nothing in particular unfolds every paused rule: all
-  // 23, cut at twenty, the groups after the cut left for a scroll.
-  const all = rowIds(page('?q=a'))
-  assert.equal(all.length, 20)
-  // External Deps holds only paused rules (432, 433); linked, its fold opens
-  // and 432 is drawn past the twentieth row. The open fold's button (the one
-  // a reader would have pressed) stays, though 433 is still to come.
-  const html = page('?rule_id=432')
+test('a long list draws twenty rows then more on scroll; a linked rule past the cut is drawn, and an open fold keeps its button', () => {
+  // 427 is the twentieth rule (paused). Linked, its fold opens and the first
+  // twenty draw, with the twenty-first (428) left for a scroll (the sentinel).
+  const cut = page('?rule_id=427')
+  const cutIds = rowIds(cut)
+  assert.equal(cutIds.length, 20)
+  assert.equal(cutIds.at(-1), '427')
+  assert.ok(!cutIds.includes('428'), 'the twenty-first waits for a scroll')
+  assert.match(cut, /class="reveal-sentinel"/)
+  assert.match(cut, /<button type="button" class="rtab-fold" aria-expanded="true">/, 'the open fold keeps its button')
+  // 428 is the twenty-first; linked, every rule down to it is drawn (keep).
+  const html = page('?rule_id=428')
   const ids = rowIds(html)
-  assert.ok(ids.includes('432'))
-  assert.match(html, /<button type="button" class="rtab-fold" aria-expanded="true">/)
-  assert.match(html, /class="reveal-sentinel"/)
+  assert.equal(ids.length, 21)
+  assert.equal(ids.at(-1), '428')
+  assert.ok(ids.includes('427') && ids.includes('433'))
 })

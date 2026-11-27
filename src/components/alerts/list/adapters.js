@@ -1,12 +1,12 @@
 // The Rules tab's bridge to Phase 1's alert modules (docs/alerts/PLAN.md, P1):
-// the order, the groups, the counts and the facet values come from the model,
-// the words from describe. Everything the list reads about a rule comes
+// the state order, the counts and the facet values come from the model, the
+// words from describe (the list's own tie-breaks are rulesList's byUrgency). Everything the list reads about a rule comes
 // through here, so a move in Phase 1 is a change to this one file.
 
 import { routeUrl } from '@/utils/route'
 
 export {
-  ALERT_ORDER, sortRules, groupRules, countRules, ruleFacets,
+  ALERT_ORDER, sortRules, countRules, ruleFacets,
 } from '@/utils/alerts/model'
 
 export {

@@ -2,7 +2,7 @@
 
 *Decision record. Carried over from Claude Code's local memory during the repo handoff; originally written 2026-08-31. Status at time of writing preserved below.*
 
-**Status:** Complete. PR #25 merged; PR #24 (log record types) merged on top with two follow-up fixes.
+**Status:** Complete. PR #25 merged; PR #24 (log record types) merged on top with two follow-up fixes. *(2026-11-26: the Alerts Rules tab now also unifies its facet rail and search into one chip state — see docs/alerts/DESIGN.md D3.)*
 
 ## What was implemented
 

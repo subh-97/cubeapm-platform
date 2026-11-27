@@ -110,6 +110,14 @@ test('each trigger names its rule for a screen reader, so a list of them is not 
   assert.doesNotMatch(templated, /\{\{/)
 })
 
+test('hideLabel keeps the Snooze word off the trigger but in the DOM for a screen reader', () => {
+  const out = html(<SnoozeMenu onSnooze={noop} nowSec={1_800_000_000} ruleName="payment-service error rate" hideLabel className="icon-only" />)
+  assert.match(out, /class="hbtn small alr-menu-btn icon-only"/)
+  assert.match(out, /<span class="sr-only">Snooze<\/span>/)
+  assert.doesNotMatch(out, /<\/svg>Snooze<svg/)
+  assert.match(out, /aria-label="Snooze payment-service error rate"/)
+})
+
 test('a disabled Snooze says why in its title', () => {
   const out = html(<SnoozeMenu onSnooze={noop} disabled disabledReason="A paused rule sends nothing to snooze" />)
   assert.match(out, /disabled=""/)

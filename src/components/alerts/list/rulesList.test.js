@@ -1,8 +1,8 @@
 // How the Rules list is laid out and how its rows behave (docs/alerts/
 // DESIGN.md D1, D3), over the seed at Last 1 hour.
 //
-// The risks are production's own defects: groups sorted A→Z with the only
-// firing one buried last (R6), paused rules at full height hiding the one that
+// The risks are production's own defects: rules sorted A→Z with the only
+// firing one buried (R6), paused rules at full height hiding the one that
 // fires (R47), and a row that only its chevron toggles (R12), here with the
 // opposite mistake to avoid: a click on the name link or a menu must not
 // toggle the row underneath it.
@@ -10,17 +10,14 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { resolveWindow } from '@/data/timeWindow'
-import { ALERT_ORDER } from '@/utils/alerts/model'
 import { seededAlerts } from './fixtures.js'
 import {
-  listGroups, asksForPaused, groupHeaderText, foldText, toggleExpanded, withUrlRule, groupKeyOf,
+  listRules, byUrgency, isPaused, isFolded, asksForPaused, foldText, toggleExpanded, withUrlRule,
   clickTogglesRow, isPlainClick, rowStep, ruleDomId,
 } from './rulesList.js'
-import { selectionFromUrl } from './rulesQuery.js'
 
 const win = resolveWindow({ kind: 'preset', value: '1h' })
 const { rules } = seededAlerts(win)
-const rank = key => ALERT_ORDER.indexOf(key)
 
 test('rules come worst first: unsuppressed critical, warning, pending, error, suppressed, OK, no data, paused', () => {
   const ranks = rules.map(r => r.rank)
@@ -33,48 +30,91 @@ test('rules come worst first: unsuppressed critical, warning, pending, error, su
   assert.ok(rules.indexOf(snoozed) < rules.findIndex(r => r.state === 'ok'), 'and above every OK rule')
 })
 
-test('groups are ordered by their worst rule, never A→Z, and the incident\'s group leads', () => {
-  const groups = listGroups(rules)
-  assert.deepEqual(groups.slice(0, 2).map(g => g.label), ['Payments', 'Infrastructure'])
-  const worst = groups.map(g => rank(g.worst))
-  assert.deepEqual(worst, [...worst].sort((a, b) => a - b))
-  assert.equal(groups.at(-1).label, 'External Deps', 'a group of nothing but paused rules comes last')
-  assert.notDeepEqual(groups.map(g => g.label), groups.map(g => g.label).sort())
+test('one list, worst first, with no groups: the incident leads, whatever its group is called', () => {
+  const list = listRules(rules)
+  assert.equal(String(list.rules[0].id), '501')
+  const ranks = list.rules.map(r => r.rank)
+  assert.deepEqual(ranks, [...ranks].sort((a, b) => a - b))
+  assert.ok(!('key' in list) && !('label' in list), 'no group to head it')
+  // Rules from different groups interleave by how bad they are, never by group.
+  const groupsInOrder = list.rules.map(r => r.group)
+  const firstRunOf = g => groupsInOrder.indexOf(g)
+  const lastRunOf = g => groupsInOrder.lastIndexOf(g)
+  assert.ok(new Set(groupsInOrder).size > 1)
+  assert.ok([...new Set(groupsInOrder)].some(g => groupsInOrder.slice(firstRunOf(g), lastRunOf(g) + 1).some(x => x !== g)), 'groups are not kept together')
 })
 
-test('a group header counts its rules and its firing ones', () => {
-  const payments = listGroups(rules).find(g => g.label === 'Payments')
-  assert.equal(groupHeaderText(payments), `${payments.total} rules · ${payments.firing} firing`)
-  assert.equal(groupHeaderText({ total: 1, firing: 0 }), '1 rule')
+test('within a state, the rule furthest past its threshold leads; the name only breaks a tie', () => {
+  const critical = listRules(rules).rules.filter(r => r.stateKey === 'critical')
+  const multiples = critical.map(r => r.thresholdMultiple)
+  assert.deepEqual(multiples, [...multiples].sort((a, b) => b - a), 'furthest past first')
+  assert.notDeepEqual(critical.map(r => r.name), critical.map(r => r.name).sort((a, b) => a.localeCompare(b)), 'not A→Z')
+  const v = (rank, thresholdMultiple, name) => ({ rank, thresholdMultiple, name })
+  assert.ok(byUrgency(v(0, 1.2, 'b'), v(1, 9, 'a')) < 0, 'a worse state wins over a bigger multiple')
+  assert.ok(byUrgency(v(0, 1.2, 'a'), v(0, 4, 'b')) > 0)
+  assert.ok(byUrgency(v(0, null, 'a'), v(0, 1.1, 'b')) > 0, 'past no threshold sorts after one past it')
+  assert.ok(byUrgency(v(0, 2, 'Alpha'), v(0, 2, 'beta')) < 0, 'a tie falls to the name, case aside')
 })
 
-test('paused rules fold to one line per group, unless asked for or opened', () => {
-  const groups = listGroups(rules)
-  const pub = groups.find(g => g.label === 'CubeAPM Public')
-  assert.equal(pub.pausedCount, 2)
-  assert.equal(pub.foldOpen, false)
-  assert.deepEqual(pub.rules.map(r => String(r.id)), ['426'], 'only the live monitor rule has a row')
-  assert.equal(foldText(pub.pausedCount), '2 paused rules')
-  const ext = groups.find(g => g.label === 'External Deps')
-  assert.equal(ext.rules.length, 0, 'an all-paused group is a header and one line')
-  assert.equal(ext.paused.length, 2)
+test('paused rules fold to one line at the list\'s end, unless asked for or opened', () => {
+  const paused = rules.filter(isPaused)
+  const list = listRules(rules)
+  assert.equal(list.pausedCount, paused.length)
+  assert.equal(list.foldOpen, false)
+  assert.ok(list.rules.every(r => !isPaused(r)), 'no paused rule has a row')
+  assert.equal(list.rules.length + list.paused.length, rules.length)
+  assert.equal(foldText(list.pausedCount), `${paused.length} paused rules`)
+  assert.equal(foldText(1), '1 paused rule')
 
-  const opened = listGroups(rules, { openFolds: new Set([pub.key]) }).find(g => g.key === pub.key)
+  const opened = listRules(rules, { foldOpen: true })
   assert.equal(opened.foldOpen, true)
-  assert.equal(opened.rules.length, 3)
+  assert.equal(opened.rules.length, rules.length)
+  assert.ok(opened.rules.slice(-paused.length).every(isPaused), 'opened, they follow every other rule')
 
-  const asked = listGroups(rules, { unfoldPaused: true })
-  assert.ok(asked.every(g => g.paused.length === 0))
+  const asked = listRules(rules, { unfoldPaused: true })
+  assert.equal(asked.paused.length, 0)
+  assert.deepEqual(listRules([]), { rules: [], paused: [], pausedCount: 0, pinnedCount: 0, foldOpen: true })
 })
 
-test('a filter on paused rules, or any search, unfolds them', () => {
-  assert.equal(asksForPaused(selectionFromUrl({ state: ['paused'] }), ''), true)
-  assert.equal(asksForPaused(selectionFromUrl({ status: ['paused'] }), ''), true)
-  assert.equal(asksForPaused({}, 'docs'), true)
-  assert.equal(asksForPaused(selectionFromUrl({ state: ['critical'] }), '  '), false)
+test('pinned rules lead the list, worst first among themselves, then everything else worst first', () => {
+  const unpinned = listRules(rules)
+  const ok = unpinned.rules.find(r => r.state === 'ok')
+  const warning = unpinned.rules.find(r => r.stateKey === 'warning')
+  const pinned = new Set([String(ok.id), String(warning.id)])
+  const list = listRules(rules, { pinned })
+  assert.equal(list.pinnedCount, 2)
+  assert.deepEqual(list.rules.slice(0, 2).map(r => r.id), [warning.id, ok.id], 'the warning above the OK one, whichever was pinned first')
+  const rest = list.rules.slice(2)
+  assert.equal(String(rest[0].id), '501', 'the incident leads everything unpinned')
+  assert.deepEqual(rest.map(r => r.id), unpinned.rules.filter(r => !pinned.has(String(r.id))).map(r => r.id), 'the rest keep their order')
+  assert.equal(list.rules.length, unpinned.rules.length, 'a pin moves a rule, never adds or drops one')
+  assert.equal(listRules(rules, { pinned: new Set(['no-such-rule']) }).pinnedCount, 0, 'a pin on a deleted rule pins nothing')
 })
 
-test('more than one row can be open; a link\'s rule_id opens its row and finds its group', () => {
+test('a pinned paused rule is never folded away; the fold counts only the unpinned ones', () => {
+  const paused = rules.filter(isPaused)
+  const one = paused[0]
+  const list = listRules(rules, { pinned: new Set([String(one.id)]) })
+  assert.equal(list.rules[0].id, one.id, 'it leads, paused and all')
+  assert.equal(list.pausedCount, paused.length - 1)
+  assert.ok(!list.paused.some(r => r.id === one.id))
+  assert.ok(!isFolded(list, one.id))
+  const opened = listRules(rules, { pinned: new Set([String(one.id)]), foldOpen: true })
+  assert.equal(opened.rules.filter(r => r.id === one.id).length, 1, 'opening the fold does not draw it twice')
+  const all = listRules(paused, { pinned: new Set(paused.map(r => String(r.id))) })
+  assert.equal(all.pausedCount, 0)
+  assert.equal(all.foldOpen, true, 'every paused rule pinned: nothing to fold')
+})
+
+test('a filter for switched-off rules, or a name or query search, unfolds the paused ones', () => {
+  assert.equal(asksForPaused({ enabled: new Set(['off']) }), true)
+  assert.equal(asksForPaused({ alert: new Set(['docs']) }), true)
+  assert.equal(asksForPaused({ query: new Set(['cube']) }), true)
+  assert.equal(asksForPaused({ state: new Set(['firing']) }), false, 'a plain state filter does not')
+  assert.equal(asksForPaused({}), false)
+})
+
+test('more than one row can be open; a link\'s rule_id opens its row and finds it in the fold', () => {
   let open = new Set()
   open = toggleExpanded(open, 501)
   open = toggleExpanded(open, 502)
@@ -85,9 +125,9 @@ test('more than one row can be open; a link\'s rule_id opens its row and finds i
   assert.equal(withUrlRule(same, 427), same, 'already open: the same set, so nothing re-renders')
   assert.equal(withUrlRule(same, null), same)
 
-  const groups = listGroups(rules)
-  const key = groupKeyOf(groups, '427')
-  assert.equal(groups.find(g => g.key === key).label, 'CubeAPM Public', 'a paused rule is found inside its fold, by the URL\'s id')
+  assert.equal(isFolded(listRules(rules), '427'), true, 'a paused rule is found inside the fold, by the URL\'s id')
+  assert.equal(isFolded(listRules(rules), '501'), false)
+  assert.equal(isFolded(listRules(rules, { foldOpen: true }), '427'), false)
 })
 
 // A minimal element: what clickTogglesRow reads while walking up from a click.
@@ -140,8 +180,8 @@ test('↑ and ↓ step between rows without wrapping; Home and End go to the end
   assert.equal(rowStep(0, 3, 'Enter'), null)
 })
 
-test('a row\'s DOM id is safe whatever its rule id or group holds', () => {
-  const id = ruleDomId('rtab-rule', 'group:Checkout & orders', 'a/b c')
+test('a row\'s DOM id is safe whatever its rule id holds', () => {
+  const id = ruleDomId('rtab-rule', 'Checkout & orders/a b')
   assert.match(id, /^[A-Za-z0-9_-]+$/)
-  assert.notEqual(ruleDomId('x', 'g', 'a/b'), ruleDomId('x', 'g', 'a_b'))
+  assert.notEqual(ruleDomId('x', 'a/b'), ruleDomId('x', 'a_b'))
 })

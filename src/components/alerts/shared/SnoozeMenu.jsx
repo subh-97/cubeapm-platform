@@ -27,7 +27,7 @@ const ITEMS = [
  */
 export default function SnoozeMenu({
   onSnooze, disabled = false, disabledReason, label = 'Snooze', align = 'right', nowSec, className, ruleName,
-  title = 'Hold this rule\'s notifications for a while',
+  title = 'Hold this rule\'s notifications for a while', hideLabel = false,
 }) {
   const [custom, setCustom] = useState(false)
   const now = nowSec ?? Math.floor(BASE_TIME.getTime() / 1000)
@@ -50,6 +50,7 @@ export default function SnoozeMenu({
         ariaLabel={ruleName ? `Snooze ${ruleName}` : undefined}
         align={align}
         className={className}
+        hideLabel={hideLabel}
       />
       {custom && (
         <CustomSnoozeDialog

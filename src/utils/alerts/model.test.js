@@ -5,7 +5,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { alertsSeed, ruleDefsFor, evaluateRules, ruleHistory, ALERTS_NOW } from '@/data/alerts'
-import { ruleView, sortRules, groupRules, countRules, ruleFacets, ruleScope, ruleMetric, ALERT_ORDER } from './model.js'
+import { ruleView, sortRules, countRules, ruleFacets, ruleScope, ruleMetric, ALERT_ORDER } from './model.js'
 
 const state = alertsSeed()
 const defs = ruleDefsFor(state)
@@ -143,16 +143,6 @@ test('tags leave out what the evaluator and the tiers own', () => {
   assert.deepEqual(v.get(426).tags, { kind: 'synthetic' }, 'severity belongs to the tiers; group and rule_id are reserved')
   assert.deepEqual(v.get(501).tags, {})
   assert.equal(v.get(501).annotations.runbook_url, 'https://runbooks.cubedemo.example/payments/error-rate')
-})
-
-test('groups sort by their worst rule, then by how many fire — never alphabetically first', () => {
-  const groups = groupRules(views)
-  assert.equal(groups[0].worst, 'critical')
-  for (let i = 1; i < groups.length; i++) assert.ok(ALERT_ORDER.indexOf(groups[i - 1].worst) <= ALERT_ORDER.indexOf(groups[i].worst))
-  const payments = groups.find(g => g.key === 'Payments')
-  assert.deepEqual(payments.rules.slice(0, 2).map(r => r.stateKey), ['critical', 'critical'])
-  assert.ok(payments.firing >= 4)
-  assert.equal(groups[groups.length - 1].worst, 'paused', 'all-paused folders sink to the bottom')
 })
 
 test('the summary counts each rule once', () => {

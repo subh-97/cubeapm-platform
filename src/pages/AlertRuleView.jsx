@@ -9,6 +9,7 @@ import { resolveWindow } from '@/data/timeWindow'
 import { parseAlertsSearch } from '@/utils/alertsUrl'
 import { displayName, durationWords } from '@/utils/alerts/describe'
 import { copyText } from '@/utils/clipboard'
+import { pinStore } from '@/utils/alerts/pins'
 import { useRuleData } from '@/components/alerts/rule/adapters'
 import {
   notifyRange, bannerSentence, rootCauseFor, instanceRows, rowForAlertId, stripSegments, clockText, seriesName,
@@ -170,8 +171,10 @@ export default function AlertRuleView({ goHome, timeRange, setTimeRange, setToas
     const undo = actions.remove(view.id)
     setDeleting(false)
     if (!undo) { toast(`${name} was not deleted.`); return }
+    // A deleted rule takes its pin on the Rules list with it; Undo brings both back.
+    const repin = pinStore().drop(view.id)
     navigate(alertsHref())
-    toast(<UndoMessage text={`Deleted ${name}. Its notification history is kept.`} onUndo={() => { undo(); toast(null) }} />)
+    toast(<UndoMessage text={`Deleted ${name}. Its notification history is kept.`} onUndo={() => { undo(); repin?.(); toast(null) }} />)
   }, [actions, view, name, navigate, toast])
   const onAction = useCallback((action) => {
     if (action === 'pause') pause()
